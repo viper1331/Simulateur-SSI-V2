@@ -43,13 +43,13 @@ model Device {
   id        String @id
   kind      String
   zoneId    String?
-  propsJson Json?
+  propsJson String?
 }
 
 model Scenario {
   id   String @id
   name String
-  json Json
+  json String
 }
 
 model Session {
@@ -66,14 +66,14 @@ model EventLog {
   sessionId   String?
   source      String
   zoneId      String?
-  payloadJson Json?
+  payloadJson String?
 }
 
 model Score {
   id         Int      @id @default(autoincrement())
   sessionId  String
   userId     String?
-  rubricJson Json
+  rubricJson String
   value      Float
   comments   String?
 }

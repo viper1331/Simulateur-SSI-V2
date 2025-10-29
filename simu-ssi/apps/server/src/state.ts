@@ -18,7 +18,7 @@ export async function createDomainContext(): Promise<DomainContext> {
     await prisma.eventLog.create({
       data: {
         source: event.source,
-        payloadJson: event.details ?? {},
+        payloadJson: event.details ? JSON.stringify(event.details) : null,
       },
     });
   });

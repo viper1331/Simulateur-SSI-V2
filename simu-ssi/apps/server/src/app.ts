@@ -102,7 +102,7 @@ export function createHttpServer(domainContext: DomainContext) {
     await prisma.eventLog.create({
       data: {
         source: 'MANUAL',
-        payloadJson: { reason: parsed.data.reason, action: 'start' },
+        payloadJson: JSON.stringify({ reason: parsed.data.reason, action: 'start' }),
       },
     });
     res.status(202).json({ status: 'manual-evac-started' });
@@ -117,7 +117,7 @@ export function createHttpServer(domainContext: DomainContext) {
     await prisma.eventLog.create({
       data: {
         source: 'MANUAL',
-        payloadJson: { reason: parsed.data.reason, action: 'stop' },
+        payloadJson: JSON.stringify({ reason: parsed.data.reason, action: 'stop' }),
       },
     });
     res.status(202).json({ status: 'manual-evac-stopped' });
@@ -148,7 +148,11 @@ export function createHttpServer(domainContext: DomainContext) {
       orderBy: { ts: 'desc' },
       take: limit ? Number(limit) : 100,
     });
-    res.json({ events });
+    const normalizedEvents = events.map((event) => ({
+      ...event,
+      payloadJson: event.payloadJson ? JSON.parse(event.payloadJson) : null,
+    }));
+    res.json({ events: normalizedEvents });
   });
 
   app.get('/api/state', (_req, res) => {
