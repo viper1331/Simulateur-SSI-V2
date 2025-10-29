@@ -1,0 +1,10 @@
+node_modules
+pnpm-lock.yaml
+dist
+build
+*.log
+.env
+*.sqlite
+*.db
+coverage
+.DS_Store

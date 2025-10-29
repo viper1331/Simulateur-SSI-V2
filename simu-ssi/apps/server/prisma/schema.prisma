@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SiteConfig {
+  id                 Int      @id @default(1)
+  evacOnDAI          Boolean  @default(false)
+  evacOnDMDelayMs    Int      @default(300000)
+  processAckRequired Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+}
+
+model ProcessAck {
+  id        Int      @id @default(1)
+  isAcked   Boolean  @default(false)
+  ackedBy   String?
+  ackedAt   DateTime?
+  clearedAt DateTime?
+}
+
+model ManualCallPoint {
+  id              Int      @id @default(autoincrement())
+  zoneId          String
+  isLatched       Boolean  @default(false)
+  lastActivatedAt DateTime?
+  lastResetAt     DateTime?
+
+  @@index([zoneId])
+}
+
+model Zone {
+  id    String @id
+  label String
+  kind  String
+}
+
+model Device {
+  id        String @id
+  kind      String
+  zoneId    String?
+  propsJson Json?
+}
+
+model Scenario {
+  id   String @id
+  name String
+  json Json
+}
+
+model Session {
+  id        String   @id
+  mode      String
+  trainerId String?
+  startedAt DateTime
+  endedAt   DateTime?
+}
+
+model EventLog {
+  id          Int      @id @default(autoincrement())
+  ts          DateTime @default(now())
+  sessionId   String?
+  source      String
+  zoneId      String?
+  payloadJson Json?
+}
+
+model Score {
+  id         Int      @id @default(autoincrement())
+  sessionId  String
+  userId     String?
+  rubricJson Json
+  value      Float
+  comments   String?
+}
