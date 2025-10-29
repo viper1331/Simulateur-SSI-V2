@@ -9,6 +9,8 @@
     "test": "pnpm -r test",
     "dev": "pnpm -r --parallel dev",
     "format": "pnpm -r format",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "prisma:generate": "pnpm --filter server run prisma:generate",
+    "prisma:migrate": "pnpm --filter server run prisma:migrate"
   }
 }

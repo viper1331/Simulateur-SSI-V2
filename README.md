@@ -11,8 +11,8 @@ Ce dépôt contient un monorepo TypeScript (`pnpm`) pour un simulateur pédagogi
 
 ```bash
 pnpm install
-pnpm prisma:generate --filter server
-pnpm prisma:migrate dev --filter server
+pnpm prisma:generate
+pnpm prisma:migrate dev
 pnpm dev
 ```
 
