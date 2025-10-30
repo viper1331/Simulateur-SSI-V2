@@ -15,10 +15,12 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
+    "predev": "pnpm run build",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "lint": "eslint 'src/**/*.ts'",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "pnpm run build"
   },
   "dependencies": {
     "zod": "^3.22.4"

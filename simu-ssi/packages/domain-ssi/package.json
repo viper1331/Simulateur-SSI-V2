@@ -15,11 +15,13 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
+    "predev": "pnpm run build",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write 'src/**/*.{ts,tsx,js,json}'"
+    "format": "prettier --write 'src/**/*.{ts,tsx,js,json}'",
+    "postinstall": "pnpm run build"
   },
   "dependencies": {
     "eventemitter3": "^5.0.1",

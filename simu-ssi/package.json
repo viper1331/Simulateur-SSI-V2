@@ -8,10 +8,11 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "dev": "pnpm --filter server run prisma:migrate-deploy && pnpm run dev:workspace",
-    "dev:workspace": "pnpm -r --parallel dev",
+    "dev:workspace": "pnpm run build:packages && pnpm -r --parallel dev",
     "format": "pnpm -r format",
     "typecheck": "pnpm -r typecheck",
     "prisma:generate": "pnpm --filter server run prisma:generate",
-    "prisma:migrate": "pnpm --filter server run prisma:migrate"
+    "prisma:migrate": "pnpm --filter server run prisma:migrate",
+    "build:packages": "pnpm --filter \"./packages/*\" run build"
   }
 }
