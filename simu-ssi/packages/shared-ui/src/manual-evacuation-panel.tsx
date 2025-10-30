@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { clsx } from 'clsx';
 
 interface ManualEvacuationPanelProps {
   manualActive: boolean;
@@ -44,31 +45,29 @@ export function ManualEvacuationPanel({ manualActive, reason, onStart, onStop }:
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
+    <section className="card manual-panel">
+      <div className="card__header manual-panel__header">
         <div>
-          <h2 className="text-lg font-semibold">Évacuation manuelle</h2>
-          <p className="text-sm text-slate-600">
-            {manualActive ? 'Manuelle active — confirmez l\'arrêt si nécessaire.' : 'Déclenchez une évacuation manuelle avec confirmation.'}
+          <p className="card__eyebrow">Évacuation manuelle</p>
+          <h2 className="card__title">Pilotage opérateur</h2>
+          <p className="card__description">
+            Déclenchez ou interrompez une évacuation maîtrisée, et journalisez chaque motif pour la traçabilité.
           </p>
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-sm font-semibold ${manualActive ? 'bg-red-600 text-white' : 'bg-emerald-100 text-emerald-700'}`}
+          className={clsx('badge', manualActive ? 'badge--alert' : 'badge--success')}
+          aria-live="polite"
         >
-          {manualActive ? 'Active' : 'Inactive'}
+          {manualActive ? 'Active' : 'Disponible'}
         </span>
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <form
-          onSubmit={handleStart}
-          aria-label="Start manual evacuation"
-          aria-busy={startPending}
-        >
-          <label className="mb-2 block text-sm font-medium text-slate-700">
-            Motif de déclenchement
+      <div className="manual-panel__forms">
+        <form onSubmit={handleStart} aria-label="Start manual evacuation" aria-busy={startPending}>
+          <label className="form-field">
+            <span className="form-field__label">Motif de déclenchement</span>
             <input
               name="reason"
-              className="mt-1 w-full rounded border border-slate-300 p-2"
+              className="text-input"
               placeholder="Ex: Exercice, dérangement"
               disabled={manualActive || startPending}
             />
@@ -76,21 +75,17 @@ export function ManualEvacuationPanel({ manualActive, reason, onStart, onStop }:
           <button
             type="submit"
             disabled={manualActive || startPending}
-            className="w-full rounded bg-red-600 py-2 text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="btn btn--warning"
           >
             {startPending ? 'Déclenchement…' : 'Déclencher'}
           </button>
         </form>
-        <form
-          onSubmit={handleStop}
-          aria-label="Stop manual evacuation"
-          aria-busy={stopPending}
-        >
-          <label className="mb-2 block text-sm font-medium text-slate-700">
-            Motif d'arrêt
+        <form onSubmit={handleStop} aria-label="Stop manual evacuation" aria-busy={stopPending}>
+          <label className="form-field">
+            <span className="form-field__label">Motif d'arrêt</span>
             <input
               name="reason"
-              className="mt-1 w-full rounded border border-slate-300 p-2"
+              className="text-input"
               placeholder="Ex: Retour conditions normales"
               disabled={!manualActive || stopPending}
             />
@@ -98,15 +93,15 @@ export function ManualEvacuationPanel({ manualActive, reason, onStart, onStop }:
           <button
             type="submit"
             disabled={!manualActive || stopPending}
-            className="w-full rounded bg-slate-900 py-2 text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="btn btn--ghost"
           >
             {stopPending ? 'Arrêt…' : 'Arrêter'}
           </button>
         </form>
       </div>
-      <p className="mt-3 text-xs text-slate-500" aria-live="polite">
+      <p className="manual-panel__footer" aria-live="polite">
         {reason ? `Dernier motif : ${reason}` : 'Aucun motif enregistré.'}
       </p>
-    </div>
+    </section>
   );
 }
