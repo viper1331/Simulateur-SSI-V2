@@ -1,25 +1,46 @@
-import type { FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 
 interface ManualEvacuationPanelProps {
   manualActive: boolean;
   reason?: string;
-  onStart(reason?: string): void;
-  onStop(reason?: string): void;
+  onStart(reason?: string): Promise<void> | void;
+  onStop(reason?: string): Promise<void> | void;
 }
 
 export function ManualEvacuationPanel({ manualActive, reason, onStart, onStop }: ManualEvacuationPanelProps) {
-  const handleStart = (event: FormEvent<HTMLFormElement>) => {
+  const [startPending, setStartPending] = useState(false);
+  const [stopPending, setStopPending] = useState(false);
+
+  const handleStart = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    onStart(formData.get('reason')?.toString() ?? undefined);
-    event.currentTarget.reset();
+    if (manualActive || startPending) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    try {
+      setStartPending(true);
+      await onStart(formData.get('reason')?.toString() ?? undefined);
+      form.reset();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setStartPending(false);
+    }
   };
 
-  const handleStop = (event: FormEvent<HTMLFormElement>) => {
+  const handleStop = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    onStop(formData.get('reason')?.toString() ?? undefined);
-    event.currentTarget.reset();
+    if (!manualActive || stopPending) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    try {
+      setStopPending(true);
+      await onStop(formData.get('reason')?.toString() ?? undefined);
+      form.reset();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setStopPending(false);
+    }
   };
 
   return (
@@ -38,44 +59,54 @@ export function ManualEvacuationPanel({ manualActive, reason, onStart, onStop }:
         </span>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <form onSubmit={handleStart} aria-label="Start manual evacuation">
+        <form
+          onSubmit={handleStart}
+          aria-label="Start manual evacuation"
+          aria-busy={startPending}
+        >
           <label className="mb-2 block text-sm font-medium text-slate-700">
             Motif de déclenchement
             <input
               name="reason"
               className="mt-1 w-full rounded border border-slate-300 p-2"
               placeholder="Ex: Exercice, dérangement"
-              disabled={manualActive}
+              disabled={manualActive || startPending}
             />
           </label>
           <button
             type="submit"
-            disabled={manualActive}
-            className="w-full rounded bg-red-600 py-2 text-white transition hover:bg-red-700 disabled:bg-slate-300"
+            disabled={manualActive || startPending}
+            className="w-full rounded bg-red-600 py-2 text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            Déclencher
+            {startPending ? 'Déclenchement…' : 'Déclencher'}
           </button>
         </form>
-        <form onSubmit={handleStop} aria-label="Stop manual evacuation">
+        <form
+          onSubmit={handleStop}
+          aria-label="Stop manual evacuation"
+          aria-busy={stopPending}
+        >
           <label className="mb-2 block text-sm font-medium text-slate-700">
             Motif d'arrêt
             <input
               name="reason"
               className="mt-1 w-full rounded border border-slate-300 p-2"
               placeholder="Ex: Retour conditions normales"
-              disabled={!manualActive}
+              disabled={!manualActive || stopPending}
             />
           </label>
           <button
             type="submit"
-            disabled={!manualActive}
-            className="w-full rounded bg-slate-900 py-2 text-white transition hover:bg-slate-700 disabled:bg-slate-300"
+            disabled={!manualActive || stopPending}
+            className="w-full rounded bg-slate-900 py-2 text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            Arrêter
+            {stopPending ? 'Arrêt…' : 'Arrêter'}
           </button>
         </form>
       </div>
-      {reason ? <p className="mt-3 text-xs text-slate-500">Dernier motif : {reason}</p> : null}
+      <p className="mt-3 text-xs text-slate-500" aria-live="polite">
+        {reason ? `Dernier motif : ${reason}` : 'Aucun motif enregistré.'}
+      </p>
     </div>
   );
 }
