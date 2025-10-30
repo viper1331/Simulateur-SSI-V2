@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "prisma migrate deploy",
     "dev": "tsx watch src/index.ts",
     "build": "tsup src/index.ts --dts",
     "start": "node dist/index.js",
@@ -11,7 +12,8 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate"
+    "prisma:migrate": "prisma migrate",
+    "prisma:migrate-deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

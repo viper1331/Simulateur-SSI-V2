@@ -1,9 +1,9 @@
-import express from 'express';
+import express, { type Express } from 'express';
 import cors from 'cors';
 import { z } from 'zod';
 import { prisma } from './prisma';
 import { DomainContext } from './state';
-import type { Server as HttpServer } from 'http';
+import { createServer, type Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 
 const siteConfigSchema = z.object({
@@ -15,7 +15,11 @@ const manualEvacuationSchema = z.object({
   reason: z.string().optional(),
 });
 
-export function createHttpServer(domainContext: DomainContext) {
+export function createHttpServer(domainContext: DomainContext): {
+  app: Express;
+  server: HttpServer;
+  io: SocketIOServer;
+} {
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -159,7 +163,7 @@ export function createHttpServer(domainContext: DomainContext) {
     res.json(domainContext.snapshot());
   });
 
-  const server = app.listen(0);
+  const server = createServer(app);
   const io = new SocketIOServer(server, {
     cors: {
       origin: '*',
