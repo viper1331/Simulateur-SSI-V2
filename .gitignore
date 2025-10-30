@@ -4,6 +4,7 @@ dist
 build
 *.log
 .env
+!simu-ssi/apps/server/prisma/.env
 *.sqlite
 *.db
 coverage
