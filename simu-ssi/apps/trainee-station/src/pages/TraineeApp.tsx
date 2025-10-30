@@ -18,6 +18,30 @@ interface Snapshot {
   dmLatched: Record<string, { zoneId: string }>;
 }
 
+type BoardModuleTone = 'alarm' | 'info' | 'safe' | 'warning';
+
+interface BoardModule {
+  id: string;
+  label: string;
+  description: string;
+  tone: BoardModuleTone;
+  active: boolean;
+}
+
+const cmsiStatusLabel: Record<string, string> = {
+  EVAC_ACTIVE: 'Évacuation générale déclenchée',
+  EVAC_PENDING: 'Préalarme en cours',
+  EVAC_SUSPENDED: 'Suspendu - attente réarmement',
+  SAFE_HOLD: 'Maintien en sécurité',
+};
+
+const cmsiStatusTone: Record<string, BoardModuleTone> = {
+  EVAC_ACTIVE: 'alarm',
+  EVAC_PENDING: 'warning',
+  EVAC_SUSPENDED: 'info',
+  SAFE_HOLD: 'safe',
+};
+
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
@@ -31,82 +55,184 @@ export function TraineeApp() {
 
   const handleAck = () => sdk.acknowledgeProcess('trainee').catch(console.error);
   const handleResetRequest = () => sdk.resetSystem().catch(console.error);
+  const handleResetDm = (zoneId: string) => sdk.resetManualCallPoint(zoneId).catch(console.error);
+
+  const remainingDeadline = snapshot?.cmsi.deadline
+    ? Math.max(0, Math.floor((snapshot.cmsi.deadline - Date.now()) / 1000))
+    : null;
+
+  const boardModules: BoardModule[] = useMemo(() => {
+    const dmModules: BoardModule[] = Array.from({ length: 8 }, (_, index) => {
+      const zone = `ZF${index + 1}`;
+      const isLatched = Boolean(snapshot?.dmLatched?.[zone]);
+      return {
+        id: `dm-${zone.toLowerCase()}`,
+        label: zone,
+        description: `Déclencheur manuel ${zone}`,
+        tone: 'warning',
+        active: isLatched,
+      };
+    });
+
+    return [
+      {
+        id: 'cmsi-status',
+        label: 'CMSI',
+        description: cmsiStatusLabel[snapshot?.cmsi.status ?? ''] ?? 'Système normal',
+        tone: cmsiStatusTone[snapshot?.cmsi.status ?? ''] ?? 'info',
+        active: Boolean(snapshot?.cmsi.status && snapshot.cmsi.status !== 'IDLE'),
+      },
+      {
+        id: 'uga',
+        label: 'UGA',
+        description: 'Alarme générale sonore',
+        tone: 'alarm',
+        active: Boolean(snapshot?.ugaActive),
+      },
+      {
+        id: 'das',
+        label: 'DAS',
+        description: 'Dispositifs actionnés de sécurité',
+        tone: 'warning',
+        active: Boolean(snapshot?.dasApplied),
+      },
+      {
+        id: 'manual-evac',
+        label: 'Manuel',
+        description: 'Commande manuelle évacuation',
+        tone: 'info',
+        active: Boolean(snapshot?.manualEvacuation),
+      },
+      ...dmModules,
+    ];
+  }, [snapshot]);
+
+  const cmsiMode = snapshot?.cmsi.manual ? 'Mode manuel' : 'Mode automatique';
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-50">
-      <header className="bg-slate-950 p-4 shadow">
-        <h1 className="text-2xl font-bold uppercase tracking-wide">Façade CMSI pédagogique</h1>
+    <div className="trainee-shell">
+      <header className="trainee-header">
+        <div className="header-identification">
+          <div className="header-titles">
+            <span className="brand">Logiciel de simulation SSI</span>
+            <h1 className="title">Poste Apprenant – Façade CMSI</h1>
+          </div>
+          <div className="scenario-chip">Session pédagogique</div>
+        </div>
+        <div className="header-status">
+          <StatusBadge
+            tone={cmsiStatusTone[snapshot?.cmsi.status ?? ''] ?? 'info'}
+            label={cmsiStatusLabel[snapshot?.cmsi.status ?? ''] ?? 'Système normal'}
+          />
+          <div className="timer-box">
+            <span className="timer-label">Échéance T+5</span>
+            <span className="timer-value">{remainingDeadline !== null ? `${remainingDeadline}s` : '—'}</span>
+          </div>
+        </div>
       </header>
-      <main className="grid gap-4 p-6 md:grid-cols-[2fr_1fr]">
-        <section className="space-y-4 rounded-lg bg-slate-800 p-4 shadow-inner">
-          <h2 className="text-xl font-semibold uppercase tracking-wide text-amber-200">Voyants CMSI</h2>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Indicator label="Alarme générale" active={snapshot?.cmsi.status === 'EVAC_ACTIVE'} tone="red" />
-            <Indicator label="DAI Préalarme" active={snapshot?.cmsi.status === 'EVAC_PENDING'} tone="amber" />
-            <Indicator label="Suspension Acquit" active={snapshot?.cmsi.status === 'EVAC_SUSPENDED'} tone="blue" />
-            <Indicator label="SafeHold" active={snapshot?.cmsi.status === 'SAFE_HOLD'} tone="green" />
+      <main className="trainee-main">
+        <section className="synoptic-panel">
+          <header className="panel-header">
+            <div>
+              <h2 className="panel-title">Synoptique CMSI</h2>
+              <p className="panel-subtitle">Visualisation des zones et actionneurs</p>
+            </div>
+            <div className="panel-mode">{cmsiMode}</div>
+          </header>
+          <div className="synoptic-board">
+            {boardModules.map((module) => (
+              <BoardTile key={module.id} module={module} />
+            ))}
           </div>
-          <div className="rounded bg-slate-900 p-3 font-mono text-sm">
-            T+5 :{' '}
-            {snapshot?.cmsi.deadline
-              ? `${Math.max(0, Math.floor((snapshot.cmsi.deadline - Date.now()) / 1000))}s`
-              : '—'}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="rounded bg-amber-500 px-3 py-2 font-semibold text-slate-950" onClick={handleAck}>
-              Acquittement
-            </button>
-            <button
-              className="rounded bg-emerald-500 px-3 py-2 font-semibold text-slate-900"
-              onClick={() => sdk.resetManualCallPoint('ZF1').catch(console.error)}
-            >
-              Réarmement DM ZF1
-            </button>
-            <button className="rounded bg-slate-100 px-3 py-2 font-semibold text-slate-900" onClick={handleResetRequest}>
-              Demande Reset
-            </button>
+          <div className="control-strip">
+            <ControlButton label="Acquittement" tone="amber" onClick={handleAck} />
+            <ControlButton label="Demande de réarmement" tone="blue" onClick={handleResetRequest} />
+            <ControlButton label="Réarmement DM ZF1" tone="green" onClick={() => handleResetDm('ZF1')} />
           </div>
         </section>
-        <aside className="space-y-4 rounded-lg bg-slate-800 p-4">
-          <h2 className="text-xl font-semibold uppercase tracking-wide text-amber-200">Répétiteur</h2>
-          <p className="text-sm text-slate-200">
-            {snapshot?.cmsi.status === 'EVAC_ACTIVE'
-              ? 'ÉVACUATION EN COURS — UGA ACTIVE'
-              : snapshot?.cmsi.status === 'EVAC_PENDING'
-                ? 'PRÉALARME — EN ATTENTE ACQUIT'
-                : snapshot?.cmsi.status === 'EVAC_SUSPENDED'
-                  ? 'SUSPENDU — ATTENTE RÉARMEMENT'
-                  : 'SYSTÈME NORMAL'}
-          </p>
-          <div className="rounded bg-slate-900 p-3 text-sm">
-            DM latched : {Object.keys(snapshot?.dmLatched ?? {}).length}
-          </div>
-        </aside>
+        <section className="side-panels">
+          <article className="detail-panel">
+            <h3 className="detail-title">Récapitulatif évènementiel</h3>
+            <ul className="detail-list">
+              <li>
+                <span className="detail-label">Processus</span>
+                <span className="detail-value">{snapshot?.processAck?.isAcked ? 'Acquitté' : 'En attente'}</span>
+              </li>
+              <li>
+                <span className="detail-label">Suspension</span>
+                <span className="detail-value">{snapshot?.cmsi.suspendFlag ? 'Active' : 'Inactive'}</span>
+              </li>
+              <li>
+                <span className="detail-label">UGA</span>
+                <span className="detail-value">{snapshot?.ugaActive ? 'Active' : 'Arrêtée'}</span>
+              </li>
+              <li>
+                <span className="detail-label">DAS</span>
+                <span className="detail-value">{snapshot?.dasApplied ? 'Appliqués' : 'Repos'}</span>
+              </li>
+              <li>
+                <span className="detail-label">Déclenchements DM</span>
+                <span className="detail-value">{Object.keys(snapshot?.dmLatched ?? {}).length}</span>
+              </li>
+            </ul>
+          </article>
+          <article className="detail-panel">
+            <h3 className="detail-title">Consignes Apprenant</h3>
+            <p className="instruction-text">
+              Surveillez l&apos;évolution du synoptique, vérifiez les zones en alarme et appliquez la procédure
+              d&apos;acquittement avant de réarmer le système. Utilisez les boutons du bandeau de commande pour
+              reproduire fidèlement les actions terrain.
+            </p>
+            <p className="instruction-text">
+              Lorsque plusieurs déclencheurs manuels sont actifs, procédez au réarmement zone par zone afin
+              d&apos;observer les retours d&apos;information dans le tableau répétiteur.
+            </p>
+          </article>
+        </section>
       </main>
-      <footer className="bg-slate-950 p-3 text-center text-xs text-slate-400">
-        Raccourcis clavier : Ctrl+M déclenchement, Ctrl+Shift+M arrêt.
+      <footer className="trainee-footer">
+        <span>Raccourcis clavier : Ctrl+M déclenchement — Ctrl+Shift+M arrêt.</span>
+        <span>Version pédagogique — poste apprenant</span>
       </footer>
     </div>
   );
 }
 
-interface IndicatorProps {
+interface StatusBadgeProps {
   label: string;
-  active?: boolean;
-  tone: 'red' | 'amber' | 'blue' | 'green';
+  tone: BoardModuleTone;
 }
 
-function Indicator({ label, active, tone }: IndicatorProps) {
-  const colors: Record<IndicatorProps['tone'], string> = {
-    red: 'bg-red-500',
-    amber: 'bg-amber-400',
-    blue: 'bg-blue-500',
-    green: 'bg-emerald-500',
-  };
+function StatusBadge({ label, tone }: StatusBadgeProps) {
+  return <div className={`status-badge status-${tone}`}>{label}</div>;
+}
+
+interface ControlButtonProps {
+  label: string;
+  tone: 'amber' | 'blue' | 'green';
+  onClick: () => void;
+}
+
+function ControlButton({ label, tone, onClick }: ControlButtonProps) {
   return (
-    <div className="flex items-center justify-between rounded border border-slate-700 bg-slate-900 px-3 py-2">
-      <span className="text-sm font-semibold uppercase tracking-wide">{label}</span>
-      <span className={`h-4 w-4 rounded-full ${active ? colors[tone] : 'bg-slate-700'}`} aria-hidden />
+    <button type="button" className={`control-button control-${tone}`} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
+interface BoardTileProps {
+  module: BoardModule;
+}
+
+function BoardTile({ module }: BoardTileProps) {
+  return (
+    <div className={`board-tile tone-${module.tone} ${module.active ? 'is-active' : ''}`}>
+      <div className="tile-header">
+        <span className="tile-label">{module.label}</span>
+        <span className="tile-led" aria-hidden />
+      </div>
+      <p className="tile-description">{module.description}</p>
     </div>
   );
 }
