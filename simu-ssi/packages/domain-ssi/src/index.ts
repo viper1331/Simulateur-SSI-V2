@@ -10,6 +10,7 @@ export type CmsiState =
 export interface DomainConfig {
   evacOnDmDelayMs: number;
   processAckRequired: boolean;
+  evacOnDai: boolean;
 }
 
 export interface ProcessAckState {
@@ -26,6 +27,13 @@ export interface ManualCallPointState {
   lastResetAt?: number;
 }
 
+export interface AutomaticDetectorState {
+  zoneId: string;
+  isActive: boolean;
+  lastActivatedAt?: number;
+  lastResetAt?: number;
+}
+
 export interface DomainSnapshot {
   cmsi: CmsiState;
   ugaActive: boolean;
@@ -34,6 +42,7 @@ export interface DomainSnapshot {
   manualEvacuationReason?: string;
   processAck: ProcessAckState;
   dmLatched: Record<string, ManualCallPointState>;
+  daiActivated: Record<string, AutomaticDetectorState>;
 }
 
 export type DomainEventMap = {
@@ -68,16 +77,19 @@ export interface SsiDomain {
   updateConfig(config: Partial<DomainConfig>): void;
   activateDm(zoneId: string): void;
   resetDm(zoneId: string): void;
+  activateDai(zoneId: string): void;
+  resetDai(zoneId: string): void;
   acknowledgeProcess(ackedBy: string): void;
   clearProcessAck(): void;
   startManualEvacuation(reason?: string): void;
   stopManualEvacuation(reason?: string): void;
-  trySystemReset(): { ok: true } | { ok: false; reason: 'DM_NOT_RESET' };
+  trySystemReset(): { ok: true } | { ok: false; reason: 'DM_NOT_RESET' | 'DAI_NOT_RESET' };
 }
 
 export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
   const emitter: DomainEmitter = new EventEmitter();
   const dmLatched = new Map<string, ManualCallPointState>();
+  const daiActivated = new Map<string, AutomaticDetectorState>();
   let cmsi: CmsiState = { status: 'IDLE' };
   let ugaActive = false;
   let dasApplied = false;
@@ -98,6 +110,9 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       processAck: { ...processAck },
       dmLatched: Object.fromEntries(
         Array.from(dmLatched.entries()).map(([zoneId, state]) => [zoneId, { ...state }]),
+      ),
+      daiActivated: Object.fromEntries(
+        Array.from(daiActivated.entries()).map(([zoneId, state]) => [zoneId, { ...state }]),
       ),
     };
     emitter.emit('state.update', snapshot);
@@ -187,6 +202,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     ugaActive = false;
     dasApplied = false;
     processAck = { isAcked: false };
+    daiActivated.clear();
     log({ ts: Date.now(), source: 'CMSI', message: 'System reset to idle' });
     emitSnapshot();
     return { ok: true as const };
@@ -203,6 +219,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         manualEvacuationReason,
         processAck,
         dmLatched: Object.fromEntries(dmLatched),
+        daiActivated: Object.fromEntries(daiActivated),
       } as DomainSnapshot;
     },
     updateConfig(partial) {
@@ -227,6 +244,26 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       });
       scheduleDeadline(zoneId, config.evacOnDmDelayMs);
     },
+    activateDai(zoneId) {
+      const now = Date.now();
+      const entry: AutomaticDetectorState = {
+        zoneId,
+        isActive: true,
+        lastActivatedAt: now,
+        lastResetAt: daiActivated.get(zoneId)?.lastResetAt,
+      };
+      daiActivated.set(zoneId, entry);
+      log({
+        ts: now,
+        source: 'SDI_DAI',
+        message: 'Automatic detector triggered',
+        details: { zoneId },
+      });
+      emitSnapshot();
+      if (config.evacOnDai) {
+        enterEvacActive({ manual: false, zoneId });
+      }
+    },
     resetDm(zoneId) {
       const entry = dmLatched.get(zoneId);
       if (!entry) {
@@ -240,6 +277,21 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       });
       dmLatched.delete(zoneId);
       log({ ts: now, source: 'SDI_DM', message: 'Manual call point reset', details: { zoneId } });
+      emitSnapshot();
+    },
+    resetDai(zoneId) {
+      const entry = daiActivated.get(zoneId);
+      if (!entry) {
+        return;
+      }
+      const now = Date.now();
+      daiActivated.set(zoneId, {
+        ...entry,
+        isActive: false,
+        lastResetAt: now,
+      });
+      daiActivated.delete(zoneId);
+      log({ ts: now, source: 'SDI_DAI', message: 'Automatic detector reset', details: { zoneId } });
       emitSnapshot();
     },
     acknowledgeProcess(ackedBy) {
@@ -284,6 +336,9 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     trySystemReset() {
       if (dmLatched.size > 0) {
         return { ok: false as const, reason: 'DM_NOT_RESET' as const };
+      }
+      if (daiActivated.size > 0) {
+        return { ok: false as const, reason: 'DAI_NOT_RESET' as const };
       }
       return tryResetToIdle();
     },

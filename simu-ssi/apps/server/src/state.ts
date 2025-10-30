@@ -12,6 +12,7 @@ export async function createDomainContext(): Promise<DomainContext> {
   const domain = createSsiDomain({
     evacOnDmDelayMs: siteConfig.evacOnDMDelayMs,
     processAckRequired: siteConfig.processAckRequired,
+    evacOnDai: siteConfig.evacOnDAI,
   });
 
   domain.emitter.on('events.append', async (event) => {
@@ -31,6 +32,7 @@ export async function createDomainContext(): Promise<DomainContext> {
       domain.updateConfig({
         evacOnDmDelayMs: config.evacOnDMDelayMs,
         processAckRequired: config.processAckRequired,
+        evacOnDai: config.evacOnDAI,
       });
     },
   };

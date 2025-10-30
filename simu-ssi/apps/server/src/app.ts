@@ -1,12 +1,21 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { prisma } from './prisma';
 import { DomainContext } from './state';
 import { createServer, type Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import {
+  scenarioDefinitionSchema,
+  scenarioPayloadSchema,
+  scenarioRunnerSnapshotSchema,
+  type ScenarioDefinition,
+} from '@simu-ssi/sdk';
+import { ScenarioRunner } from './scenario-runner';
 
 const siteConfigSchema = z.object({
+  evacOnDAI: z.boolean(),
   evacOnDMDelayMs: z.number().int().min(1000),
   processAckRequired: z.boolean(),
 });
@@ -23,6 +32,8 @@ export function createHttpServer(domainContext: DomainContext): {
   const app = express();
   app.use(cors());
   app.use(express.json());
+
+  const scenarioRunner = new ScenarioRunner(domainContext.domain);
 
   app.get('/api/config/site', async (_req, res) => {
     const config = await prisma.siteConfig.findUniqueOrThrow({ where: { id: 1 } });
@@ -97,6 +108,18 @@ export function createHttpServer(domainContext: DomainContext): {
     res.status(200).json({ status: 'cleared', zoneId });
   });
 
+  app.post('/api/sdi/dai/:zone/activate', async (req, res) => {
+    const zoneId = req.params.zone;
+    domainContext.domain.activateDai(zoneId);
+    res.status(202).json({ status: 'activated', zoneId });
+  });
+
+  app.post('/api/sdi/dai/:zone/reset', async (req, res) => {
+    const zoneId = req.params.zone;
+    domainContext.domain.resetDai(zoneId);
+    res.status(200).json({ status: 'cleared', zoneId });
+  });
+
   app.post('/api/evac/manual/start', async (req, res) => {
     const parsed = manualEvacuationSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
@@ -163,6 +186,101 @@ export function createHttpServer(domainContext: DomainContext): {
     res.json(domainContext.snapshot());
   });
 
+  app.get('/api/scenarios', async (_req, res) => {
+    const records = await prisma.scenario.findMany({ orderBy: { name: 'asc' } });
+    const scenarios = records.map(serializeScenarioRecord);
+    res.json({ scenarios });
+  });
+
+  app.post('/api/scenarios', async (req, res) => {
+    const parsed = scenarioPayloadSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const eventsWithIds = parsed.data.events.map((event) => ({
+      ...event,
+      id: event.id ?? randomUUID(),
+    }));
+    const record = await prisma.scenario.create({
+      data: {
+        id: randomUUID(),
+        name: parsed.data.name,
+        json: JSON.stringify({ description: parsed.data.description, events: eventsWithIds }),
+      },
+    });
+    const scenario = scenarioDefinitionSchema.parse({
+      id: record.id,
+      name: record.name,
+      description: parsed.data.description,
+      events: eventsWithIds,
+    });
+    res.status(201).json({ scenario });
+  });
+
+  app.put('/api/scenarios/:id', async (req, res) => {
+    const parsed = scenarioPayloadSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const eventsWithIds = parsed.data.events.map((event) => ({
+      ...event,
+      id: event.id ?? randomUUID(),
+    }));
+    const record = await prisma.scenario.update({
+      where: { id: req.params.id },
+      data: {
+        name: parsed.data.name,
+        json: JSON.stringify({ description: parsed.data.description, events: eventsWithIds }),
+      },
+    });
+    const scenario = scenarioDefinitionSchema.parse({
+      id: record.id,
+      name: record.name,
+      description: parsed.data.description,
+      events: eventsWithIds,
+    });
+    res.json({ scenario });
+  });
+
+  app.delete('/api/scenarios/:id', async (req, res) => {
+    await prisma.scenario.delete({ where: { id: req.params.id } });
+    res.status(204).send();
+  });
+
+  app.post('/api/scenarios/:id/run', async (req, res) => {
+    const record = await prisma.scenario.findUnique({ where: { id: req.params.id } });
+    if (!record) {
+      return res.status(404).json({ error: 'SCENARIO_NOT_FOUND' });
+    }
+    const scenario = serializeScenarioRecord(record);
+    scenarioRunner.run(scenario);
+    await prisma.eventLog.create({
+      data: {
+        source: 'TRAINER',
+        payloadJson: JSON.stringify({ action: 'scenario-run', scenarioId: scenario.id }),
+      },
+    });
+    res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
+  });
+
+  app.post('/api/scenarios/stop', async (_req, res) => {
+    const previousScenario = scenarioRunner.state.scenario;
+    scenarioRunner.stop(previousScenario ? 'stopped' : 'idle');
+    if (previousScenario) {
+      await prisma.eventLog.create({
+        data: {
+          source: 'TRAINER',
+          payloadJson: JSON.stringify({ action: 'scenario-stop', scenarioId: previousScenario.id }),
+        },
+      });
+    }
+    res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
+  });
+
+  app.get('/api/scenarios/active', (_req, res) => {
+    res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
+  });
+
   const server = createServer(app);
   const io = new SocketIOServer(server, {
     cors: {
@@ -178,6 +296,14 @@ export function createHttpServer(domainContext: DomainContext): {
     io.emit('events.append', event);
   });
 
+  scenarioRunner.on('scenario.update', (snapshot) => {
+    io.emit('scenario.update', snapshot);
+  });
+
+  io.on('connection', (socket) => {
+    socket.emit('scenario.update', scenarioRunner.state);
+  });
+
   return { app, server: server as HttpServer, io };
 }
 
@@ -190,4 +316,19 @@ async function ensureManualZone(zoneId: string): Promise<number> {
     data: { zoneId, isLatched: true, lastActivatedAt: new Date() },
   });
   return created.id;
+}
+
+function serializeScenarioRecord(record: { id: string; name: string; json: string }): ScenarioDefinition {
+  let payload: { description?: string; events: unknown };
+  try {
+    payload = JSON.parse(record.json);
+  } catch (error) {
+    payload = { description: undefined, events: [] };
+  }
+  return scenarioDefinitionSchema.parse({
+    id: record.id,
+    name: record.name,
+    description: payload.description,
+    events: Array.isArray(payload.events) ? payload.events : [],
+  });
 }
