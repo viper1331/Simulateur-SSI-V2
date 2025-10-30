@@ -72,6 +72,22 @@ button {
   box-shadow: 0 6px 12px rgba(17, 82, 153, 0.35);
 }
 
+.scenario-chip--idle {
+  background: linear-gradient(135deg, #0f6ad8, #3990ff);
+}
+
+.scenario-chip--running {
+  background: linear-gradient(135deg, #f97316, #fb923c);
+}
+
+.scenario-chip--completed {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+}
+
+.scenario-chip--stopped {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+}
+
 .header-status {
   display: flex;
   align-items: center;

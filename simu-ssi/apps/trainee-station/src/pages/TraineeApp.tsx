@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
-import { SsiSdk } from '@simu-ssi/sdk';
+import { SsiSdk, type ScenarioRunnerSnapshot } from '@simu-ssi/sdk';
 
 interface CmsiStateData {
   status: string;
@@ -16,6 +16,7 @@ interface Snapshot {
   manualEvacuation: boolean;
   processAck: { isAcked: boolean };
   dmLatched: Record<string, { zoneId: string }>;
+  daiActivated: Record<string, { zoneId: string }>;
 }
 
 type BoardModuleTone = 'alarm' | 'info' | 'safe' | 'warning';
@@ -42,16 +43,61 @@ const cmsiStatusTone: Record<string, BoardModuleTone> = {
   SAFE_HOLD: 'safe',
 };
 
+function translateScenarioStatus(status: ScenarioRunnerSnapshot['status']): string {
+  switch (status) {
+    case 'running':
+      return 'Scénario en cours';
+    case 'completed':
+      return 'Scénario terminé';
+    case 'stopped':
+      return 'Scénario interrompu';
+    default:
+      return 'Mode libre';
+  }
+}
+
+function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): string {
+  if (!event) return 'Aucun événement programmé';
+  switch (event.type) {
+    case 'DM_TRIGGER':
+      return `DM ${event.zoneId}`;
+    case 'DM_RESET':
+      return `Réarmement DM ${event.zoneId}`;
+    case 'DAI_TRIGGER':
+      return `Détection DAI ${event.zoneId}`;
+    case 'DAI_RESET':
+      return `Réarmement DAI ${event.zoneId}`;
+    case 'MANUAL_EVAC_START':
+      return 'Début évacuation manuelle';
+    case 'MANUAL_EVAC_STOP':
+      return 'Fin évacuation manuelle';
+    case 'PROCESS_ACK':
+      return `Acquit process (${event.ackedBy ?? 'formateur'})`;
+    case 'PROCESS_CLEAR':
+      return 'Nettoyage acquit';
+    case 'SYSTEM_RESET':
+      return 'Reset système';
+    default:
+      return 'Action scénarisée';
+  }
+}
+
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
 
   useEffect(() => {
     const socket = io(baseUrl);
     socket.on('state.update', (state: Snapshot) => setSnapshot(state));
+    socket.on('scenario.update', (status: ScenarioRunnerSnapshot) => setScenarioStatus(status));
     return () => socket.disconnect();
   }, [baseUrl]);
+
+  useEffect(() => {
+    sdk.getActiveScenario().then(setScenarioStatus).catch(console.error);
+  }, [sdk]);
 
   const handleAck = () => sdk.acknowledgeProcess('trainee').catch(console.error);
   const handleResetRequest = () => sdk.resetSystem().catch(console.error);
@@ -62,6 +108,7 @@ export function TraineeApp() {
     : null;
 
   const boardModules: BoardModule[] = useMemo(() => {
+    const daiCount = Object.keys(snapshot?.daiActivated ?? {}).length;
     const dmModules: BoardModule[] = Array.from({ length: 8 }, (_, index) => {
       const zone = `ZF${index + 1}`;
       const isLatched = Boolean(snapshot?.dmLatched?.[zone]);
@@ -103,26 +150,39 @@ export function TraineeApp() {
         tone: 'info',
         active: Boolean(snapshot?.manualEvacuation),
       },
+      {
+        id: 'dai',
+        label: 'DAI',
+        description:
+          daiCount > 0 ? `${daiCount} détection(s) en cours` : 'Détection automatique incendie',
+        tone: daiCount > 0 ? 'warning' : 'info',
+        active: daiCount > 0,
+      },
       ...dmModules,
     ];
   }, [snapshot]);
+
+  const scenarioStatusLabel = translateScenarioStatus(scenarioStatus.status);
+  const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
 
   const cmsiMode = snapshot?.cmsi.manual ? 'Mode manuel' : 'Mode automatique';
 
   return (
     <div className="trainee-shell">
       <header className="trainee-header">
-        <div className="header-identification">
-          <div className="header-titles">
-            <span className="brand">Logiciel de simulation SSI</span>
-            <h1 className="title">Poste Apprenant – Façade CMSI</h1>
+          <div className="header-identification">
+            <div className="header-titles">
+              <span className="brand">Logiciel de simulation SSI</span>
+              <h1 className="title">Poste Apprenant – Façade CMSI</h1>
+            </div>
+            <div className={`scenario-chip scenario-chip--${scenarioStatus.status}`}>
+              {scenarioStatus.scenario?.name ?? 'Scénario libre'} · {scenarioStatusLabel}
+            </div>
           </div>
-          <div className="scenario-chip">Session pédagogique</div>
-        </div>
-        <div className="header-status">
-          <StatusBadge
-            tone={cmsiStatusTone[snapshot?.cmsi.status ?? ''] ?? 'info'}
-            label={cmsiStatusLabel[snapshot?.cmsi.status ?? ''] ?? 'Système normal'}
+          <div className="header-status">
+            <StatusBadge
+              tone={cmsiStatusTone[snapshot?.cmsi.status ?? ''] ?? 'info'}
+              label={cmsiStatusLabel[snapshot?.cmsi.status ?? ''] ?? 'Système normal'}
           />
           <div className="timer-box">
             <span className="timer-label">Échéance T+5</span>
@@ -173,6 +233,20 @@ export function TraineeApp() {
               <li>
                 <span className="detail-label">Déclenchements DM</span>
                 <span className="detail-value">{Object.keys(snapshot?.dmLatched ?? {}).length}</span>
+              </li>
+              <li>
+                <span className="detail-label">Détections DAI</span>
+                <span className="detail-value">{Object.keys(snapshot?.daiActivated ?? {}).length}</span>
+              </li>
+              <li>
+                <span className="detail-label">Scénario</span>
+                <span className="detail-value">
+                  {scenarioStatus.scenario?.name ? `${scenarioStatus.scenario.name} (${scenarioStatusLabel})` : scenarioStatusLabel}
+                </span>
+              </li>
+              <li>
+                <span className="detail-label">Prochain événement</span>
+                <span className="detail-value">{nextScenarioEvent}</span>
               </li>
             </ul>
           </article>
