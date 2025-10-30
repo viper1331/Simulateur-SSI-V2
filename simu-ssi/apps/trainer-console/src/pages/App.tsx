@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
 import { ManualEvacuationPanel, StatusTile, TimelineBadge } from '@simu-ssi/shared-ui';
 import { SsiSdk, type SiteConfig } from '@simu-ssi/sdk';
@@ -26,6 +26,11 @@ export function App() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
   const [snapshot, setSnapshot] = useState<DomainSnapshot | null>(null);
   const [events, setEvents] = useState<string[]>([]);
+  const [ackPending, setAckPending] = useState(false);
+  const [clearPending, setClearPending] = useState(false);
+  const [simulateDmPending, setSimulateDmPending] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
+  const [resettingZone, setResettingZone] = useState<string | null>(null);
 
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
@@ -51,6 +56,65 @@ export function App() {
     const updated = await sdk.updateSiteConfig({ evacOnDMDelayMs: delay, processAckRequired });
     setConfig(updated);
   };
+
+  const handleAcknowledge = useCallback(async () => {
+    setAckPending(true);
+    try {
+      await sdk.acknowledgeProcess('trainer');
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setAckPending(false);
+    }
+  }, [sdk]);
+
+  const handleClearAck = useCallback(async () => {
+    setClearPending(true);
+    try {
+      await sdk.clearProcessAck();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setClearPending(false);
+    }
+  }, [sdk]);
+
+  const handleSimulateDm = useCallback(async () => {
+    setSimulateDmPending(true);
+    try {
+      await sdk.activateManualCallPoint('ZF1');
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSimulateDmPending(false);
+    }
+  }, [sdk]);
+
+  const handleResetSystem = useCallback(async () => {
+    setResetPending(true);
+    try {
+      await sdk.resetSystem();
+      await sdk.clearProcessAck();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setResetPending(false);
+    }
+  }, [sdk]);
+
+  const handleResetDm = useCallback(
+    async (zoneId: string) => {
+      setResettingZone(zoneId);
+      try {
+        await sdk.resetManualCallPoint(zoneId);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setResettingZone((current) => (current === zoneId ? null : current));
+      }
+    },
+    [sdk],
+  );
 
   const remainingMs = snapshot?.cmsi?.deadline ? snapshot.cmsi.deadline - Date.now() : undefined;
 
@@ -117,8 +181,8 @@ export function App() {
         <ManualEvacuationPanel
           manualActive={Boolean(snapshot?.manualEvacuation)}
           reason={snapshot?.manualEvacuationReason}
-          onStart={(reason) => sdk.startManualEvacuation(reason).catch(console.error)}
-          onStop={(reason) => sdk.stopManualEvacuation(reason).catch(console.error)}
+          onStart={(reason) => sdk.startManualEvacuation(reason)}
+          onStop={(reason) => sdk.stopManualEvacuation(reason)}
         />
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-xl font-semibold">Déclenchements DM latched</h2>
@@ -135,10 +199,13 @@ export function App() {
                   ) : null}
                 </span>
                 <button
-                  className="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-                  onClick={() => sdk.resetManualCallPoint(dm.zoneId).catch(console.error)}
+                  className="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                  onClick={() => handleResetDm(dm.zoneId)}
+                  disabled={resettingZone === dm.zoneId}
+                  aria-busy={resettingZone === dm.zoneId}
+                  title="Réarmer le DM"
                 >
-                  Réarmer
+                  {resettingZone === dm.zoneId ? 'Réarmement…' : 'Réarmer'}
                 </button>
               </li>
             ))}
@@ -159,33 +226,40 @@ export function App() {
           <h2 className="text-xl font-semibold">Actions rapides</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
-              className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-              onClick={() => sdk.acknowledgeProcess('trainer').catch(console.error)}
+              className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+              onClick={handleAcknowledge}
+              disabled={ackPending}
+              aria-busy={ackPending}
+              title="Acquitter le processus"
             >
-              Acquit Process
+              {ackPending ? 'Acquittement…' : 'Acquit Process'}
             </button>
             <button
-              className="rounded bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
-              onClick={() => sdk.clearProcessAck().catch(console.error)}
+              className="rounded bg-slate-900 px-4 py-2 text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+              onClick={handleClearAck}
+              disabled={clearPending}
+              aria-busy={clearPending}
+              title="Effacer l'acquit process"
             >
-              Effacer Acquit
+              {clearPending ? 'Nettoyage…' : 'Effacer Acquit'}
             </button>
             <button
-              className="rounded bg-amber-600 px-4 py-2 text-white hover:bg-amber-700"
-              onClick={() => sdk.activateManualCallPoint('ZF1').catch(console.error)}
+              className="rounded bg-amber-600 px-4 py-2 text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+              onClick={handleSimulateDm}
+              disabled={simulateDmPending}
+              aria-busy={simulateDmPending}
+              title="Simuler l'activation du DM ZF1"
             >
-              Simuler DM ZF1
+              {simulateDmPending ? 'Simulation…' : 'Simuler DM ZF1'}
             </button>
             <button
-              className="rounded bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700"
-              onClick={() =>
-                sdk
-                  .resetSystem()
-                  .then(() => sdk.clearProcessAck())
-                  .catch((error) => console.error(error))
-              }
+              className="rounded bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+              onClick={handleResetSystem}
+              disabled={resetPending}
+              aria-busy={resetPending}
+              title="Demander un reset système"
             >
-              Demande Reset
+              {resetPending ? 'Reset en cours…' : 'Demande Reset'}
             </button>
           </div>
         </div>
