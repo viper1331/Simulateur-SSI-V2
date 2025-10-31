@@ -30,7 +30,7 @@ button {
 .trainee-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: stretch;
   padding: 1.5rem 2rem;
   background: #f3f5f9;
   border-bottom: 4px solid #c4cad6;
@@ -41,6 +41,12 @@ button {
   display: flex;
   align-items: center;
   gap: 2rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 1.5rem;
 }
 
 .header-titles {
@@ -92,6 +98,96 @@ button {
   display: flex;
   align-items: center;
   gap: 1.5rem;
+}
+
+.header-auth {
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 1.1rem;
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #d4dbe7;
+  box-shadow: 0 12px 20px rgba(17, 27, 47, 0.08);
+}
+
+.header-auth__status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.header-auth__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #67768c;
+}
+
+.header-auth__value {
+  font-weight: 600;
+  color: #1a2737;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.auth-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.auth-select {
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #f8fbff;
+  font: inherit;
+  color: #1f2937;
+}
+
+.auth-form__actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.btn-auth {
+  padding: 0.45rem 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #ffffff;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn-auth:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.25);
+}
+
+.btn-auth:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-auth--secondary {
+  background: #e2e8f0;
+  color: #1f2937;
+}
+
+.header-auth__error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #b91c1c;
 }
 
 .status-badge {

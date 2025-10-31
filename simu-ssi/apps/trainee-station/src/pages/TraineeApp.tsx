@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import type { ChangeEvent, FormEvent } from 'react';
 import { io } from 'socket.io-client';
 import {
   DEFAULT_TRAINEE_LAYOUT,
@@ -12,6 +13,7 @@ import {
   type TraineeLayoutConfig,
   type SessionSummary,
   sessionSchema,
+  type UserSummary,
 } from '@simu-ssi/sdk';
 
 interface CmsiStateData {
@@ -154,6 +156,17 @@ function describeScenarioStep(event: ScenarioEvent): string {
   }
 }
 
+function formatDateTime(iso?: string | null): string {
+  if (!iso) {
+    return '—';
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  return date.toLocaleString();
+}
+
 function deriveScenarioAdaptation(scenario?: ScenarioDefinition | null): ScenarioAdaptation {
   const boardHighlights = new Set<string>();
   const controlHighlights = new Set<string>();
@@ -254,6 +267,13 @@ export function TraineeApp() {
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [sessionInfo, setSessionInfo] = useState<SessionSummary | null>(null);
+  const [traineeOptions, setTraineeOptions] = useState<UserSummary[]>([]);
+  const [traineeLoading, setTraineeLoading] = useState<boolean>(true);
+  const [traineeError, setTraineeError] = useState<string | null>(null);
+  const [selectedTraineeId, setSelectedTraineeId] = useState<string>('');
+  const [activeTrainee, setActiveTrainee] = useState<UserSummary | null>(null);
+  const [traineeAuthError, setTraineeAuthError] = useState<string | null>(null);
+  const [traineeAuthPending, setTraineeAuthPending] = useState<boolean>(false);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
@@ -289,7 +309,9 @@ export function TraineeApp() {
         setSessionInfo(parsed.data);
       }
     });
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+    };
   }, [baseUrl]);
 
   useEffect(() => {
@@ -320,6 +342,59 @@ export function TraineeApp() {
   useEffect(() => {
     sdk.getCurrentSession().then(setSessionInfo).catch(console.error);
   }, [sdk]);
+
+  useEffect(() => {
+    setTraineeLoading(true);
+    sdk
+      .listUsers('TRAINEE')
+      .then((list) => {
+        setTraineeOptions(list);
+        setTraineeError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setTraineeError("Impossible de charger la liste des apprenants.");
+      })
+      .finally(() => setTraineeLoading(false));
+  }, [sdk]);
+
+  useEffect(() => {
+    if (traineeOptions.length === 0) {
+      return;
+    }
+    let storedId: string | null = null;
+    try {
+      storedId = window.localStorage.getItem('ssi-trainee-user-id');
+    } catch (error) {
+      console.error(error);
+    }
+    if (storedId && traineeOptions.some((user) => user.id === storedId)) {
+      setSelectedTraineeId(storedId);
+      if (!activeTrainee || activeTrainee.id !== storedId) {
+        const found = traineeOptions.find((user) => user.id === storedId) ?? null;
+        setActiveTrainee(found);
+      }
+      return;
+    }
+    if (!selectedTraineeId) {
+      setSelectedTraineeId(traineeOptions[0]?.id ?? '');
+    }
+  }, [activeTrainee, selectedTraineeId, traineeOptions]);
+
+  useEffect(() => {
+    if (!activeTrainee || !sessionInfo || sessionInfo.status !== 'active') {
+      return;
+    }
+    if (sessionInfo.trainee?.id === activeTrainee.id) {
+      return;
+    }
+    sdk
+      .updateSession(sessionInfo.id, { traineeId: activeTrainee.id })
+      .catch((error) => {
+        console.error(error);
+        setTraineeAuthError("Impossible d'associer l'apprenant à la session en cours.");
+      });
+  }, [activeTrainee, sdk, sessionInfo?.id, sessionInfo?.status, sessionInfo?.trainee?.id]);
 
   useEffect(() => {
     try {
@@ -432,6 +507,62 @@ export function TraineeApp() {
     () => deriveScenarioAdaptation(scenarioStatus.scenario),
     [scenarioStatus.scenario],
   );
+
+  const handleTraineeSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedTraineeId(event.target.value);
+    setTraineeAuthError(null);
+  }, []);
+
+  const handleTraineeLogin = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!selectedTraineeId) {
+        setTraineeAuthError('Sélectionnez un compte apprenant.');
+        return;
+      }
+      const trainee = traineeOptions.find((user) => user.id === selectedTraineeId);
+      if (!trainee) {
+        setTraineeAuthError('Compte apprenant introuvable.');
+        return;
+      }
+      setTraineeAuthPending(true);
+      setTraineeAuthError(null);
+      try {
+        setActiveTrainee(trainee);
+        try {
+          window.localStorage.setItem('ssi-trainee-user-id', trainee.id);
+        } catch (storageError) {
+          console.error(storageError);
+        }
+        if (sessionInfo && sessionInfo.status === 'active' && sessionInfo.trainee?.id !== trainee.id) {
+          await sdk.updateSession(sessionInfo.id, { traineeId: trainee.id });
+        }
+      } catch (error) {
+        console.error(error);
+        setTraineeAuthError("Impossible de valider l'identification.");
+      } finally {
+        setTraineeAuthPending(false);
+      }
+    },
+    [sdk, selectedTraineeId, sessionInfo?.id, sessionInfo?.status, sessionInfo?.trainee?.id, traineeOptions],
+  );
+
+  const handleTraineeLogout = useCallback(() => {
+    setActiveTrainee(null);
+    try {
+      window.localStorage.removeItem('ssi-trainee-user-id');
+    } catch (error) {
+      console.error(error);
+    }
+    if (sessionInfo && sessionInfo.status === 'active' && sessionInfo.trainee) {
+      sdk
+        .updateSession(sessionInfo.id, { traineeId: null })
+        .catch((error) => {
+          console.error(error);
+          setTraineeAuthError("Impossible de dissocier l'apprenant de la session en cours.");
+        });
+    }
+  }, [sdk, sessionInfo?.id, sessionInfo?.status, sessionInfo?.trainee]);
 
   const boardModules: BoardModule[] = useMemo(() => {
     const daiCount = Object.keys(snapshot?.daiActivated ?? {}).length;
@@ -558,13 +689,15 @@ export function TraineeApp() {
       disabled: accessLevel < 2,
       title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
     },
-  ].map((button) => ({
+  ];
+
+  const decoratedControlButtons = controlButtons.map((button) => ({
     ...button,
     highlighted: scenarioAdaptation.controlHighlights.has(button.id),
   }));
 
   const orderedControlButtons = orderItems(
-    controlButtons,
+    decoratedControlButtons,
     layout.controlButtonOrder,
     layout.controlButtonHidden ?? [],
   );
@@ -775,14 +908,58 @@ export function TraineeApp() {
   return (
     <div className="trainee-shell">
       <header className="trainee-header">
-          <div className="header-identification">
-            <div className="header-titles">
-              <span className="brand">Logiciel de simulation SSI</span>
-              <h1 className="title">Poste Apprenant – Façade CMSI</h1>
+        <div className="header-identification">
+          <div className="header-titles">
+            <span className="brand">Logiciel de simulation SSI</span>
+            <h1 className="title">Poste Apprenant – Façade CMSI</h1>
+          </div>
+          <div className={`scenario-chip scenario-chip--${scenarioStatus.status}`}>
+            {scenarioStatus.scenario?.name ?? 'Scénario libre'} · {scenarioStatusLabel}
+          </div>
+        </div>
+        <div className="header-actions">
+          <div className="header-auth">
+            <div className="header-auth__status">
+              <span className="header-auth__label">Apprenant connecté</span>
+              <span className="header-auth__value">{activeTrainee?.fullName ?? 'Aucun'}</span>
             </div>
-            <div className={`scenario-chip scenario-chip--${scenarioStatus.status}`}>
-              {scenarioStatus.scenario?.name ?? 'Scénario libre'} · {scenarioStatusLabel}
-            </div>
+            <form className="auth-form" onSubmit={handleTraineeLogin}>
+              <label className="auth-form__field">
+                <span>Choisir un compte</span>
+                <select
+                  className="auth-select"
+                  value={selectedTraineeId}
+                  onChange={handleTraineeSelectChange}
+                  disabled={traineeLoading || traineeOptions.length === 0}
+                >
+                  {traineeOptions.length === 0 ? (
+                    <option value="">Aucun compte disponible</option>
+                  ) : (
+                    traineeOptions.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.fullName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <div className="auth-form__actions">
+                <button type="submit" className="btn-auth" disabled={traineeAuthPending || traineeOptions.length === 0}>
+                  {traineeAuthPending ? 'Identification…' : 'S\'identifier'}
+                </button>
+                {activeTrainee && (
+                  <button
+                    type="button"
+                    className="btn-auth btn-auth--secondary"
+                    onClick={handleTraineeLogout}
+                  >
+                    Se déconnecter
+                  </button>
+                )}
+              </div>
+            </form>
+            {traineeAuthError && <p className="header-auth__error">{traineeAuthError}</p>}
+            {traineeError && <p className="header-auth__error">{traineeError}</p>}
           </div>
           <div className="header-status">
             <StatusBadge
@@ -794,6 +971,7 @@ export function TraineeApp() {
               <span className="timer-value">{remainingDeadline !== null ? `${remainingDeadline}s` : '—'}</span>
             </div>
           </div>
+        </div>
       </header>
       <main className="trainee-main">
         <section className="synoptic-panel">
