@@ -532,6 +532,7 @@ export function App() {
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
+  const [scenarioLoadingId, setScenarioLoadingId] = useState<string | null>(null);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [scenarioFeedback, setScenarioFeedback] = useState<string | null>(null);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
@@ -1466,12 +1467,34 @@ export function App() {
     setScenarioFeedback(null);
   };
 
-  const handleScenarioEdit = (scenario: ScenarioDefinition) => {
-    setDraftScenario(scenarioDefinitionToDraft(scenario));
-    setEditingScenarioId(scenario.id);
-    setScenarioError(null);
-    setScenarioFeedback(null);
-  };
+  const handleScenarioEdit = useCallback(
+    async (scenario: ScenarioDefinition) => {
+      setScenarioError(null);
+      setScenarioFeedback(null);
+
+      if (scenario.topology?.plan?.image) {
+        setDraftScenario(scenarioDefinitionToDraft(scenario));
+        setEditingScenarioId(scenario.id);
+        return;
+      }
+
+      setScenarioLoadingId(scenario.id);
+      try {
+        const detailed = await sdk.getScenario(scenario.id);
+        setDraftScenario(scenarioDefinitionToDraft(detailed));
+        setEditingScenarioId(detailed.id);
+        setScenarios((prev) => prev.map((entry) => (entry.id === detailed.id ? detailed : entry)));
+      } catch (error) {
+        console.error(error);
+        setDraftScenario(scenarioDefinitionToDraft(scenario));
+        setEditingScenarioId(scenario.id);
+        setScenarioError('Impossible de récupérer le plan associé au scénario sélectionné.');
+      } finally {
+        setScenarioLoadingId((current) => (current === scenario.id ? null : current));
+      }
+    },
+    [sdk, setScenarios],
+  );
 
   const handleScenarioDelete = async (scenarioId: string) => {
     setScenarioDeleting(scenarioId);
@@ -2491,8 +2514,14 @@ export function App() {
                           >
                             Lancer
                           </button>
-                          <button type="button" className="btn btn--outline" onClick={() => handleScenarioEdit(scenario)}>
-                            Modifier
+                          <button
+                            type="button"
+                            className="btn btn--outline"
+                            onClick={() => handleScenarioEdit(scenario)}
+                            disabled={scenarioLoadingId === scenario.id}
+                            aria-busy={scenarioLoadingId === scenario.id}
+                          >
+                            {scenarioLoadingId === scenario.id ? 'Chargement…' : 'Modifier'}
                           </button>
                           <button
                             type="button"
