@@ -509,6 +509,7 @@ export function App() {
   const [sessionErrorMessage, setSessionErrorMessage] = useState<string | null>(null);
   const [creatingSession, setCreatingSession] = useState(false);
   const [closingSession, setClosingSession] = useState(false);
+  const [generatingImprovements, setGeneratingImprovements] = useState(false);
   const [closingNotes, setClosingNotes] = useState('');
   const [improvementDrafts, setImprovementDrafts] = useState<Array<{ id: string; title: string; description: string }>>([]);
   const [activeTrainer, setActiveTrainer] = useState<UserSummary | null>(null);
@@ -570,6 +571,7 @@ export function App() {
 
   const applyActiveSession = useCallback((session: SessionSummary | null) => {
     setActiveSession(session);
+    setGeneratingImprovements(false);
     if (session) {
       setClosingNotes(session.notes ?? '');
       setImprovementDrafts(
@@ -583,7 +585,7 @@ export function App() {
       setClosingNotes('');
       setImprovementDrafts([]);
     }
-  }, []);
+  }, [setGeneratingImprovements]);
 
   const refreshScenarios = useCallback(() => {
     sdk.listScenarios().then(setScenarios).catch(console.error);
@@ -1028,6 +1030,35 @@ export function App() {
       return [...prev, { id: crypto.randomUUID(), title: '', description: '' }];
     });
   }, []);
+
+  const handleGenerateImprovements = useCallback(async () => {
+    if (!activeSession) {
+      return;
+    }
+    setSessionErrorMessage(null);
+    setSessionFeedback(null);
+    setGeneratingImprovements(true);
+    try {
+      const suggestions = await sdk.generateImprovementSuggestions(activeSession.id);
+      setImprovementDrafts(
+        suggestions.map((suggestion) => ({
+          id: crypto.randomUUID(),
+          title: suggestion.title,
+          description: suggestion.description ?? '',
+        })),
+      );
+      setSessionFeedback(
+        suggestions.length > 0
+          ? 'Axes générés automatiquement.'
+          : "Aucun axe automatique proposé pour ce scénario.",
+      );
+    } catch (error) {
+      console.error(error);
+      setSessionErrorMessage('Impossible de générer des axes automatiquement.');
+    } finally {
+      setGeneratingImprovements(false);
+    }
+  }, [activeSession, sdk, setGeneratingImprovements, setImprovementDrafts, setSessionErrorMessage, setSessionFeedback]);
 
   const handleImprovementChange = useCallback(
     (id: string, field: 'title' | 'description', value: string) => {
@@ -2879,9 +2910,20 @@ export function App() {
                       </label>
                       <div className="improvement-actions">
                         <span>Axes d'amélioration personnalisés</span>
-                        <button type="button" className="btn btn--ghost" onClick={handleAddImprovement}>
-                          Ajouter un axe
-                        </button>
+                        <div className="improvement-actions__buttons">
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            onClick={handleGenerateImprovements}
+                            disabled={generatingImprovements}
+                            aria-busy={generatingImprovements}
+                          >
+                            {generatingImprovements ? 'Génération…' : 'Générer automatiquement'}
+                          </button>
+                          <button type="button" className="btn btn--ghost" onClick={handleAddImprovement}>
+                            Ajouter un axe
+                          </button>
+                        </div>
                       </div>
                       {improvementDrafts.length === 0 ? (
                         <p className="improvement-placeholder">Aucun axe défini pour le moment.</p>

@@ -129,6 +129,10 @@ const sessionResponseSchema = z.object({
   session: sessionSchema.nullable(),
 });
 
+const improvementSuggestionSchema = z.object({
+  improvementAreas: z.array(sessionImprovementSchema),
+});
+
 export const traineeLayoutSchema = z.object({
   boardModuleOrder: layoutOrderSchema,
   boardModuleHidden: layoutHiddenSchema,
@@ -415,6 +419,16 @@ export class SsiSdk {
     }
     const json = await response.json();
     return sessionSchema.parse(json.session);
+  }
+
+  async generateImprovementSuggestions(sessionId: string): Promise<SessionImprovement[]> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${sessionId}/improvement-suggestions`);
+    if (!response.ok) {
+      throw new Error('Failed to generate improvement suggestions');
+    }
+    const json = await response.json();
+    const parsed = improvementSuggestionSchema.parse(json);
+    return parsed.improvementAreas;
   }
 
   async closeSession(id: string, payload: SessionCloseRequest = {}): Promise<SessionSummary> {

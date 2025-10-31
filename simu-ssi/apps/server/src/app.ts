@@ -19,6 +19,7 @@ import {
 } from '@simu-ssi/sdk';
 import { ScenarioRunner } from './scenario-runner';
 import { SessionManager } from './session-manager';
+import { generateImprovementAreasForSession } from './improvement-generator';
 
 const siteConfigSchema = z.object({
   evacOnDAI: z.boolean(),
@@ -339,6 +340,21 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       }
       console.error('Failed to close session', error);
       res.status(500).json({ error: 'FAILED_TO_CLOSE_SESSION' });
+    }
+  });
+
+  app.get('/api/sessions/:id/improvement-suggestions', async (req, res) => {
+    const { id } = req.params;
+    try {
+      const session = await prisma.session.findUnique({ where: { id } });
+      if (!session) {
+        return res.status(404).json({ error: 'SESSION_NOT_FOUND' });
+      }
+      const suggestions = await generateImprovementAreasForSession(id);
+      res.json({ improvementAreas: suggestions });
+    } catch (error) {
+      console.error('Failed to generate improvement suggestions', error);
+      res.status(500).json({ error: 'FAILED_TO_GENERATE_IMPROVEMENTS' });
     }
   });
 
