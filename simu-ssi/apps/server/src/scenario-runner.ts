@@ -155,7 +155,18 @@ export class ScenarioRunner {
     this.context.currentEventIndex = index;
     const nextEvent = scenario.events[index + 1] ?? null;
     const awaitingReset = this.context.awaitingSystemReset;
-    const status = nextEvent || awaitingReset ? 'running' : 'completed';
+
+    if (!nextEvent) {
+      this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
+      this.context.timeouts = [];
+      if (!awaitingReset) {
+        this.log.info('Scenario events completed, awaiting manual stop', {
+          scenarioId: scenario.id,
+        });
+      }
+    }
+
+    const status: ScenarioRunnerSnapshot['status'] = 'running';
     this.updateSnapshot({
       status,
       scenario,
@@ -165,15 +176,6 @@ export class ScenarioRunner {
       nextEvent: awaitingReset ? event : nextEvent,
       awaitingSystemReset: awaitingReset,
     });
-
-    if (status === 'completed') {
-      this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
-      this.context = undefined;
-      this.domain.emitter.off('events.append', this.handleDomainEvent);
-      this.log.info('Scenario completed', {
-        scenarioId: scenario.id,
-      });
-    }
   }
 
   private dispatchEvent(event: ScenarioEvent) {
