@@ -147,13 +147,13 @@ function isManualResetAllowed(
   const normalizedZone = zoneId.trim().toUpperCase();
   if (kind === 'DM') {
     if (constraints.dmZones.size === 0) {
-      return false;
+      return true;
     }
     return constraints.dmZones.has(normalizedZone);
   }
   if (kind === 'DAI') {
     if (constraints.daiZones.size === 0) {
-      return false;
+      return true;
     }
     return constraints.daiZones.has(normalizedZone);
   }
