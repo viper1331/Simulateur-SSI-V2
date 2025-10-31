@@ -1886,6 +1886,15 @@ export function App() {
     }
   };
 
+  const handleScenarioComplete = async () => {
+    try {
+      const status = await sdk.completeScenario();
+      setScenarioStatus(status);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const remainingMs = snapshot?.cmsi?.status === 'EVAC_SUSPENDED'
     ? snapshot.cmsi.remainingMs ?? undefined
     : snapshot?.cmsi?.deadline != null
@@ -2749,6 +2758,14 @@ export function App() {
                 <span>{nextScenarioEvent}</span>
               </div>
               <div className="scenario-status__actions">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={handleScenarioComplete}
+                  disabled={!scenarioIsRunning}
+                >
+                  Terminer le scénario
+                </button>
                 <button
                   type="button"
                   className="btn btn--ghost"

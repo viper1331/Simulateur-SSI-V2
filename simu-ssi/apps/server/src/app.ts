@@ -1109,6 +1109,23 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     broadcastActiveTopology(true);
   });
 
+  app.post('/api/scenarios/complete', async (_req, res) => {
+    const previousScenario = scenarioRunner.state.scenario;
+    scenarioRunner.stop(previousScenario ? 'completed' : 'idle');
+    log.info("Terminaison de scénario demandée", { scenarioId: previousScenario?.id });
+    if (previousScenario) {
+      await prisma.eventLog.create({
+        data: {
+          source: 'TRAINER',
+          payloadJson: JSON.stringify({ action: 'scenario-complete', scenarioId: previousScenario.id }),
+          sessionId: sessionManager.getActiveSessionId() ?? undefined,
+        },
+      });
+    }
+    res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
+    broadcastActiveTopology(true);
+  });
+
   app.get('/api/scenarios/active', (_req, res) => {
     log.debug("Instantané du scénario demandé");
     res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
