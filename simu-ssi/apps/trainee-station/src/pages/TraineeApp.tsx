@@ -1165,6 +1165,19 @@ export function TraineeApp() {
               <BoardTile key={module.id} module={module} />
             ))}
           </div>
+          <div className="control-strip">
+            {orderedControlButtons.map((button) => (
+              <ControlButton
+                key={button.id}
+                label={button.label}
+                tone={button.tone}
+                onClick={button.onClick}
+                disabled={button.disabled}
+                title={button.title}
+                highlighted={button.highlighted}
+              />
+            ))}
+          </div>
           {planImage && (
             <div className="floor-plan" aria-label="Plan interactif du site">
               <div className="floor-plan__header">
@@ -1217,19 +1230,6 @@ export function TraineeApp() {
               </div>
             </div>
           )}
-          <div className="control-strip">
-            {orderedControlButtons.map((button) => (
-              <ControlButton
-                key={button.id}
-                label={button.label}
-                tone={button.tone}
-                onClick={button.onClick}
-                disabled={button.disabled}
-                title={button.title}
-                highlighted={button.highlighted}
-              />
-            ))}
-          </div>
         </section>
         <section className="side-panels">
           {orderedSidePanels.map((panel) => (
