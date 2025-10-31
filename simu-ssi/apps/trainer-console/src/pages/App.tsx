@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ChangeEvent, FormEvent } from 'react';
 import { io } from 'socket.io-client';
 import { ManualEvacuationPanel, StatusTile, TimelineBadge } from '@simu-ssi/shared-ui';
 import {
@@ -473,12 +474,61 @@ export function App() {
   const [closingSession, setClosingSession] = useState(false);
   const [closingNotes, setClosingNotes] = useState('');
   const [improvementDrafts, setImprovementDrafts] = useState<Array<{ id: string; title: string; description: string }>>([]);
+  const [activeTrainer, setActiveTrainer] = useState<UserSummary | null>(null);
+  const [selectedTrainerId, setSelectedTrainerId] = useState<string>('');
+  const [trainerAuthError, setTrainerAuthError] = useState<string | null>(null);
+  const [trainerAuthPending, setTrainerAuthPending] = useState<boolean>(false);
 
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
   const traineeOptions = useMemo(() => users.filter((user) => user.role === 'TRAINEE'), [users]);
   const trainerOptions = useMemo(() => users.filter((user) => user.role === 'TRAINER'), [users]);
   const recentSessions = useMemo(() => sessions.slice(0, 6), [sessions]);
+
+  useEffect(() => {
+    if (trainerOptions.length === 0) {
+      return;
+    }
+    let storedId: string | null = null;
+    try {
+      storedId = window.localStorage.getItem('ssi-trainer-user-id');
+    } catch (error) {
+      console.error(error);
+    }
+    if (storedId && trainerOptions.some((user) => user.id === storedId)) {
+      setSelectedTrainerId(storedId);
+      if (!activeTrainer || activeTrainer.id !== storedId) {
+        const found = trainerOptions.find((user) => user.id === storedId) ?? null;
+        setActiveTrainer(found);
+      }
+      return;
+    }
+    if (!selectedTrainerId) {
+      setSelectedTrainerId(trainerOptions[0]?.id ?? '');
+    }
+  }, [activeTrainer, selectedTrainerId, trainerOptions]);
+
+  useEffect(() => {
+    if (!activeTrainer) {
+      return;
+    }
+    setSessionForm((prev) => (prev.trainerId === activeTrainer.id ? prev : { ...prev, trainerId: activeTrainer.id }));
+  }, [activeTrainer]);
+
+  useEffect(() => {
+    if (!activeTrainer || !activeSession || activeSession.status !== 'active') {
+      return;
+    }
+    if (activeSession.trainer?.id === activeTrainer.id) {
+      return;
+    }
+    sdk
+      .updateSession(activeSession.id, { trainerId: activeTrainer.id })
+      .catch((error) => {
+        console.error(error);
+        setTrainerAuthError("Impossible d'associer le formateur à la session en cours.");
+      });
+  }, [activeTrainer, activeSession?.id, activeSession?.status, activeSession?.trainer?.id, sdk]);
 
   const applyActiveSession = useCallback((session: SessionSummary | null) => {
     setActiveSession(session);
@@ -519,6 +569,62 @@ export function App() {
       })
       .finally(() => setUsersLoading(false));
   }, [sdk]);
+
+  const handleTrainerSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedTrainerId(event.target.value);
+    setTrainerAuthError(null);
+  }, []);
+
+  const handleTrainerLogin = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!selectedTrainerId) {
+        setTrainerAuthError('Sélectionnez un compte formateur.');
+        return;
+      }
+      const trainer = trainerOptions.find((user) => user.id === selectedTrainerId);
+      if (!trainer) {
+        setTrainerAuthError('Compte formateur introuvable.');
+        return;
+      }
+      setTrainerAuthPending(true);
+      setTrainerAuthError(null);
+      try {
+        setActiveTrainer(trainer);
+        try {
+          window.localStorage.setItem('ssi-trainer-user-id', trainer.id);
+        } catch (storageError) {
+          console.error(storageError);
+        }
+        if (activeSession && activeSession.status === 'active' && activeSession.trainer?.id !== trainer.id) {
+          await sdk.updateSession(activeSession.id, { trainerId: trainer.id });
+        }
+      } catch (error) {
+        console.error(error);
+        setTrainerAuthError("Impossible de valider l'identification formateur.");
+      } finally {
+        setTrainerAuthPending(false);
+      }
+    },
+    [activeSession?.id, activeSession?.status, activeSession?.trainer?.id, sdk, selectedTrainerId, trainerOptions],
+  );
+
+  const handleTrainerLogout = useCallback(() => {
+    setActiveTrainer(null);
+    try {
+      window.localStorage.removeItem('ssi-trainer-user-id');
+    } catch (error) {
+      console.error(error);
+    }
+    if (activeSession && activeSession.status === 'active' && activeSession.trainer) {
+      sdk
+        .updateSession(activeSession.id, { trainerId: null })
+        .catch((error) => {
+          console.error(error);
+          setTrainerAuthError("Impossible de dissocier le formateur de la session en cours.");
+        });
+    }
+  }, [activeSession?.id, activeSession?.status, activeSession?.trainer?.id, sdk]);
 
   const refreshSessionsRegistry = useCallback(() => {
     setSessionsLoading(true);
@@ -1413,6 +1519,52 @@ export function App() {
                   </span>
                 </div>
               </div>
+            </div>
+            <div className="app-header__identity">
+              <div className="app-identity__status">
+                <span className="app-identity__label">Formateur connecté</span>
+                <span className="app-identity__value">{activeTrainer?.fullName ?? 'Aucun'}</span>
+              </div>
+              <form className="identity-form" onSubmit={handleTrainerLogin}>
+                <label className="identity-form__field">
+                  <span>Choisir un compte</span>
+                  <select
+                    className="identity-select"
+                    value={selectedTrainerId}
+                    onChange={handleTrainerSelectChange}
+                    disabled={trainerOptions.length === 0}
+                  >
+                    {trainerOptions.length === 0 ? (
+                      <option value="">Aucun formateur disponible</option>
+                    ) : (
+                      trainerOptions.map((trainer) => (
+                        <option key={trainer.id} value={trainer.id}>
+                          {trainer.fullName}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+                <div className="identity-actions">
+                  <button
+                    type="submit"
+                    className="identity-button"
+                    disabled={trainerAuthPending || trainerOptions.length === 0}
+                  >
+                    {trainerAuthPending ? 'Identification…' : "S'identifier"}
+                  </button>
+                  {activeTrainer && (
+                    <button
+                      type="button"
+                      className="identity-button identity-button--secondary"
+                      onClick={handleTrainerLogout}
+                    >
+                      Se déconnecter
+                    </button>
+                  )}
+                </div>
+              </form>
+              {trainerAuthError && <p className="app-identity__error">{trainerAuthError}</p>}
             </div>
             <div className="app-shortcuts">
               <span className="app-shortcuts__label">Raccourcis</span>
