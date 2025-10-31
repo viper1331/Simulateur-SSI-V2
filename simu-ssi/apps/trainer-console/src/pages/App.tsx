@@ -923,81 +923,95 @@ export function App() {
                       const ackEvent = eventDraft.type === 'PROCESS_ACK';
                       return (
                         <div key={eventDraft.id} className="scenario-event-row">
-                          <span className="scenario-event-row__index">#{index + 1}</span>
-                          <label className="scenario-event-field scenario-event-field--offset">
-                            <span>Offset (s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={offsetValue}
-                              onChange={(input) => {
-                                const value = Number.parseFloat(input.target.value);
-                                handleScenarioEventOffsetChange(eventDraft.id, Number.isNaN(value) ? 0 : value);
-                              }}
-                            />
-                          </label>
-                          <label className="scenario-event-field scenario-event-field--type">
-                            <span>Action</span>
-                            <select
-                              value={eventDraft.type}
-                              onChange={(input) =>
-                                handleScenarioEventTypeChange(eventDraft.id, input.target.value as ScenarioEvent['type'])
-                              }
-                            >
-                              {SCENARIO_EVENT_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {zoneEvent && (
-                            <label className="scenario-event-field scenario-event-field--zone">
-                              <span>Zone</span>
+                          <div className="scenario-event-row__header">
+                            <div className="scenario-event-row__title">
+                              <span className="scenario-event-row__index">#{index + 1}</span>
+                              <label className="scenario-event-field scenario-event-field--type">
+                                <span>Action</span>
+                                <select
+                                  value={eventDraft.type}
+                                  onChange={(input) =>
+                                    handleScenarioEventTypeChange(
+                                      eventDraft.id,
+                                      input.target.value as ScenarioEvent['type'],
+                                    )
+                                  }
+                                >
+                                  {SCENARIO_EVENT_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <div className="scenario-event-row__meta">
+                              <label className="scenario-event-field scenario-event-field--offset">
+                                <span>Offset (s)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.1}
+                                  value={offsetValue}
+                                  onChange={(input) => {
+                                    const value = Number.parseFloat(input.target.value);
+                                    handleScenarioEventOffsetChange(
+                                      eventDraft.id,
+                                      Number.isNaN(value) ? 0 : value,
+                                    );
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="scenario-event-remove"
+                                onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
+                                aria-label={`Supprimer l'événement ${index + 1}`}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                          <div className="scenario-event-row__content">
+                            {zoneEvent && (
+                              <label className="scenario-event-field scenario-event-field--zone">
+                                <span>Zone</span>
+                                <input
+                                  value={(eventDraft as { zoneId: string }).zoneId}
+                                  onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
+                                  placeholder="ZF1"
+                                />
+                              </label>
+                            )}
+                            {reasonEvent && (
+                              <label className="scenario-event-field scenario-event-field--reason">
+                                <span>Motif</span>
+                                <input
+                                  value={(eventDraft as { reason?: string }).reason ?? ''}
+                                  onChange={(input) => handleScenarioEventReasonChange(eventDraft.id, input.target.value)}
+                                  placeholder="Ex : Exercice, dérangement"
+                                />
+                              </label>
+                            )}
+                            {ackEvent && (
+                              <label className="scenario-event-field scenario-event-field--acked">
+                                <span>Opérateur</span>
+                                <input
+                                  value={(eventDraft as { ackedBy?: string }).ackedBy ?? ''}
+                                  onChange={(input) => handleScenarioEventAckedByChange(eventDraft.id, input.target.value)}
+                                  placeholder="trainer / trainee"
+                                />
+                              </label>
+                            )}
+                            <label className="scenario-event-field scenario-event-field--label">
+                              <span>Libellé</span>
                               <input
-                                value={(eventDraft as { zoneId: string }).zoneId}
-                                onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
-                                placeholder="ZF1"
+                                value={eventDraft.label ?? ''}
+                                onChange={(input) => handleScenarioEventLabelChange(eventDraft.id, input.target.value)}
+                                placeholder="Note pédagogique (optionnel)"
                               />
                             </label>
-                          )}
-                          {reasonEvent && (
-                            <label className="scenario-event-field scenario-event-field--reason">
-                              <span>Motif</span>
-                              <input
-                                value={(eventDraft as { reason?: string }).reason ?? ''}
-                                onChange={(input) => handleScenarioEventReasonChange(eventDraft.id, input.target.value)}
-                                placeholder="Ex : Exercice, dérangement"
-                              />
-                            </label>
-                          )}
-                          {ackEvent && (
-                            <label className="scenario-event-field scenario-event-field--acked">
-                              <span>Opérateur</span>
-                              <input
-                                value={(eventDraft as { ackedBy?: string }).ackedBy ?? ''}
-                                onChange={(input) => handleScenarioEventAckedByChange(eventDraft.id, input.target.value)}
-                                placeholder="trainer / trainee"
-                              />
-                            </label>
-                          )}
-                          <label className="scenario-event-field scenario-event-field--label">
-                            <span>Libellé</span>
-                            <input
-                              value={eventDraft.label ?? ''}
-                              onChange={(input) => handleScenarioEventLabelChange(eventDraft.id, input.target.value)}
-                              placeholder="Note pédagogique (optionnel)"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="scenario-event-remove"
-                            onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
-                            aria-label={`Supprimer l'événement ${index + 1}`}
-                          >
-                            ×
-                          </button>
+                          </div>
                         </div>
                       );
                     })}
