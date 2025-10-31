@@ -52,7 +52,13 @@ const cmsiStatusTone: Record<string, BoardModuleTone> = {
   SAFE_HOLD: 'safe',
 };
 
-function translateScenarioStatus(status: ScenarioRunnerSnapshot['status']): string {
+function translateScenarioStatus(
+  status: ScenarioRunnerSnapshot['status'],
+  awaitingSystemReset?: boolean,
+): string {
+  if (status === 'running' && awaitingSystemReset) {
+    return 'En attente de réarmement';
+  }
   switch (status) {
     case 'running':
       return 'Scénario en cours';
@@ -65,7 +71,11 @@ function translateScenarioStatus(status: ScenarioRunnerSnapshot['status']): stri
   }
 }
 
-function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): string {
+function describeScenarioEvent(status: ScenarioRunnerSnapshot): string {
+  if (status.awaitingSystemReset) {
+    return 'Réarmez le système pour terminer le scénario';
+  }
+  const event = status.nextEvent;
   if (!event) return 'Aucun événement programmé';
   switch (event.type) {
     case 'DM_TRIGGER':
@@ -358,8 +368,11 @@ export function TraineeApp() {
     [boardModules, layout.boardModuleOrder, layout.boardModuleHidden],
   );
 
-  const scenarioStatusLabel = translateScenarioStatus(scenarioStatus.status);
-  const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
+  const scenarioStatusLabel = translateScenarioStatus(
+    scenarioStatus.status,
+    scenarioStatus.awaitingSystemReset,
+  );
+  const nextScenarioEvent = describeScenarioEvent(scenarioStatus);
 
   const cmsiMode = snapshot?.cmsi.manual ? 'Mode manuel' : 'Mode automatique';
 

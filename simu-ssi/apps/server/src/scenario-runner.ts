@@ -1,6 +1,10 @@
 import EventEmitter from 'eventemitter3';
-import type { ScenarioDefinition, ScenarioEvent, ScenarioRunnerSnapshot } from '@simu-ssi/sdk';
-import type { SsiDomain } from '@simu-ssi/domain-ssi';
+import type {
+  ScenarioDefinition,
+  ScenarioEvent,
+  ScenarioRunnerSnapshot,
+} from '@simu-ssi/sdk';
+import type { DomainLogEvent, SsiDomain } from '@simu-ssi/domain-ssi';
 
 interface ScenarioRunnerEventMap {
   'scenario.update': ScenarioRunnerSnapshot;
@@ -13,12 +17,24 @@ interface ActiveScenarioContext {
   startedAt: number;
   timeouts: TimerHandle[];
   currentEventIndex: number;
+  awaitingSystemReset: boolean;
 }
 
 export class ScenarioRunner {
   private readonly emitter = new EventEmitter<ScenarioRunnerEventMap>();
   private context?: ActiveScenarioContext;
   private snapshot: ScenarioRunnerSnapshot = { status: 'idle' };
+  private readonly handleDomainEvent = (event: DomainLogEvent) => {
+    if (!this.context) {
+      return;
+    }
+    if (!this.context.awaitingSystemReset) {
+      return;
+    }
+    if (event.source === 'CMSI' && event.message === 'System reset to idle') {
+      this.stop('completed');
+    }
+  };
 
   constructor(private readonly domain: SsiDomain) {}
 
@@ -40,11 +56,14 @@ export class ScenarioRunner {
     const orderedEvents = [...scenario.events].sort((a, b) => a.offset - b.offset);
     const normalizedScenario: ScenarioDefinition = { ...scenario, events: orderedEvents };
     const startedAt = Date.now();
+    this.domain.emitter.off('events.append', this.handleDomainEvent);
+    this.domain.emitter.on('events.append', this.handleDomainEvent);
     this.context = {
       scenario: normalizedScenario,
       startedAt,
       timeouts: [],
       currentEventIndex: -1,
+      awaitingSystemReset: false,
     };
 
     this.updateSnapshot({
@@ -53,6 +72,7 @@ export class ScenarioRunner {
       startedAt,
       currentEventIndex: -1,
       nextEvent: orderedEvents[0] ?? null,
+      awaitingSystemReset: false,
     });
 
     orderedEvents.forEach((event, index) => {
@@ -65,6 +85,7 @@ export class ScenarioRunner {
   }
 
   stop(status: 'stopped' | 'idle' | 'completed' = 'stopped') {
+    this.domain.emitter.off('events.append', this.handleDomainEvent);
     if (!this.context) {
       if (status === 'idle') {
         this.updateSnapshot({ status: 'idle' });
@@ -83,6 +104,7 @@ export class ScenarioRunner {
       endedAt: Date.now(),
       currentEventIndex: this.snapshot.currentEventIndex,
       nextEvent: null,
+      awaitingSystemReset: false,
     });
   }
 
@@ -96,27 +118,34 @@ export class ScenarioRunner {
     }
     const event = scenario.events[index];
 
-    try {
-      this.dispatchEvent(event);
-    } catch (error) {
-      console.error('Scenario event execution failed', error);
+    if (event.type === 'SYSTEM_RESET') {
+      this.context.awaitingSystemReset = true;
+    } else {
+      try {
+        this.dispatchEvent(event);
+      } catch (error) {
+        console.error('Scenario event execution failed', error);
+      }
     }
 
     this.context.currentEventIndex = index;
     const nextEvent = scenario.events[index + 1] ?? null;
-    const status = nextEvent ? 'running' : 'completed';
+    const awaitingReset = this.context.awaitingSystemReset;
+    const status = nextEvent || awaitingReset ? 'running' : 'completed';
     this.updateSnapshot({
       status,
       scenario,
       startedAt: this.context.startedAt,
       endedAt: status === 'completed' ? Date.now() : undefined,
       currentEventIndex: index,
-      nextEvent,
+      nextEvent: awaitingReset ? event : nextEvent,
+      awaitingSystemReset: awaitingReset,
     });
 
     if (status === 'completed') {
       this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
       this.context = undefined;
+      this.domain.emitter.off('events.append', this.handleDomainEvent);
     }
   }
 
@@ -146,13 +175,6 @@ export class ScenarioRunner {
       case 'PROCESS_CLEAR':
         this.domain.clearProcessAck();
         break;
-      case 'SYSTEM_RESET': {
-        const result = this.domain.trySystemReset();
-        if (!result.ok) {
-          console.warn('Scenario reset blocked', result.reason);
-        }
-        break;
-      }
       default:
         break;
     }

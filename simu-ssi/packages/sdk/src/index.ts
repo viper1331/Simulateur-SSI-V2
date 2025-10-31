@@ -67,6 +67,7 @@ export const scenarioRunnerSnapshotSchema = z.object({
   endedAt: z.number().optional(),
   currentEventIndex: z.number().int().optional(),
   nextEvent: scenarioEventSchema.nullish(),
+  awaitingSystemReset: z.boolean().optional(),
 });
 
 const accessAuthorisationSchema = z.object({
