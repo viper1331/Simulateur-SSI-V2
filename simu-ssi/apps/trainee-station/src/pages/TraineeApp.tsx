@@ -7,7 +7,6 @@ import {
   traineeLayoutSchema,
   siteTopologySchema,
   type SiteTopology,
-  type ScenarioDefinition,
   type ScenarioEvent,
   type ScenarioRunnerSnapshot,
   type TraineeLayoutConfig,
@@ -110,10 +109,17 @@ function describeScenarioEvent(status: ScenarioRunnerSnapshot): string {
   }
 }
 
+interface ScenarioAdaptationStep {
+  id: string;
+  label: string;
+  completed: boolean;
+  isNext: boolean;
+}
+
 interface ScenarioAdaptation {
   boardHighlights: Set<string>;
   controlHighlights: Set<string>;
-  steps: string[];
+  steps: ScenarioAdaptationStep[];
   description?: string;
 }
 
@@ -167,52 +173,89 @@ function formatDateTime(iso?: string | null): string {
   return date.toLocaleString();
 }
 
-function deriveScenarioAdaptation(scenario?: ScenarioDefinition | null): ScenarioAdaptation {
+function applyHighlightsForEvent(
+  event: ScenarioEvent,
+  boardHighlights: Set<string>,
+  controlHighlights: Set<string>,
+) {
+  switch (event.type) {
+    case 'DM_TRIGGER':
+    case 'DM_RESET': {
+      const boardId = `dm-${event.zoneId.toLowerCase()}`;
+      boardHighlights.add(boardId);
+      if (event.zoneId.toUpperCase() === 'ZF1') {
+        controlHighlights.add('reset-dm-zf1');
+      }
+      break;
+    }
+    case 'DAI_TRIGGER':
+    case 'DAI_RESET':
+      boardHighlights.add('dai');
+      break;
+    case 'MANUAL_EVAC_START':
+    case 'MANUAL_EVAC_STOP':
+      boardHighlights.add('manual-evac');
+      boardHighlights.add('uga');
+      controlHighlights.add('manual-evac-toggle');
+      break;
+    case 'PROCESS_ACK':
+    case 'PROCESS_CLEAR':
+      controlHighlights.add('ack');
+      boardHighlights.add('cmsi-status');
+      break;
+    case 'SYSTEM_RESET':
+      controlHighlights.add('reset-request');
+      boardHighlights.add('cmsi-status');
+      break;
+    default:
+      break;
+  }
+}
+
+function deriveScenarioAdaptation(status?: ScenarioRunnerSnapshot | null): ScenarioAdaptation {
   const boardHighlights = new Set<string>();
   const controlHighlights = new Set<string>();
-  const steps: string[] = [];
-  if (!scenario) {
+  const steps: ScenarioAdaptationStep[] = [];
+  if (!status?.scenario) {
     return { boardHighlights, controlHighlights, steps, description: undefined };
   }
+  const scenario = status.scenario;
   const orderedEvents = [...scenario.events].sort((a, b) => a.offset - b.offset);
-  for (const event of orderedEvents) {
+  const currentIndex = status.currentEventIndex ?? -1;
+  const awaitingReset = Boolean(status.awaitingSystemReset);
+  const resolvedCurrentIndex = awaitingReset ? Math.max(-1, currentIndex - 1) : currentIndex;
+  const explicitNextEvent = status.nextEvent ?? null;
+  const fallbackNextEvent = orderedEvents[currentIndex + 1] ?? null;
+  const nextEvent = explicitNextEvent ?? fallbackNextEvent;
+
+  orderedEvents.forEach((event, index) => {
     const offsetLabel = formatScenarioOffset(event.offset);
     const actionLabel = describeScenarioStep(event);
     const line = offsetLabel ? `${offsetLabel} · ${actionLabel}` : actionLabel;
-    steps.push(line);
-    switch (event.type) {
-      case 'DM_TRIGGER':
-      case 'DM_RESET': {
-        const boardId = `dm-${event.zoneId.toLowerCase()}`;
-        boardHighlights.add(boardId);
-        if (event.zoneId.toUpperCase() === 'ZF1') {
-          controlHighlights.add('reset-dm-zf1');
-        }
-        break;
-      }
-      case 'DAI_TRIGGER':
-      case 'DAI_RESET':
-        boardHighlights.add('dai');
-        break;
-      case 'MANUAL_EVAC_START':
-      case 'MANUAL_EVAC_STOP':
-        boardHighlights.add('manual-evac');
-        boardHighlights.add('uga');
-        controlHighlights.add('manual-evac-toggle');
-        break;
-      case 'PROCESS_ACK':
-      case 'PROCESS_CLEAR':
-        controlHighlights.add('ack');
-        boardHighlights.add('cmsi-status');
-        break;
-      case 'SYSTEM_RESET':
-        controlHighlights.add('reset-request');
-        boardHighlights.add('cmsi-status');
-        break;
-      default:
-        break;
-    }
+    const completed = index <= resolvedCurrentIndex;
+    const hasUpcoming = resolvedCurrentIndex < orderedEvents.length - 1;
+    const upcomingIndex = Math.min(orderedEvents.length - 1, resolvedCurrentIndex + 1);
+    const isNext = awaitingReset
+      ? Boolean(nextEvent && nextEvent === event)
+      : hasUpcoming && index === upcomingIndex;
+    const zonePart = 'zoneId' in event && typeof event.zoneId === 'string' ? event.zoneId : 'none';
+    steps.push({
+      id: `${index}-${event.type}-${zonePart}-${event.offset}`,
+      label: line,
+      completed,
+      isNext,
+    });
+  });
+
+  if (nextEvent) {
+    applyHighlightsForEvent(nextEvent, boardHighlights, controlHighlights);
   }
+
+  if (awaitingReset && !nextEvent) {
+    boardHighlights.add('cmsi-status');
+    controlHighlights.add('reset-request');
+  }
+
   return {
     boardHighlights,
     controlHighlights,
@@ -504,8 +547,8 @@ export function TraineeApp() {
   const anyAudible = Boolean(snapshot?.ugaActive || snapshot?.localAudibleActive);
   const localAudibleOnly = Boolean(snapshot?.localAudibleActive && !snapshot?.ugaActive);
   const scenarioAdaptation = useMemo(
-    () => deriveScenarioAdaptation(scenarioStatus.scenario),
-    [scenarioStatus.scenario],
+    () => deriveScenarioAdaptation(scenarioStatus),
+    [scenarioStatus],
   );
 
   const handleTraineeSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
@@ -853,9 +896,15 @@ export function TraineeApp() {
               {scenarioDescription && <p className="instruction-text">{scenarioDescription}</p>}
               {scenarioAdaptation.steps.length > 0 && (
                 <ol className="instruction-timeline">
-                  {scenarioAdaptation.steps.map((step, index) => (
-                    <li key={`${index}-${step}`} className="instruction-step">
-                      {step}
+                  {scenarioAdaptation.steps.map((step) => (
+                    <li
+                      key={step.id}
+                      className={`instruction-step${step.completed ? ' is-completed' : ''}${
+                        step.isNext ? ' is-next' : ''
+                      }`}
+                      aria-current={step.isNext ? 'step' : undefined}
+                    >
+                      {step.label}
                     </li>
                   ))}
                 </ol>
