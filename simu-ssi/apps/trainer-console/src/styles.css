@@ -1233,10 +1233,37 @@ kbd {
   border: 1px solid rgba(203, 213, 225, 0.6);
 }
 
+.layout-list__item--hidden {
+  background: rgba(148, 163, 184, 0.12);
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.65);
+}
+
 .layout-list__label {
   font-weight: 600;
   color: #1e293b;
   font-size: 0.95rem;
+}
+
+.layout-list__item--hidden .layout-list__label {
+  color: rgba(71, 85, 105, 0.85);
+}
+
+.layout-list__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.layout-list__badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .layout-list__actions {
@@ -1256,9 +1283,19 @@ kbd {
   transition: background 160ms ease, transform 160ms ease;
 }
 
+.layout-list__button--toggle {
+  border-color: rgba(100, 116, 139, 0.5);
+  background: rgba(100, 116, 139, 0.14);
+  color: #1f2937;
+}
+
 .layout-list__button:hover:not(:disabled) {
   background: rgba(59, 130, 246, 0.18);
   transform: translateY(-1px);
+}
+
+.layout-list__button--toggle:hover:not(:disabled) {
+  background: rgba(100, 116, 139, 0.2);
 }
 
 .layout-list__button:disabled {

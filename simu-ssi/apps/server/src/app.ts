@@ -91,13 +91,13 @@ export function createHttpServer(domainContext: DomainContext): {
       return res.status(400).json({ error: parsed.error.message });
     }
     const layout = parsed.data;
-    if (!isPermutationOf(layout.boardModuleOrder, BOARD_ORDER_BASELINE)) {
+    if (!isValidLayoutSection(layout.boardModuleOrder, layout.boardModuleHidden, BOARD_ORDER_BASELINE)) {
       return res.status(400).json({ error: 'INVALID_BOARD_ORDER' });
     }
-    if (!isPermutationOf(layout.controlButtonOrder, CONTROL_ORDER_BASELINE)) {
+    if (!isValidLayoutSection(layout.controlButtonOrder, layout.controlButtonHidden, CONTROL_ORDER_BASELINE)) {
       return res.status(400).json({ error: 'INVALID_CONTROL_ORDER' });
     }
-    if (!isPermutationOf(layout.sidePanelOrder, SIDE_ORDER_BASELINE)) {
+    if (!isValidLayoutSection(layout.sidePanelOrder, layout.sidePanelHidden, SIDE_ORDER_BASELINE)) {
       return res.status(400).json({ error: 'INVALID_PANEL_ORDER' });
     }
     try {
@@ -553,15 +553,19 @@ function parseDeviceProps(json: string | null): Record<string, unknown> | undefi
   }
 }
 
-function isPermutationOf(order: string[], baseline: string[]): boolean {
-  if (order.length !== baseline.length) {
+function isValidLayoutSection(order: string[], hidden: string[], baseline: string[]): boolean {
+  const combined = [...order, ...hidden];
+  if (combined.length !== baseline.length) {
     return false;
   }
-  const seen = new Set(order);
+  const seen = new Set(combined);
   if (seen.size !== baseline.length) {
     return false;
   }
-  return baseline.every((item) => seen.has(item));
+  if (!baseline.every((item) => seen.has(item))) {
+    return false;
+  }
+  return hidden.every((item) => baseline.includes(item));
 }
 
 async function loadTraineeLayout(): Promise<TraineeLayoutConfig> {
@@ -573,9 +577,9 @@ async function loadTraineeLayout(): Promise<TraineeLayoutConfig> {
     const parsed = JSON.parse(record.configJson);
     const layout = traineeLayoutSchema.parse(parsed);
     if (
-      isPermutationOf(layout.boardModuleOrder, BOARD_ORDER_BASELINE) &&
-      isPermutationOf(layout.controlButtonOrder, CONTROL_ORDER_BASELINE) &&
-      isPermutationOf(layout.sidePanelOrder, SIDE_ORDER_BASELINE)
+      isValidLayoutSection(layout.boardModuleOrder, layout.boardModuleHidden, BOARD_ORDER_BASELINE) &&
+      isValidLayoutSection(layout.controlButtonOrder, layout.controlButtonHidden, CONTROL_ORDER_BASELINE) &&
+      isValidLayoutSection(layout.sidePanelOrder, layout.sidePanelHidden, SIDE_ORDER_BASELINE)
     ) {
       return layout;
     }

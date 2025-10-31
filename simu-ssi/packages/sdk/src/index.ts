@@ -86,11 +86,15 @@ const accessCodeListSchema = z.object({
 });
 
 const layoutOrderSchema = z.array(z.string().min(1));
+const layoutHiddenSchema = z.array(z.string().min(1)).default([]);
 
 export const traineeLayoutSchema = z.object({
   boardModuleOrder: layoutOrderSchema,
+  boardModuleHidden: layoutHiddenSchema,
   controlButtonOrder: layoutOrderSchema,
+  controlButtonHidden: layoutHiddenSchema,
   sidePanelOrder: layoutOrderSchema,
+  sidePanelHidden: layoutHiddenSchema,
 });
 
 export type TraineeLayoutConfig = z.infer<typeof traineeLayoutSchema>;
@@ -111,8 +115,11 @@ export const DEFAULT_TRAINEE_LAYOUT: TraineeLayoutConfig = {
     'dm-zf7',
     'dm-zf8',
   ],
+  boardModuleHidden: [],
   controlButtonOrder: ['silence', 'ack', 'reset-request', 'reset-dm-zf1', 'manual-evac-toggle'],
+  controlButtonHidden: [],
   sidePanelOrder: ['access-control', 'event-recap', 'instructions'],
+  sidePanelHidden: [],
 };
 
 export type SiteConfig = z.infer<typeof siteConfigSchema>;

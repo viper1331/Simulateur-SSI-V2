@@ -91,9 +91,11 @@ function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): stri
   }
 }
 
-function orderItems<T extends { id: string }>(items: T[], order: string[]): T[] {
+function orderItems<T extends { id: string }>(items: T[], order: string[], hidden: string[] = []): T[] {
+  const hiddenSet = new Set(hidden);
   const orderIndex = new Map(order.map((id, index) => [id, index]));
   return items
+    .filter((item) => !hiddenSet.has(item.id))
     .map((item, originalIndex) => ({ item, originalIndex }))
     .sort((a, b) => {
       const aIndex = orderIndex.has(a.item.id) ? orderIndex.get(a.item.id)! : order.length + a.originalIndex;
@@ -352,8 +354,8 @@ export function TraineeApp() {
   }, [snapshot, anyAudible, localAudibleOnly]);
 
   const orderedBoardModules = useMemo(
-    () => orderItems(boardModules, layout.boardModuleOrder),
-    [boardModules, layout.boardModuleOrder],
+    () => orderItems(boardModules, layout.boardModuleOrder, layout.boardModuleHidden ?? []),
+    [boardModules, layout.boardModuleOrder, layout.boardModuleHidden],
   );
 
   const scenarioStatusLabel = translateScenarioStatus(scenarioStatus.status);
@@ -404,7 +406,11 @@ export function TraineeApp() {
     },
   ];
 
-  const orderedControlButtons = orderItems(controlButtons, layout.controlButtonOrder);
+  const orderedControlButtons = orderItems(
+    controlButtons,
+    layout.controlButtonOrder,
+    layout.controlButtonHidden ?? [],
+  );
 
   const sidePanelItems: SidePanelItem[] = [
     {
@@ -505,7 +511,11 @@ export function TraineeApp() {
     },
   ];
 
-  const orderedSidePanels = orderItems(sidePanelItems, layout.sidePanelOrder);
+  const orderedSidePanels = orderItems(
+    sidePanelItems,
+    layout.sidePanelOrder,
+    layout.sidePanelHidden ?? [],
+  );
 
   return (
     <div className="trainee-shell">
