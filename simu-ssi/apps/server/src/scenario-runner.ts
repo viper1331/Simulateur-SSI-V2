@@ -163,13 +163,13 @@ export class ScenarioRunner {
     const normalizedZone = zoneId.trim().toUpperCase();
     if (kind === 'DM') {
       if (manualReset.dmZones.size === 0) {
-        return false;
+        return true;
       }
       return manualReset.dmZones.has(normalizedZone);
     }
     if (kind === 'DAI') {
       if (manualReset.daiZones.size === 0) {
-        return false;
+        return true;
       }
       return manualReset.daiZones.has(normalizedZone);
     }
