@@ -544,6 +544,15 @@ export class SsiSdk {
     return z.array(scenarioDefinitionSchema).parse(json.scenarios);
   }
 
+  async getScenario(id: string): Promise<ScenarioDefinition> {
+    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch scenario');
+    }
+    const json = await response.json();
+    return scenarioDefinitionSchema.parse(json.scenario);
+  }
+
   async getActiveScenario(): Promise<ScenarioRunnerSnapshot> {
     const response = await fetch(`${this.baseUrl}/api/scenarios/active`);
     if (!response.ok) {

@@ -981,6 +981,16 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     res.json({ scenarios });
   });
 
+  app.get('/api/scenarios/:id', async (req, res) => {
+    const record = await prisma.scenario.findUnique({ where: { id: req.params.id } });
+    if (!record) {
+      return res.status(404).json({ error: 'SCENARIO_NOT_FOUND' });
+    }
+    const scenario = serializeScenarioRecord(record);
+    log.debug("Scénario récupéré", { scenarioId: scenario.id });
+    res.json({ scenario });
+  });
+
   app.post('/api/scenarios', async (req, res) => {
     const parsed = scenarioPayloadSchema.safeParse(req.body);
     if (!parsed.success) {
