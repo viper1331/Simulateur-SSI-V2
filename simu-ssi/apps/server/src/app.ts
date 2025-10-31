@@ -703,12 +703,19 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   });
 
   app.get('/api/topology', async (_req, res) => {
-    const [zones, devices] = await Promise.all([
+    const [zones, devices, config] = await Promise.all([
       prisma.zone.findMany({ orderBy: { label: 'asc' } }),
       prisma.device.findMany({ orderBy: { id: 'asc' } }),
+      prisma.siteConfig.findUnique({ where: { id: 1 } }),
     ]);
     log.debug('Topology fetched', { zoneCount: zones.length, deviceCount: devices.length });
-    res.json(formatTopologyResponse(zones, devices));
+    res.json(
+      formatTopologyResponse(zones, devices, {
+        name: config?.planName ?? undefined,
+        image: config?.planImage ?? undefined,
+        notes: config?.planNotes ?? undefined,
+      }),
+    );
   });
 
   app.put('/api/topology', async (req, res) => {
@@ -716,7 +723,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.message });
     }
-    const { zones, devices } = parsed.data;
+    const { zones, devices, plan } = parsed.data;
     const zoneIds = new Set(zones.map((zone) => zone.id));
     for (const device of devices) {
       if (device.zoneId && !zoneIds.has(device.zoneId)) {
@@ -742,16 +749,39 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
             })),
           });
         }
+        const planPayload = plan?.image
+          ? {
+              planName: plan.name ?? null,
+              planImage: plan.image,
+              planNotes: plan.notes ?? null,
+            }
+          : { planName: null, planImage: null, planNotes: null };
+        await tx.siteConfig.upsert({
+          where: { id: 1 },
+          update: planPayload,
+          create: {
+            id: 1,
+            evacOnDAI: false,
+            evacOnDMDelayMs: 300000,
+            processAckRequired: true,
+            ...planPayload,
+          },
+        });
       });
     } catch (error) {
       log.error('Failed to persist topology', { error: toError(error) });
       return res.status(500).json({ error: 'FAILED_TO_SAVE_TOPOLOGY' });
     }
-    const [persistedZones, persistedDevices] = await Promise.all([
+    const [persistedZones, persistedDevices, persistedConfig] = await Promise.all([
       prisma.zone.findMany({ orderBy: { label: 'asc' } }),
       prisma.device.findMany({ orderBy: { id: 'asc' } }),
+      prisma.siteConfig.findUnique({ where: { id: 1 } }),
     ]);
-    const payload = formatTopologyResponse(persistedZones, persistedDevices);
+    const payload = formatTopologyResponse(persistedZones, persistedDevices, {
+      name: persistedConfig?.planName ?? undefined,
+      image: persistedConfig?.planImage ?? undefined,
+      notes: persistedConfig?.planNotes ?? undefined,
+    });
     log.info('Topology updated', {
       zoneCount: persistedZones.length,
       deviceCount: persistedDevices.length,
@@ -903,8 +933,17 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 function formatTopologyResponse(
   zones: Array<{ id: string; label: string; kind: string }>,
   devices: Array<{ id: string; kind: string; zoneId: string | null; propsJson: string | null }>,
+  plan?: { name?: string; image?: string; notes?: string },
 ) {
+  const planPayload = plan?.image
+    ? {
+        image: plan.image,
+        name: plan.name ?? undefined,
+        notes: plan.notes ?? undefined,
+      }
+    : undefined;
   return {
+    plan: planPayload,
     zones: zones.map((zone) => ({
       id: zone.id,
       label: zone.label,
