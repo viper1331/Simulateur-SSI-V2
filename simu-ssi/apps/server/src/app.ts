@@ -768,6 +768,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   app.post('/api/sdi/dm/:zone/reset', async (req, res) => {
     const zoneId = req.params.zone;
+    if (!scenarioRunner.canManuallyReset('DM', zoneId)) {
+      log.warn("Réarmement DM refusé par le scénario actif", { zoneId });
+      return res.status(403).json({ error: 'MANUAL_RESET_NOT_ALLOWED' });
+    }
     const updated = await recordManualCallPointReset(zoneId);
     if (!updated) {
       return res.status(404).json({ error: 'ZONE_NOT_FOUND' });
@@ -786,6 +790,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   app.post('/api/sdi/dai/:zone/reset', async (req, res) => {
     const zoneId = req.params.zone;
+    if (!scenarioRunner.canManuallyReset('DAI', zoneId)) {
+      log.warn("Réarmement DAI refusé par le scénario actif", { zoneId });
+      return res.status(403).json({ error: 'MANUAL_RESET_NOT_ALLOWED' });
+    }
     domainContext.domain.resetDai(zoneId);
     log.info("Détecteur automatique réarmé", { zoneId });
     res.status(200).json({ status: 'cleared', zoneId });
@@ -1004,6 +1012,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       description: parsed.data.description,
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
+      ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
     };
     const record = await prisma.scenario.create({
       data: {
@@ -1018,6 +1027,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       description: parsed.data.description,
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
+      ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
     });
     log.info("Scénario créé", { scenarioId: scenario.id });
     res.status(201).json({ scenario });
@@ -1036,6 +1046,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       description: parsed.data.description,
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
+      ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
     };
     const record = await prisma.scenario.update({
       where: { id: req.params.id },
@@ -1050,6 +1061,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       description: parsed.data.description,
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
+      ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
     });
     log.info("Scénario mis à jour", { scenarioId: scenario.id });
     res.json({ scenario });
@@ -1279,7 +1291,7 @@ async function persistTraineeLayout(layout: TraineeLayoutConfig): Promise<Traine
 }
 
 function serializeScenarioRecord(record: { id: string; name: string; json: string }): ScenarioDefinition {
-  let payload: { description?: string; events: unknown; topology?: unknown };
+  let payload: { description?: string; events: unknown; topology?: unknown; manualResettable?: unknown };
   try {
     payload = JSON.parse(record.json);
   } catch (error) {
@@ -1291,5 +1303,9 @@ function serializeScenarioRecord(record: { id: string; name: string; json: strin
     description: payload.description,
     events: Array.isArray(payload.events) ? payload.events : [],
     topology: payload && typeof payload === 'object' && payload.topology != null ? payload.topology : undefined,
+    manualResettable:
+      payload && typeof payload === 'object' && payload.manualResettable != null
+        ? payload.manualResettable
+        : undefined,
   });
 }

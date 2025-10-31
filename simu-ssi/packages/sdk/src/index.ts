@@ -36,6 +36,11 @@ const topologySchema = z.object({
 
 const scenarioTopologySchema = topologySchema.optional();
 
+export const scenarioManualResetSelectionSchema = z.object({
+  dmZones: z.array(z.string().min(1)).default([]),
+  daiZones: z.array(z.string().min(1)).default([]),
+});
+
 const scenarioEventBaseSchema = z.object({
   id: z.string().uuid().optional(),
   label: z.string().optional(),
@@ -64,6 +69,7 @@ export const scenarioDefinitionSchema = z.object({
   description: z.string().optional(),
   events: z.array(scenarioEventSchema),
   topology: scenarioTopologySchema,
+  manualResettable: scenarioManualResetSelectionSchema.optional(),
 });
 
 export const scenarioPayloadSchema = z.object({
@@ -71,6 +77,7 @@ export const scenarioPayloadSchema = z.object({
   description: z.string().optional(),
   events: z.array(scenarioEventSchema).min(1),
   topology: scenarioTopologySchema,
+  manualResettable: scenarioManualResetSelectionSchema.optional(),
 });
 
 export const scenarioRunnerSnapshotSchema = z.object({
@@ -216,6 +223,7 @@ export type SiteConfig = z.infer<typeof siteConfigSchema>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 export type ScenarioDefinition = z.infer<typeof scenarioDefinitionSchema>;
 export type ScenarioPayload = z.infer<typeof scenarioPayloadSchema>;
+export type ScenarioManualResetSelection = z.infer<typeof scenarioManualResetSelectionSchema>;
 export type ScenarioRunnerSnapshot = z.infer<typeof scenarioRunnerSnapshotSchema>;
 export type SiteZone = z.infer<typeof siteZoneSchema>;
 export type SiteDevice = z.infer<typeof siteDeviceSchema>;
