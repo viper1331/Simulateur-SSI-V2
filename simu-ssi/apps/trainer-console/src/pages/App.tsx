@@ -142,7 +142,13 @@ function formatTime(iso?: number) {
   return new Date(iso).toLocaleTimeString();
 }
 
-function translateScenarioStatus(status: ScenarioRunnerSnapshot['status']): string {
+function translateScenarioStatus(
+  status: ScenarioRunnerSnapshot['status'],
+  awaitingSystemReset?: boolean,
+): string {
+  if (status === 'running' && awaitingSystemReset) {
+    return 'En attente de réarmement';
+  }
   switch (status) {
     case 'running':
       return 'En cours';
@@ -155,7 +161,11 @@ function translateScenarioStatus(status: ScenarioRunnerSnapshot['status']): stri
   }
 }
 
-function describeScenarioEvent(event: ScenarioEvent | null | undefined): string {
+function describeScenarioEvent(snapshot: ScenarioRunnerSnapshot): string {
+  if (snapshot.awaitingSystemReset) {
+    return 'Attente du réarmement du système';
+  }
+  const event = snapshot.nextEvent;
   if (!event) {
     return '—';
   }
@@ -974,8 +984,11 @@ export function App() {
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
     [draftScenario.events],
   );
-  const scenarioStateLabel = translateScenarioStatus(scenarioStatus.status);
-  const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
+  const scenarioStateLabel = translateScenarioStatus(
+    scenarioStatus.status,
+    scenarioStatus.awaitingSystemReset,
+  );
+  const nextScenarioEvent = describeScenarioEvent(scenarioStatus);
   const scenarioIsRunning = scenarioStatus.status === 'running';
   const audibleState = snapshot?.ugaActive
     ? { value: 'Diffusion', tone: 'critical' as const, footer: 'Alarme générale en cours' }
