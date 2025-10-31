@@ -1,6 +1,34 @@
-MIT License
+Licence MIT (MIT License)
+========================
 
-Copyright (c) 2025 viper1331
+Copyright (c) 2025 Simulateur SSI Contributors
+
+Permission est accordée, gratuitement, à toute personne obtenant une copie
+du présent logiciel et des documents associés (le "Logiciel"), de traiter
+le Logiciel sans restriction, y compris, sans s'y limiter, les droits
+d'utiliser, de copier, de modifier, de fusionner, de publier, de distribuer,
+de concéder des sous-licences, et/ou de vendre des copies du Logiciel, et de
+permettre aux personnes auxquelles le Logiciel est fourni de le faire,
+sous réserve des conditions suivantes :
+
+L'avis de droit d'auteur ci-dessus et le présent avis d'autorisation doivent
+être inclus dans toutes copies ou parties substantielles du Logiciel.
+
+LE LOGICIEL EST FOURNI "TEL QUEL", SANS GARANTIE D'AUCUNE SORTE, EXPRESSE OU
+IMPLICITE, Y COMPRIS MAIS SANS S'Y LIMITER, LES GARANTIES DE QUALITÉ
+MARCHANDE, D'ADÉQUATION À UN USAGE PARTICULIER ET D'ABSENCE DE CONTREFAÇON.
+EN AUCUN CAS LES AUTEURS OU TITULAIRES DU COPYRIGHT NE SAURAIENT ÊTRE TENUS
+RESPONSABLES DE TOUTE RÉCLAMATION, DOMMAGES OU AUTRE RESPONSABILITÉ, QUE CE
+SOIT DANS LE CADRE D'UNE ACTION CONTRACTUELLE, DÉLICTUELLE OU AUTRE, EN
+PROVENANCE DE, LIÉE À OU CONSÉCUTIVE À L'USAGE DU LOGICIEL OU D'AUTRES
+MANIPULATIONS DU LOGICIEL.
+
+---
+
+MIT License (Licence MIT)
+=========================
+
+Copyright (c) 2025 Simulateur SSI Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
