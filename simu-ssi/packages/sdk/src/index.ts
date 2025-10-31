@@ -89,6 +89,46 @@ const accessCodeListSchema = z.object({
 const layoutOrderSchema = z.array(z.string().min(1));
 const layoutHiddenSchema = z.array(z.string().min(1)).default([]);
 
+const userRoleSchema = z.enum(['TRAINER', 'TRAINEE']);
+
+export const userSchema = z.object({
+  id: z.string().uuid(),
+  fullName: z.string().min(1),
+  email: z.string().email().nullable().optional(),
+  role: userRoleSchema,
+});
+
+const userListSchema = z.object({
+  users: z.array(userSchema),
+});
+
+export const sessionImprovementSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+});
+
+export const sessionSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  mode: z.string().min(1),
+  objective: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  startedAt: z.string().min(1),
+  endedAt: z.string().nullable().optional(),
+  status: z.enum(['active', 'completed']),
+  trainee: userSchema.nullable().optional(),
+  trainer: userSchema.nullable().optional(),
+  improvementAreas: z.array(sessionImprovementSchema),
+});
+
+const sessionListSchema = z.object({
+  sessions: z.array(sessionSchema),
+});
+
+const sessionResponseSchema = z.object({
+  session: sessionSchema.nullable(),
+});
+
 export const traineeLayoutSchema = z.object({
   boardModuleOrder: layoutOrderSchema,
   boardModuleHidden: layoutHiddenSchema,
@@ -99,6 +139,10 @@ export const traineeLayoutSchema = z.object({
 });
 
 export type TraineeLayoutConfig = z.infer<typeof traineeLayoutSchema>;
+export type UserRole = z.infer<typeof userRoleSchema>;
+export type UserSummary = z.infer<typeof userSchema>;
+export type SessionImprovement = z.infer<typeof sessionImprovementSchema>;
+export type SessionSummary = z.infer<typeof sessionSchema>;
 
 export const DEFAULT_TRAINEE_LAYOUT: TraineeLayoutConfig = {
   boardModuleOrder: [
@@ -134,6 +178,42 @@ export type SiteTopology = z.infer<typeof topologySchema>;
 export type AccessAuthorisation = z.infer<typeof accessAuthorisationSchema>;
 export type AccessCode = z.infer<typeof accessCodeSchema>;
 export const siteTopologySchema = topologySchema;
+
+export interface UserCreateInput {
+  fullName: string;
+  role?: UserRole;
+  email?: string;
+}
+
+export interface UserUpdateInput {
+  fullName?: string;
+  role?: UserRole;
+  email?: string | null;
+}
+
+export interface SessionCreateRequest {
+  name: string;
+  mode?: string;
+  traineeId?: string;
+  trainerId?: string;
+  objective?: string;
+  notes?: string;
+}
+
+export interface SessionUpdateRequest {
+  name?: string;
+  mode?: string;
+  traineeId?: string | null;
+  trainerId?: string | null;
+  objective?: string | null;
+  notes?: string | null;
+}
+
+export interface SessionCloseRequest {
+  notes?: string | null;
+  improvementAreas?: SessionImprovement[];
+  endedAt?: string;
+}
 
 export class SsiSdk {
   constructor(private readonly baseUrl: string) {}
@@ -236,6 +316,118 @@ export class SsiSdk {
     }
     const json = await response.json();
     return accessCodeSchema.parse(json.code);
+  }
+
+  async listUsers(role?: UserRole): Promise<UserSummary[]> {
+    const url = new URL('/api/users', this.baseUrl);
+    if (role) {
+      url.searchParams.set('role', role);
+    }
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error('Failed to fetch users');
+    }
+    const json = await response.json();
+    const parsed = userListSchema.parse(json);
+    return parsed.users;
+  }
+
+  async createUser(input: UserCreateInput): Promise<UserSummary> {
+    const response = await fetch(`${this.baseUrl}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to create user');
+    }
+    const json = await response.json();
+    return userSchema.parse(json.user);
+  }
+
+  async updateUser(id: string, input: UserUpdateInput): Promise<UserSummary> {
+    const response = await fetch(`${this.baseUrl}/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update user');
+    }
+    const json = await response.json();
+    return userSchema.parse(json.user);
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/users/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to delete user');
+    }
+  }
+
+  async listSessions(limit = 20): Promise<SessionSummary[]> {
+    const url = new URL('/api/sessions', this.baseUrl);
+    if (limit) {
+      url.searchParams.set('limit', String(limit));
+    }
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error('Failed to fetch sessions');
+    }
+    const json = await response.json();
+    const parsed = sessionListSchema.parse(json);
+    return parsed.sessions;
+  }
+
+  async getCurrentSession(): Promise<SessionSummary | null> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/active`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch current session');
+    }
+    const json = await response.json();
+    const parsed = sessionResponseSchema.parse(json);
+    return parsed.session ?? null;
+  }
+
+  async createSession(payload: SessionCreateRequest): Promise<SessionSummary> {
+    const response = await fetch(`${this.baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to create session');
+    }
+    const json = await response.json();
+    return sessionSchema.parse(json.session);
+  }
+
+  async updateSession(id: string, payload: SessionUpdateRequest): Promise<SessionSummary> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update session');
+    }
+    const json = await response.json();
+    return sessionSchema.parse(json.session);
+  }
+
+  async closeSession(id: string, payload: SessionCloseRequest = {}): Promise<SessionSummary> {
+    const response = await fetch(`${this.baseUrl}/api/sessions/${id}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to close session');
+    }
+    const json = await response.json();
+    return sessionSchema.parse(json.session);
   }
 
   async getTraineeLayout(): Promise<TraineeLayoutConfig> {

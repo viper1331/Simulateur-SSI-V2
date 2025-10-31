@@ -65,11 +65,20 @@ model Scenario {
 }
 
 model Session {
-  id        String   @id
-  mode      String
-  trainerId String?
-  startedAt DateTime
-  endedAt   DateTime?
+  id             String   @id @default(uuid())
+  name           String
+  mode           String   @default("libre")
+  objective      String?
+  notes          String?
+  improvementJson String?
+  trainerId      String?
+  traineeId      String?
+  startedAt      DateTime @default(now())
+  endedAt        DateTime?
+  trainer        User?    @relation("TrainerSessions", fields: [trainerId], references: [id])
+  trainee        User?    @relation("TraineeSessions", fields: [traineeId], references: [id])
+  scores         Score[]
+  events         EventLog[]
 }
 
 model EventLog {
@@ -79,6 +88,7 @@ model EventLog {
   source      String
   zoneId      String?
   payloadJson String?
+  session     Session? @relation(fields: [sessionId], references: [id])
 }
 
 model Score {
@@ -88,4 +98,23 @@ model Score {
   rubricJson String
   value      Float
   comments   String?
+  session    Session @relation(fields: [sessionId], references: [id])
+  user       User?   @relation(fields: [userId], references: [id])
+}
+
+model User {
+  id              String    @id @default(uuid())
+  fullName        String
+  email           String?   @unique
+  role            UserRole  @default(TRAINEE)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  trainerSessions Session[] @relation("TrainerSessions")
+  traineeSessions Session[] @relation("TraineeSessions")
+  scores          Score[]
+}
+
+enum UserRole {
+  TRAINER
+  TRAINEE
 }

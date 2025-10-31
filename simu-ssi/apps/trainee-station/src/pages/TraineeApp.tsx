@@ -10,6 +10,8 @@ import {
   type ScenarioEvent,
   type ScenarioRunnerSnapshot,
   type TraineeLayoutConfig,
+  type SessionSummary,
+  sessionSchema,
 } from '@simu-ssi/sdk';
 
 interface CmsiStateData {
@@ -251,8 +253,10 @@ export function TraineeApp() {
   const [layout, setLayout] = useState<TraineeLayoutConfig>(DEFAULT_TRAINEE_LAYOUT);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
+  const [sessionInfo, setSessionInfo] = useState<SessionSummary | null>(null);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
+  const improvementAreas = sessionInfo?.improvementAreas ?? [];
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
@@ -273,6 +277,16 @@ export function TraineeApp() {
       const parsed = siteTopologySchema.safeParse(payload);
       if (parsed.success) {
         setTopology(parsed.data);
+      }
+    });
+    socket.on('session.update', (payload) => {
+      if (payload === null) {
+        setSessionInfo(null);
+        return;
+      }
+      const parsed = sessionSchema.safeParse(payload);
+      if (parsed.success) {
+        setSessionInfo(parsed.data);
       }
     });
     return () => socket.disconnect();
@@ -302,6 +316,10 @@ export function TraineeApp() {
   useEffect(() => {
     setPlanNotes(extractPlanNotes(topology));
   }, [topology]);
+
+  useEffect(() => {
+    sdk.getCurrentSession().then(setSessionInfo).catch(console.error);
+  }, [sdk]);
 
   useEffect(() => {
     try {
@@ -565,6 +583,69 @@ export function TraineeApp() {
           onSubmit={handleAccessSubmit}
           onLock={handleAccessLock}
         />
+      ),
+    },
+    {
+      id: 'training-session',
+      element: (
+        <article className="detail-panel session-panel">
+          <h3 className="detail-title">Session de formation</h3>
+          {sessionInfo ? (
+            <div className="session-panel__content">
+              <div className={`session-panel__status session-panel__status--${sessionInfo.status}`}>
+                {sessionInfo.status === 'active' ? 'En cours' : 'Clôturée'}
+              </div>
+              <h4 className="session-panel__name">{sessionInfo.name}</h4>
+              <dl className="session-panel__meta">
+                <div>
+                  <dt>Apprenant</dt>
+                  <dd>{sessionInfo.trainee?.fullName ?? 'Non attribué'}</dd>
+                </div>
+                <div>
+                  <dt>Formateur</dt>
+                  <dd>{sessionInfo.trainer?.fullName ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt>Début</dt>
+                  <dd>{formatDateTime(sessionInfo.startedAt)}</dd>
+                </div>
+                {sessionInfo.endedAt && (
+                  <div>
+                    <dt>Fin</dt>
+                    <dd>{formatDateTime(sessionInfo.endedAt)}</dd>
+                  </div>
+                )}
+              </dl>
+              {sessionInfo.objective && (
+                <div className="session-panel__objective">
+                  <span>Objectifs</span>
+                  <p>{sessionInfo.objective}</p>
+                </div>
+              )}
+              {improvementAreas.length > 0 ? (
+                <div className="session-panel__improvements">
+                  <span>Axes d'amélioration</span>
+                  <ul>
+                    {improvementAreas.map((area, index) => (
+                      <li key={`${area.title}-${index}`}>
+                        <strong>{area.title}</strong>
+                        {area.description && <span> — {area.description}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="session-panel__placeholder">
+                  Les axes d'amélioration personnalisés apparaîtront après la clôture de la session.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="session-panel__placeholder">
+              En attente d'une session attribuée par le formateur.
+            </p>
+          )}
+        </article>
       ),
     },
     {
