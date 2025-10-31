@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { ManualEvacuationPanel, StatusTile, TimelineBadge } from '@simu-ssi/shared-ui';
 import {
@@ -12,6 +12,8 @@ import {
   type ScenarioDefinition,
   type ScenarioEvent,
   type ScenarioPayload,
+  scenarioDefinitionSchema,
+  scenarioPayloadSchema,
   type ScenarioRunnerSnapshot,
   type SiteConfig,
   type SiteDevice,
@@ -405,6 +407,40 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
 ];
 
 const SCENARIO_ZONE_DATALIST_ID = 'scenario-zone-options';
+const SCENARIO_EXPORT_FORMAT = 'simu-ssi/scenario@1';
+
+function formatScenarioFileName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? `${slug}.scenario.json` : 'scenario.scenario.json';
+}
+
+function extractScenarioPayload(data: unknown): ScenarioPayload | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const root = data as Record<string, unknown>;
+  const candidate = 'scenario' in root ? root.scenario : data;
+  const payloadResult = scenarioPayloadSchema.safeParse(candidate);
+  if (payloadResult.success) {
+    return payloadResult.data;
+  }
+  const definitionResult = scenarioDefinitionSchema.safeParse(candidate);
+  if (definitionResult.success) {
+    const { id: _ignored, ...rest } = definitionResult.data;
+    return {
+      name: rest.name,
+      description: rest.description,
+      events: rest.events,
+    };
+  }
+  return null;
+}
 
 export function App() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
@@ -432,6 +468,7 @@ export function App() {
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [scenarioFeedback, setScenarioFeedback] = useState<string | null>(null);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [topologyLoading, setTopologyLoading] = useState(true);
   const [topologyError, setTopologyError] = useState<string | null>(null);
@@ -479,6 +516,7 @@ export function App() {
   const traineeOptions = useMemo(() => users.filter((user) => user.role === 'TRAINEE'), [users]);
   const trainerOptions = useMemo(() => users.filter((user) => user.role === 'TRAINER'), [users]);
   const recentSessions = useMemo(() => sessions.slice(0, 6), [sessions]);
+  const scenarioFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const applyActiveSession = useCallback((session: SessionSummary | null) => {
     setActiveSession(session);
@@ -1208,12 +1246,14 @@ export function App() {
     setDraftScenario(createEmptyScenarioDraft());
     setEditingScenarioId(null);
     setScenarioError(null);
+    setScenarioFeedback(null);
   };
 
   const handleScenarioEdit = (scenario: ScenarioDefinition) => {
     setDraftScenario(scenarioDefinitionToDraft(scenario));
     setEditingScenarioId(scenario.id);
     setScenarioError(null);
+    setScenarioFeedback(null);
   };
 
   const handleScenarioDelete = async (scenarioId: string) => {
@@ -1224,8 +1264,10 @@ export function App() {
         handleScenarioResetForm();
       }
       refreshScenarios();
+      setScenarioFeedback('Scénario supprimé.');
     } catch (error) {
       console.error(error);
+      setScenarioFeedback(null);
     } finally {
       setScenarioDeleting((current) => (current === scenarioId ? null : current));
     }
@@ -1242,22 +1284,94 @@ export function App() {
       return;
     }
     setScenarioError(null);
+    setScenarioFeedback(null);
     setScenarioSaving(true);
     try {
       const payload = draftToPayload(draftScenario);
+      const wasEditing = Boolean(editingScenarioId);
       const saved = editingScenarioId
         ? await sdk.updateScenario(editingScenarioId, payload)
         : await sdk.createScenario(payload);
       setDraftScenario(scenarioDefinitionToDraft(saved));
       setEditingScenarioId(saved.id);
       refreshScenarios();
+      setScenarioFeedback(wasEditing ? 'Scénario mis à jour.' : 'Scénario créé.');
     } catch (error) {
       console.error(error);
       setScenarioError('Impossible de sauvegarder le scénario.');
+      setScenarioFeedback(null);
     } finally {
       setScenarioSaving(false);
     }
   };
+
+  const handleScenarioExport = useCallback((scenario: ScenarioDefinition) => {
+    const exportPayload = {
+      format: SCENARIO_EXPORT_FORMAT,
+      exportedAt: new Date().toISOString(),
+      source: { id: scenario.id },
+      scenario: {
+        name: scenario.name,
+        description: scenario.description,
+        events: scenario.events,
+      },
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = formatScenarioFileName(scenario.name);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleScenarioImportClick = useCallback(() => {
+    setScenarioError(null);
+    setScenarioFeedback(null);
+    scenarioFileInputRef.current?.click();
+  }, [scenarioFileInputRef]);
+
+  const handleScenarioFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      setScenarioSaving(true);
+      setScenarioError(null);
+      setScenarioFeedback(null);
+      try {
+        const text = await file.text();
+        const parsed = extractScenarioPayload(JSON.parse(text));
+        if (!parsed) {
+          throw new Error('INVALID_SCENARIO_FILE');
+        }
+        const sanitized: ScenarioPayload = {
+          name: parsed.name.trim(),
+          description: parsed.description?.trim() ? parsed.description.trim() : undefined,
+          events: parsed.events.map((event) => ({ ...event })),
+        };
+        if (sanitized.events.length === 0) {
+          throw new Error('SCENARIO_EVENTS_MISSING');
+        }
+        const created = await sdk.createScenario(sanitized);
+        setDraftScenario(scenarioDefinitionToDraft(created));
+        setEditingScenarioId(created.id);
+        refreshScenarios();
+        setScenarioFeedback(`Scénario « ${created.name} » importé avec succès.`);
+      } catch (error) {
+        console.error(error);
+        setScenarioError("Import impossible. Vérifiez le fichier sélectionné.");
+        setScenarioFeedback(null);
+      } finally {
+        setScenarioSaving(false);
+        event.target.value = '';
+      }
+    },
+    [refreshScenarios, sdk],
+  );
 
   const handleScenarioRun = async (scenarioId: string) => {
     try {
@@ -2065,9 +2179,21 @@ export function App() {
               <aside className="scenario-sidebar">
                 <div className="scenario-sidebar__header">
                   <h3 className="scenario-sidebar__title">Bibliothèque</h3>
-                  <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
-                    Nouveau
-                  </button>
+                  <div className="scenario-sidebar__actions">
+                    <button type="button" className="btn btn--ghost" onClick={handleScenarioImportClick}>
+                      Importer
+                    </button>
+                    <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
+                      Nouveau
+                    </button>
+                  </div>
+                  <input
+                    ref={scenarioFileInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleScenarioFileChange}
+                    style={{ display: 'none' }}
+                  />
                 </div>
                 <ul className="scenario-list">
                   {scenarios.length === 0 && <li className="scenario-list__empty">Aucun scénario enregistré.</li>}
@@ -2090,6 +2216,13 @@ export function App() {
                           </button>
                           <button type="button" className="btn btn--outline" onClick={() => handleScenarioEdit(scenario)}>
                             Modifier
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            onClick={() => handleScenarioExport(scenario)}
+                          >
+                            Exporter
                           </button>
                           <button
                             type="button"
@@ -2263,6 +2396,7 @@ export function App() {
                     );
                   })}
                 </div>
+                {scenarioFeedback && <p className="scenario-feedback">{scenarioFeedback}</p>}
                 {scenarioError && <p className="scenario-error">{scenarioError}</p>}
                 <div className="scenario-form__actions">
                   <button type="submit" className="btn btn--primary" disabled={scenarioSaving} aria-busy={scenarioSaving}>

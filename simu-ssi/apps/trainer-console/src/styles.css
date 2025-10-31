@@ -1429,6 +1429,12 @@ kbd {
   gap: 12px;
 }
 
+.scenario-sidebar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .scenario-sidebar__title {
   margin: 0;
   font-size: 1.05rem;
@@ -1657,6 +1663,15 @@ kbd {
   border-radius: 12px;
   background: rgba(248, 113, 113, 0.12);
   color: #7f1d1d;
+  font-size: 0.9rem;
+}
+
+.scenario-feedback {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(134, 239, 172, 0.18);
+  color: #14532d;
   font-size: 0.9rem;
 }
 
