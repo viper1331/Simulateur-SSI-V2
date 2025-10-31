@@ -8,6 +8,8 @@ import {
   type AccessCode,
   type SessionSummary,
   type SessionImprovement,
+  type UserImportPayload,
+  type UserImportResult,
   type UserRole,
   type UserSummary,
   type ScenarioDefinition,
@@ -472,6 +474,7 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
 
 const SCENARIO_ZONE_DATALIST_ID = 'scenario-zone-options';
 const SCENARIO_EXPORT_FORMAT = 'simu-ssi/scenario@1';
+const USER_EXPORT_FORMAT = 'simu-ssi/users@1';
 
 function formatScenarioFileName(name: string): string {
   const slug = name
@@ -505,6 +508,97 @@ function extractScenarioPayload(data: unknown): ScenarioPayload | null {
     };
   }
   return null;
+}
+
+function formatUserExportFileName(count: number): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const suffix = count > 0 ? `-${String(count).padStart(2, '0')}` : '';
+  return `ssi-utilisateurs-${year}${month}${day}${suffix}.json`;
+}
+
+function extractUserImportPayload(data: unknown): UserImportPayload | null {
+  if (!data) {
+    return null;
+  }
+  if (Array.isArray(data)) {
+    return extractUserArray(data);
+  }
+  if (typeof data !== 'object') {
+    return null;
+  }
+  const root = data as Record<string, unknown>;
+  const format = typeof root.format === 'string' ? root.format : undefined;
+  if (format && format !== USER_EXPORT_FORMAT) {
+    return null;
+  }
+  if (Array.isArray(root.users)) {
+    return extractUserArray(root.users);
+  }
+  return null;
+}
+
+function extractUserArray(entries: unknown[]): UserImportPayload | null {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const users: UserImportPayload['users'] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+    const record = entry as Record<string, unknown>;
+    const rawFullName = typeof record.fullName === 'string' ? record.fullName.trim() : '';
+    if (!rawFullName) {
+      return null;
+    }
+    const rawRole = typeof record.role === 'string' ? record.role.toUpperCase() : '';
+    if (rawRole !== 'TRAINER' && rawRole !== 'TRAINEE') {
+      return null;
+    }
+    const rawId = typeof record.id === 'string' ? record.id.trim() : undefined;
+    let email: string | null = null;
+    if ('email' in record) {
+      const value = record.email;
+      if (value == null || value === '') {
+        email = null;
+      } else if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized && !emailRegex.test(normalized)) {
+          return null;
+        }
+        email = normalized || null;
+      } else {
+        return null;
+      }
+    }
+    users.push({
+      id: rawId && rawId.length > 0 ? rawId : undefined,
+      fullName: rawFullName,
+      email,
+      role: rawRole as UserRole,
+    });
+  }
+  if (users.length === 0) {
+    return null;
+  }
+  return { users };
+}
+
+function describeUserImportError(reason: string, fullName: string, email?: string | null): string {
+  const identity = fullName ? `« ${fullName} »` : 'un enregistrement';
+  switch (reason) {
+    case 'EMAIL_ALREADY_IN_USE':
+      return `l'adresse ${email ?? 'fournie'} est déjà associée à un autre compte`;
+    case 'INVALID_FULL_NAME':
+      return `le nom complet est manquant pour ${identity}`;
+    case 'DUPLICATE_ID_IN_IMPORT':
+      return `l'identifiant est dupliqué pour ${identity}`;
+    case 'DUPLICATE_EMAIL_IN_IMPORT':
+      return `l'adresse ${email ?? 'fournie'} apparaît plusieurs fois dans le fichier`;
+    default:
+      return `${identity} n'a pas pu être importé`;
+  }
 }
 
 export function App() {
@@ -557,6 +651,7 @@ export function App() {
   const [editingUserDraft, setEditingUserDraft] = useState<{ fullName: string; email: string; role: UserRole } | null>(null);
   const [userDeletingId, setUserDeletingId] = useState<string | null>(null);
   const [userSavingId, setUserSavingId] = useState<string | null>(null);
+  const [userImporting, setUserImporting] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -587,6 +682,7 @@ export function App() {
   const trainerOptions = useMemo(() => users.filter((user) => user.role === 'TRAINER'), [users]);
   const recentSessions = useMemo(() => sessions.slice(0, 6), [sessions]);
   const scenarioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const userImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (trainerOptions.length === 0) {
@@ -1036,6 +1132,96 @@ export function App() {
         setUserActionError("Suppression impossible : l'utilisateur est peut-être lié à des sessions existantes.");
       } finally {
         setUserDeletingId(null);
+      }
+    },
+    [refreshUsers, sdk],
+  );
+
+  const handleUserExport = useCallback(() => {
+    if (users.length === 0) {
+      setUserActionError('Aucun utilisateur à exporter.');
+      setUserFormFeedback(null);
+      return;
+    }
+    const exportPayload = {
+      format: USER_EXPORT_FORMAT,
+      exportedAt: new Date().toISOString(),
+      count: users.length,
+      users: users.map((user) => ({
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email ?? null,
+        role: user.role,
+      })),
+    } satisfies {
+      format: string;
+      exportedAt: string;
+      count: number;
+      users: Array<{ id: string; fullName: string; email: string | null; role: UserRole }>;
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = formatUserExportFileName(users.length);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setUserFormFeedback(
+      `${users.length} utilisateur${users.length > 1 ? 's' : ''} exporté${users.length > 1 ? 's' : ''}.`,
+    );
+    setUserActionError(null);
+  }, [users]);
+
+  const handleUserImportClick = useCallback(() => {
+    setUserActionError(null);
+    setUserFormFeedback(null);
+    userImportInputRef.current?.click();
+  }, []);
+
+  const handleUserImportFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      setUserImporting(true);
+      setUserActionError(null);
+      setUserFormFeedback(null);
+      try {
+        const text = await file.text();
+        const parsed = extractUserImportPayload(JSON.parse(text));
+        if (!parsed) {
+          throw new Error('INVALID_USER_FILE');
+        }
+        const result: UserImportResult = await sdk.importUsers(parsed);
+        refreshUsers();
+        const { created, updated, skipped, errors } = result;
+        const parts: string[] = [];
+        if (created > 0) {
+          parts.push(`${created} ${created > 1 ? 'utilisateurs créés' : 'utilisateur créé'}`);
+        }
+        if (updated > 0) {
+          parts.push(`${updated} ${updated > 1 ? 'utilisateurs mis à jour' : 'utilisateur mis à jour'}`);
+        }
+        if (parts.length === 0) {
+          parts.push('aucune modification appliquée');
+        }
+        const skippedLabel = skipped > 0 ? ` (${skipped} ignoré${skipped > 1 ? 's' : ''})` : '';
+        setUserFormFeedback(`Import terminé : ${parts.join(', ')}${skippedLabel}.`);
+        if (errors && errors.length > 0) {
+          const [firstError, ...rest] = errors;
+          const description = describeUserImportError(firstError.reason, firstError.fullName, firstError.email);
+          const extra = rest.length > 0 ? ` (+${rest.length} autres)` : '';
+          setUserActionError(`Import partiel : ${description}${extra}.`);
+        }
+      } catch (error) {
+        console.error(error);
+        setUserActionError("Import impossible. Vérifiez le format du fichier JSON.");
+      } finally {
+        setUserImporting(false);
+        event.target.value = '';
       }
     },
     [refreshUsers, sdk],
@@ -2847,6 +3033,32 @@ export function App() {
                   {creatingUser ? 'Ajout en cours…' : 'Ajouter un utilisateur'}
                 </button>
               </form>
+              <div className="user-import-controls">
+                <p className="user-import-controls__hint">
+                  Importez un fichier exporté ou générez une sauvegarde de la liste actuelle.
+                </p>
+                <div className="user-import-controls__actions">
+                  <button type="button" className="btn btn--ghost" onClick={handleUserExport}>
+                    Exporter (.json)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={handleUserImportClick}
+                    disabled={userImporting}
+                    aria-busy={userImporting}
+                  >
+                    {userImporting ? 'Import en cours…' : 'Importer (.json)'}
+                  </button>
+                </div>
+                <input
+                  ref={userImportInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="user-import-input"
+                  onChange={handleUserImportFileChange}
+                />
+              </div>
               <div className="user-list-wrapper">
                 {usersLoading ? (
                   <p className="card__placeholder">Chargement des utilisateurs…</p>

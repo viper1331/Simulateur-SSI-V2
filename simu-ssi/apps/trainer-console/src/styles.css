@@ -2039,6 +2039,28 @@ kbd {
   margin-bottom: 20px;
 }
 
+.user-import-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.user-import-controls__hint {
+  font-size: 0.78rem;
+  color: rgba(30, 41, 59, 0.6);
+}
+
+.user-import-controls__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.user-import-input {
+  display: none;
+}
+
 .user-form__row {
   display: grid;
   gap: 12px;
