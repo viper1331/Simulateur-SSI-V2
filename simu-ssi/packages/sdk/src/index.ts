@@ -85,6 +85,36 @@ const accessCodeListSchema = z.object({
   codes: z.array(accessCodeSchema),
 });
 
+const layoutOrderSchema = z.array(z.string().min(1));
+
+export const traineeLayoutSchema = z.object({
+  boardModuleOrder: layoutOrderSchema,
+  controlButtonOrder: layoutOrderSchema,
+  sidePanelOrder: layoutOrderSchema,
+});
+
+export type TraineeLayoutConfig = z.infer<typeof traineeLayoutSchema>;
+
+export const DEFAULT_TRAINEE_LAYOUT: TraineeLayoutConfig = {
+  boardModuleOrder: [
+    'cmsi-status',
+    'uga',
+    'das',
+    'manual-evac',
+    'dai',
+    'dm-zf1',
+    'dm-zf2',
+    'dm-zf3',
+    'dm-zf4',
+    'dm-zf5',
+    'dm-zf6',
+    'dm-zf7',
+    'dm-zf8',
+  ],
+  controlButtonOrder: ['silence', 'ack', 'reset-request', 'reset-dm-zf1', 'manual-evac-toggle'],
+  sidePanelOrder: ['access-control', 'event-recap', 'instructions'],
+};
+
 export type SiteConfig = z.infer<typeof siteConfigSchema>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 export type ScenarioDefinition = z.infer<typeof scenarioDefinitionSchema>;
@@ -197,6 +227,38 @@ export class SsiSdk {
     }
     const json = await response.json();
     return accessCodeSchema.parse(json.code);
+  }
+
+  async getTraineeLayout(): Promise<TraineeLayoutConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config/trainee-layout`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch trainee layout');
+    }
+    const json = await response.json();
+    const parsed = traineeLayoutSchema.safeParse(json);
+    if (!parsed.success) {
+      throw new Error('Invalid trainee layout payload');
+    }
+    return parsed.data;
+  }
+
+  async updateTraineeLayout(layout: TraineeLayoutConfig): Promise<TraineeLayoutConfig> {
+    const response = await fetch(`${this.baseUrl}/api/config/trainee-layout`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(layout),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      const message = errorBody?.error ?? 'Failed to update trainee layout';
+      throw new Error(message);
+    }
+    const json = await response.json();
+    const parsed = traineeLayoutSchema.safeParse(json);
+    if (!parsed.success) {
+      throw new Error('Invalid trainee layout payload');
+    }
+    return parsed.data;
   }
 
   async listScenarios(): Promise<ScenarioDefinition[]> {

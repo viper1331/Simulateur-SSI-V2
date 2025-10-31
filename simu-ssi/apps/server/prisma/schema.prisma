@@ -21,6 +21,12 @@ model AccessCode {
   updatedAt DateTime @updatedAt
 }
 
+model TraineeLayout {
+  id         Int      @id @default(1)
+  configJson String
+  updatedAt  DateTime @updatedAt
+}
+
 model ProcessAck {
   id        Int      @id @default(1)
   isAcked   Boolean  @default(false)
