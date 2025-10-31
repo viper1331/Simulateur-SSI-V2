@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
 import { SsiSdk, type ScenarioRunnerSnapshot } from '@simu-ssi/sdk';
 
@@ -85,6 +85,10 @@ function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): stri
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
+  const [accessLevel, setAccessLevel] = useState<number>(1);
+  const [ledMessage, setLedMessage] = useState<string>('Niveau 1 actif — arrêt signal sonore disponible.');
+  const [codeBuffer, setCodeBuffer] = useState<string>('');
+  const [verifyingAccess, setVerifyingAccess] = useState<boolean>(false);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
 
@@ -99,9 +103,102 @@ export function TraineeApp() {
     sdk.getActiveScenario().then(setScenarioStatus).catch(console.error);
   }, [sdk]);
 
-  const handleAck = () => sdk.acknowledgeProcess('trainee').catch(console.error);
-  const handleResetRequest = () => sdk.resetSystem().catch(console.error);
-  const handleResetDm = (zoneId: string) => sdk.resetManualCallPoint(zoneId).catch(console.error);
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem('ssi-access-level');
+      if (stored) {
+        const parsed = Number.parseInt(stored, 10);
+        if (parsed === 2) {
+          setAccessLevel(2);
+          setLedMessage('Niveau 2 actif — commandes avancées disponibles.');
+        }
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem('ssi-access-level', String(accessLevel));
+    } catch (error) {
+      console.error(error);
+    }
+  }, [accessLevel]);
+
+  const handleAck = useCallback(() => {
+    if (accessLevel < 2) return;
+    sdk.acknowledgeProcess('trainee').catch(console.error);
+  }, [accessLevel, sdk]);
+
+  const handleResetRequest = useCallback(() => {
+    if (accessLevel < 2) return;
+    sdk.resetSystem().catch(console.error);
+  }, [accessLevel, sdk]);
+
+  const handleResetDm = useCallback(
+    (zoneId: string) => {
+      if (accessLevel < 2) return;
+      sdk.resetManualCallPoint(zoneId).catch(console.error);
+    },
+    [accessLevel, sdk],
+  );
+
+  const handleManualEvacToggle = useCallback(() => {
+    if (accessLevel < 2) return;
+    if (snapshot?.manualEvacuation) {
+      sdk.stopManualEvacuation('poste-apprenant').catch(console.error);
+    } else {
+      sdk.startManualEvacuation('poste-apprenant').catch(console.error);
+    }
+  }, [accessLevel, sdk, snapshot?.manualEvacuation]);
+
+  const handleSilenceAlarm = useCallback(() => {
+    sdk.silenceAudibleAlarm().catch(console.error);
+  }, [sdk]);
+
+  const handleAccessDigit = useCallback(
+    (digit: string) => {
+      if (verifyingAccess) return;
+      setCodeBuffer((prev) => (prev.length >= 6 ? prev : `${prev}${digit}`));
+    },
+    [verifyingAccess],
+  );
+
+  const handleAccessClear = useCallback(() => {
+    if (verifyingAccess) return;
+    setCodeBuffer('');
+  }, [verifyingAccess]);
+
+  const handleAccessLock = useCallback(() => {
+    setAccessLevel(1);
+    setLedMessage('Niveau 1 actif — arrêt signal sonore disponible.');
+    setCodeBuffer('');
+  }, []);
+
+  const handleAccessSubmit = useCallback(async () => {
+    if (verifyingAccess) return;
+    const input = codeBuffer.trim();
+    if (input.length === 0) {
+      handleAccessLock();
+      return;
+    }
+    setVerifyingAccess(true);
+    setLedMessage('Validation du code en cours…');
+    try {
+      const result = await sdk.verifyAccessCode(input);
+      setLedMessage(result.label);
+      if (result.allowed && typeof result.level === 'number') {
+        setAccessLevel(result.level);
+      }
+    } catch (error) {
+      console.error(error);
+      setLedMessage('Erreur de vérification du code.');
+    } finally {
+      setVerifyingAccess(false);
+      setCodeBuffer('');
+    }
+  }, [codeBuffer, handleAccessLock, sdk, verifyingAccess]);
 
   const remainingDeadline = snapshot?.cmsi.deadline
     ? Math.max(0, Math.floor((snapshot.cmsi.deadline - Date.now()) / 1000))
@@ -183,12 +280,12 @@ export function TraineeApp() {
             <StatusBadge
               tone={cmsiStatusTone[snapshot?.cmsi.status ?? ''] ?? 'info'}
               label={cmsiStatusLabel[snapshot?.cmsi.status ?? ''] ?? 'Système normal'}
-          />
-          <div className="timer-box">
-            <span className="timer-label">Échéance T+5</span>
-            <span className="timer-value">{remainingDeadline !== null ? `${remainingDeadline}s` : '—'}</span>
+            />
+            <div className="timer-box">
+              <span className="timer-label">Échéance T+5</span>
+              <span className="timer-value">{remainingDeadline !== null ? `${remainingDeadline}s` : '—'}</span>
+            </div>
           </div>
-        </div>
       </header>
       <main className="trainee-main">
         <section className="synoptic-panel">
@@ -205,12 +302,54 @@ export function TraineeApp() {
             ))}
           </div>
           <div className="control-strip">
-            <ControlButton label="Acquittement" tone="amber" onClick={handleAck} />
-            <ControlButton label="Demande de réarmement" tone="blue" onClick={handleResetRequest} />
-            <ControlButton label="Réarmement DM ZF1" tone="green" onClick={() => handleResetDm('ZF1')} />
+            <ControlButton
+              label="Arrêt signal sonore"
+              tone="red"
+              onClick={handleSilenceAlarm}
+              disabled={!snapshot?.ugaActive}
+              title={!snapshot?.ugaActive ? 'Aucune alarme sonore en cours' : undefined}
+            />
+            <ControlButton
+              label="Acquittement"
+              tone="amber"
+              onClick={handleAck}
+              disabled={accessLevel < 2}
+              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
+            />
+            <ControlButton
+              label="Demande de réarmement"
+              tone="blue"
+              onClick={handleResetRequest}
+              disabled={accessLevel < 2}
+              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
+            />
+            <ControlButton
+              label="Réarmement DM ZF1"
+              tone="green"
+              onClick={() => handleResetDm('ZF1')}
+              disabled={accessLevel < 2}
+              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
+            />
+            <ControlButton
+              label={snapshot?.manualEvacuation ? 'Arrêt évacuation manuelle' : 'Déclencher évacuation manuelle'}
+              tone={snapshot?.manualEvacuation ? 'blue' : 'purple'}
+              onClick={handleManualEvacToggle}
+              disabled={accessLevel < 2}
+              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
+            />
           </div>
         </section>
         <section className="side-panels">
+          <AccessControlPanel
+            accessLevel={accessLevel}
+            ledMessage={ledMessage}
+            codeBuffer={codeBuffer}
+            verifying={verifyingAccess}
+            onDigit={handleAccessDigit}
+            onClear={handleAccessClear}
+            onSubmit={handleAccessSubmit}
+            onLock={handleAccessLock}
+          />
           <article className="detail-panel">
             <h3 className="detail-title">Récapitulatif évènementiel</h3>
             <ul className="detail-list">
@@ -283,13 +422,21 @@ function StatusBadge({ label, tone }: StatusBadgeProps) {
 
 interface ControlButtonProps {
   label: string;
-  tone: 'amber' | 'blue' | 'green';
+  tone: 'amber' | 'blue' | 'green' | 'red' | 'purple';
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }
 
-function ControlButton({ label, tone, onClick }: ControlButtonProps) {
+function ControlButton({ label, tone, onClick, disabled, title }: ControlButtonProps) {
   return (
-    <button type="button" className={`control-button control-${tone}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`control-button control-${tone}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+    >
       {label}
     </button>
   );
@@ -307,6 +454,116 @@ function BoardTile({ module }: BoardTileProps) {
         <span className="tile-led" aria-hidden />
       </div>
       <p className="tile-description">{module.description}</p>
+    </div>
+  );
+}
+
+interface AccessControlPanelProps {
+  accessLevel: number;
+  ledMessage: string;
+  codeBuffer: string;
+  verifying: boolean;
+  onDigit: (digit: string) => void;
+  onClear: () => void;
+  onSubmit: () => void;
+  onLock: () => void;
+}
+
+function AccessControlPanel({
+  accessLevel,
+  ledMessage,
+  codeBuffer,
+  verifying,
+  onDigit,
+  onClear,
+  onSubmit,
+  onLock,
+}: AccessControlPanelProps) {
+  return (
+    <article className="detail-panel access-panel">
+      <div className="access-panel__header">
+        <h3 className="detail-title">Contrôle d&apos;accès SSI</h3>
+        <button type="button" className="access-panel__lock" onClick={onLock}>
+          Retour niveau 1
+        </button>
+      </div>
+      <div className="led-screen" aria-live="polite">
+        <span className="led-screen__level">Niveau {accessLevel}</span>
+        <span className="led-screen__message">{ledMessage}</span>
+        {verifying && <span className="led-screen__status">Validation du code…</span>}
+      </div>
+      <NumericKeypad
+        codeBuffer={codeBuffer}
+        disabled={verifying}
+        onDigit={onDigit}
+        onClear={onClear}
+        onSubmit={onSubmit}
+      />
+      <p className="access-panel__hint">
+        Sans code : arrêt signal sonore uniquement. Un code niveau 2 débloque les acquits, réarmements, mises hors service et
+        évacuations manuelles. Le niveau 3 reste réservé au technicien de maintenance.
+      </p>
+    </article>
+  );
+}
+
+interface NumericKeypadProps {
+  codeBuffer: string;
+  disabled: boolean;
+  onDigit: (digit: string) => void;
+  onClear: () => void;
+  onSubmit: () => void;
+}
+
+function NumericKeypad({ codeBuffer, disabled, onDigit, onClear, onSubmit }: NumericKeypadProps) {
+  const masked = codeBuffer.length > 0 ? '●'.repeat(codeBuffer.length) : '—';
+  const layout = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', 'OK'];
+  return (
+    <div className="keypad">
+      <div className="keypad__display" aria-live="polite">
+        {masked}
+      </div>
+      <div className="keypad__grid">
+        {layout.map((key) => {
+          if (key === 'C') {
+            return (
+              <button
+                key={key}
+                type="button"
+                className="keypad__key keypad__key--action"
+                onClick={onClear}
+                disabled={disabled}
+              >
+                Effacer
+              </button>
+            );
+          }
+          if (key === 'OK') {
+            return (
+              <button
+                key={key}
+                type="button"
+                className="keypad__key keypad__key--confirm"
+                onClick={onSubmit}
+                disabled={disabled}
+              >
+                Valider
+              </button>
+            );
+          }
+          return (
+            <button
+              key={key}
+              type="button"
+              className="keypad__key"
+              onClick={() => onDigit(key)}
+              disabled={disabled}
+            >
+              {key}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

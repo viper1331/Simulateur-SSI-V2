@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { ManualEvacuationPanel, StatusTile, TimelineBadge } from '@simu-ssi/shared-ui';
 import {
   SsiSdk,
+  type AccessCode,
   type ScenarioDefinition,
   type ScenarioEvent,
   type ScenarioPayload,
@@ -246,6 +247,12 @@ export function App() {
   const [resetPending, setResetPending] = useState(false);
   const [resettingZone, setResettingZone] = useState<string | null>(null);
   const [resettingDaiZone, setResettingDaiZone] = useState<string | null>(null);
+  const [accessCodes, setAccessCodes] = useState<AccessCode[]>([]);
+  const [accessCodesLoading, setAccessCodesLoading] = useState(true);
+  const [accessCodesError, setAccessCodesError] = useState<string | null>(null);
+  const [accessCodesFeedback, setAccessCodesFeedback] = useState<string | null>(null);
+  const [codeInputs, setCodeInputs] = useState<Record<number, string>>({});
+  const [updatingCodeLevel, setUpdatingCodeLevel] = useState<number | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
@@ -267,6 +274,24 @@ export function App() {
 
   useEffect(() => {
     sdk.getSiteConfig().then(setConfig).catch(console.error);
+    setAccessCodesLoading(true);
+    sdk
+      .getAccessCodes()
+      .then((codes) => {
+        setAccessCodes(codes);
+        setCodeInputs(
+          codes.reduce<Record<number, string>>((acc, entry) => {
+            acc[entry.level] = entry.code;
+            return acc;
+          }, {}),
+        );
+        setAccessCodesError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setAccessCodesError('Impossible de charger les codes d\'accès.');
+      })
+      .finally(() => setAccessCodesLoading(false));
     refreshScenarios();
     refreshScenarioStatus();
     const socket = io(baseUrl);
@@ -377,6 +402,54 @@ export function App() {
       }
     },
     [sdk],
+  );
+
+  const handleAccessCodeInputChange = useCallback((level: number, value: string) => {
+    setCodeInputs((prev) => ({ ...prev, [level]: value }));
+  }, []);
+
+  const handleAccessCodeSubmit = useCallback(
+    async (level: number) => {
+      const value = (codeInputs[level] ?? '').trim();
+      if (value.length < 4 || value.length > 8) {
+        setAccessCodesError('Le code doit comporter entre 4 et 8 chiffres.');
+        setAccessCodesFeedback(null);
+        return;
+      }
+      if (!/^[0-9]+$/.test(value)) {
+        setAccessCodesError('Utilisez uniquement des chiffres pour le code.');
+        setAccessCodesFeedback(null);
+        return;
+      }
+      setAccessCodesError(null);
+      setAccessCodesFeedback(null);
+      setUpdatingCodeLevel(level);
+      try {
+        const updated = await sdk.updateAccessCode(level, value);
+        setAccessCodes((prev) => {
+          const others = prev.filter((entry) => entry.level !== level);
+          return [...others, updated].sort((a, b) => a.level - b.level);
+        });
+        setCodeInputs((prev) => ({ ...prev, [level]: updated.code }));
+        setAccessCodesFeedback(`Code niveau ${level} mis à jour.`);
+      } catch (error) {
+        console.error(error);
+        const message = error instanceof Error ? error.message : 'Erreur inattendue';
+        if (message === 'CODE_ALREADY_IN_USE') {
+          setAccessCodesError('Ce code est déjà attribué à un autre niveau.');
+        } else if (message === 'CODE_DIGITS_ONLY') {
+          setAccessCodesError('Le code ne doit contenir que des chiffres.');
+        } else if (message === 'INVALID_LEVEL') {
+          setAccessCodesError('Niveau non pris en charge.');
+        } else {
+          setAccessCodesError('Impossible de mettre à jour le code.');
+        }
+        setAccessCodesFeedback(null);
+      } finally {
+        setUpdatingCodeLevel(null);
+      }
+    },
+    [codeInputs, sdk],
   );
 
   const updateDraftEvent = (eventId: string, updater: (event: ScenarioEventDraft) => ScenarioEventDraft) => {
@@ -516,6 +589,11 @@ export function App() {
   const scenarioStateLabel = translateScenarioStatus(scenarioStatus.status);
   const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
   const scenarioIsRunning = scenarioStatus.status === 'running';
+  const accessCodeMap = useMemo(() => {
+    const map = new Map<number, AccessCode>();
+    accessCodes.forEach((entry) => map.set(entry.level, entry));
+    return map;
+  }, [accessCodes]);
 
   return (
     <div className="app-shell">
@@ -805,6 +883,66 @@ export function App() {
                   {resetPending ? 'Reset en cours…' : 'Demander un reset'}
                 </button>
               </div>
+            </div>
+
+            <div className="card access-card">
+              <div className="card__header">
+                <h2 className="card__title">Codes d&apos;accès SSI</h2>
+                <p className="card__description">
+                  Définissez les codes d&apos;accès des niveaux opérateur. Les codes sont appliqués instantanément au poste apprenant.
+                </p>
+              </div>
+              {accessCodesError && <p className="card__alert">{accessCodesError}</p>}
+              {accessCodesFeedback && !accessCodesError && <p className="card__feedback">{accessCodesFeedback}</p>}
+              {accessCodesLoading ? (
+                <p className="access-card__loading">Chargement des codes en cours…</p>
+              ) : (
+                <div className="access-card__grid">
+                  {[2, 3].map((level) => {
+                    const current = accessCodeMap.get(level);
+                    const lastUpdate = current?.updatedAt
+                      ? formatTime(new Date(current.updatedAt).getTime())
+                      : '—';
+                    return (
+                      <form
+                        key={level}
+                        className="access-code-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          handleAccessCodeSubmit(level);
+                        }}
+                      >
+                        <div className="access-code-form__header">
+                          <span className="access-code-form__level">Niveau {level}</span>
+                          <span className="access-code-form__timestamp">Dernière mise à jour : {lastUpdate}</span>
+                        </div>
+                        <label className="access-code-field">
+                          <span>Code</span>
+                          <input
+                            value={codeInputs[level] ?? ''}
+                            onChange={(event) => handleAccessCodeInputChange(level, event.target.value)}
+                            placeholder="4 à 8 chiffres"
+                            className="text-input"
+                            maxLength={8}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn btn--primary"
+                          disabled={updatingCodeLevel === level}
+                          aria-busy={updatingCodeLevel === level}
+                        >
+                          {updatingCodeLevel === level ? 'Enregistrement…' : 'Enregistrer'}
+                        </button>
+                      </form>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="access-card__hint">
+                Le niveau 1 reste accessible sans code. Le niveau 3 est réservé aux équipes de maintenance et n&apos;est pas utilisable
+                depuis le poste apprenant.
+              </p>
             </div>
 
             <div className="card scenario-card">
