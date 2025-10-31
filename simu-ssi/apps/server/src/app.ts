@@ -22,6 +22,7 @@ import { ScenarioRunner } from './scenario-runner';
 import { SessionManager } from './session-manager';
 import { generateImprovementAreasForSession } from './improvement-generator';
 import { createLogger, toError } from './logger';
+import { recordManualCallPointActivation, recordManualCallPointReset } from './manual-call-points';
 
 const siteConfigSchema = z.object({
   evacOnDAI: z.boolean(),
@@ -638,15 +639,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   app.post('/api/sdi/dm/:zone/activate', async (req, res) => {
     const zoneId = req.params.zone;
-    await prisma.manualCallPoint.upsert({
-      where: { id: await ensureManualZone(zoneId) },
-      update: { isLatched: true, lastActivatedAt: new Date() },
-      create: {
-        zoneId,
-        isLatched: true,
-        lastActivatedAt: new Date(),
-      },
-    });
+    await recordManualCallPointActivation(zoneId);
     domainContext.domain.activateDm(zoneId);
     log.info("Déclencheur manuel activé", { zoneId });
     res.status(202).json({ status: 'latched', zoneId });
@@ -654,11 +647,8 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   app.post('/api/sdi/dm/:zone/reset', async (req, res) => {
     const zoneId = req.params.zone;
-    const updated = await prisma.manualCallPoint.updateMany({
-      where: { zoneId },
-      data: { isLatched: false, lastResetAt: new Date() },
-    });
-    if (updated.count === 0) {
+    const updated = await recordManualCallPointReset(zoneId);
+    if (!updated) {
       return res.status(404).json({ error: 'ZONE_NOT_FOUND' });
     }
     domainContext.domain.resetDm(zoneId);
@@ -1155,17 +1145,6 @@ async function persistTraineeLayout(layout: TraineeLayoutConfig): Promise<Traine
     httpLogger.error("Échec de l'analyse du JSON de la disposition stagiaire enregistrée", { error: toError(error) });
     return DEFAULT_TRAINEE_LAYOUT;
   }
-}
-
-async function ensureManualZone(zoneId: string): Promise<number> {
-  const existing = await prisma.manualCallPoint.findFirst({ where: { zoneId } });
-  if (existing) {
-    return existing.id;
-  }
-  const created = await prisma.manualCallPoint.create({
-    data: { zoneId, isLatched: true, lastActivatedAt: new Date() },
-  });
-  return created.id;
 }
 
 function serializeScenarioRecord(record: { id: string; name: string; json: string }): ScenarioDefinition {
