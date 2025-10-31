@@ -104,6 +104,30 @@ const layoutHiddenSchema = z.array(z.string().min(1)).default([]);
 
 const userRoleSchema = z.enum(['TRAINER', 'TRAINEE']);
 
+const userImportEntrySchema = z.object({
+  id: z.string().uuid().optional(),
+  fullName: z.string().min(1),
+  email: z.string().email().nullable().optional(),
+  role: userRoleSchema,
+});
+
+const userImportPayloadSchema = z.object({
+  users: z.array(userImportEntrySchema).min(1),
+});
+
+const userImportErrorSchema = z.object({
+  fullName: z.string(),
+  email: z.string().email().nullable().optional(),
+  reason: z.string().min(1),
+});
+
+const userImportResultSchema = z.object({
+  created: z.number().int().min(0),
+  updated: z.number().int().min(0),
+  skipped: z.number().int().min(0),
+  errors: z.array(userImportErrorSchema).optional(),
+});
+
 export const userSchema = z.object({
   id: z.string().uuid(),
   fullName: z.string().min(1),
@@ -158,6 +182,10 @@ export const traineeLayoutSchema = z.object({
 export type TraineeLayoutConfig = z.infer<typeof traineeLayoutSchema>;
 export type UserRole = z.infer<typeof userRoleSchema>;
 export type UserSummary = z.infer<typeof userSchema>;
+export type UserImportEntry = z.infer<typeof userImportEntrySchema>;
+export type UserImportPayload = z.infer<typeof userImportPayloadSchema>;
+export type UserImportError = z.infer<typeof userImportErrorSchema>;
+export type UserImportResult = z.infer<typeof userImportResultSchema>;
 export type SessionImprovement = z.infer<typeof sessionImprovementSchema>;
 export type SessionSummary = z.infer<typeof sessionSchema>;
 
@@ -382,6 +410,24 @@ export class SsiSdk {
     if (!response.ok) {
       throw new Error('Failed to delete user');
     }
+  }
+
+  async importUsers(payload: UserImportPayload): Promise<UserImportResult> {
+    if (payload.users.length === 0) {
+      throw new Error('No users to import');
+    }
+    const response = await fetch(`${this.baseUrl}/api/users/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      const message = errorBody?.error ?? 'Failed to import users';
+      throw new Error(message);
+    }
+    const json = await response.json();
+    return userImportResultSchema.parse(json);
   }
 
   async listSessions(limit = 20): Promise<SessionSummary[]> {

@@ -60,6 +60,17 @@ const userUpdateSchema = z.object({
   role: userRoleSchema.optional(),
 });
 
+const userImportEntrySchema = z.object({
+  id: z.string().uuid().optional(),
+  fullName: z.string().min(1),
+  email: z.string().email().nullable().optional(),
+  role: userRoleSchema,
+});
+
+const userImportSchema = z.object({
+  users: z.array(userImportEntrySchema).min(1),
+});
+
 const improvementAreaSchema = z.object({
   title: z.string().min(1),
   description: z.string().max(1000).optional(),
@@ -284,6 +295,116 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       log.error("Échec de la suppression de l'utilisateur", { error: toError(error), userId: id });
       res.status(500).json({ error: 'FAILED_TO_DELETE_USER' });
     }
+  });
+
+  app.post('/api/users/import', async (req, res) => {
+    const parsed = userImportSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const summary: {
+      created: number;
+      updated: number;
+      skipped: number;
+      errors: Array<{ fullName: string; email?: string | null; reason: string }>;
+    } = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const seenIds = new Set<string>();
+    const seenEmails = new Set<string>();
+
+    for (const entry of parsed.data.users) {
+      const id = entry.id?.trim() ?? undefined;
+      const fullName = entry.fullName.trim();
+      const trimmedEmail = entry.email?.trim() ?? '';
+      const email = trimmedEmail.length > 0 ? trimmedEmail.toLowerCase() : null;
+      const role = entry.role;
+
+      if (!fullName) {
+        summary.skipped += 1;
+        summary.errors.push({ fullName: entry.fullName, email: entry.email ?? undefined, reason: 'INVALID_FULL_NAME' });
+        continue;
+      }
+      if (id && seenIds.has(id)) {
+        summary.skipped += 1;
+        summary.errors.push({ fullName, email: email ?? undefined, reason: 'DUPLICATE_ID_IN_IMPORT' });
+        continue;
+      }
+      if (id) {
+        seenIds.add(id);
+      }
+      if (email) {
+        if (seenEmails.has(email)) {
+          summary.skipped += 1;
+          summary.errors.push({ fullName, email, reason: 'DUPLICATE_EMAIL_IN_IMPORT' });
+          continue;
+        }
+        seenEmails.add(email);
+      }
+
+      try {
+        if (id) {
+          const existing = await prisma.user.findUnique({ where: { id } });
+          if (existing) {
+            if (email && email !== existing.email) {
+              const emailOwner = await prisma.user.findUnique({ where: { email } });
+              if (emailOwner && emailOwner.id !== id) {
+                summary.skipped += 1;
+                summary.errors.push({ fullName, email, reason: 'EMAIL_ALREADY_IN_USE' });
+                continue;
+              }
+            }
+            await prisma.user.update({
+              where: { id },
+              data: { fullName, email, role },
+            });
+            summary.updated += 1;
+            continue;
+          }
+          if (email) {
+            const emailOwner = await prisma.user.findUnique({ where: { email } });
+            if (emailOwner) {
+              summary.skipped += 1;
+              summary.errors.push({ fullName, email, reason: 'EMAIL_ALREADY_IN_USE' });
+              continue;
+            }
+          }
+          await prisma.user.create({
+            data: { id, fullName, email, role },
+          });
+          summary.created += 1;
+          continue;
+        }
+
+        if (email) {
+          const existingByEmail = await prisma.user.findUnique({ where: { email } });
+          if (existingByEmail) {
+            await prisma.user.update({
+              where: { id: existingByEmail.id },
+              data: { fullName, email, role },
+            });
+            summary.updated += 1;
+            continue;
+          }
+        }
+
+        await prisma.user.create({
+          data: { fullName, email, role },
+        });
+        summary.created += 1;
+      } catch (error) {
+        const reason = isUniqueConstraintError(error) ? 'EMAIL_ALREADY_IN_USE' : 'UNKNOWN_ERROR';
+        summary.skipped += 1;
+        summary.errors.push({ fullName, email: email ?? undefined, reason });
+        log.error("Échec d'import d'un utilisateur", { error: toError(error), fullName, email, role });
+      }
+    }
+
+    log.info('Import utilisateurs terminé', {
+      created: summary.created,
+      updated: summary.updated,
+      skipped: summary.skipped,
+      errorCount: summary.errors.length,
+    });
+    res.json(summary);
   });
 
   app.get('/api/sessions', async (req, res) => {
