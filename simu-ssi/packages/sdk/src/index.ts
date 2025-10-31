@@ -69,6 +69,22 @@ export const scenarioRunnerSnapshotSchema = z.object({
   nextEvent: scenarioEventSchema.nullish(),
 });
 
+const accessAuthorisationSchema = z.object({
+  level: z.number().int().min(1).max(3).nullable(),
+  allowed: z.boolean(),
+  label: z.string(),
+});
+
+const accessCodeSchema = z.object({
+  level: z.number().int().min(1).max(3),
+  code: z.string().min(1),
+  updatedAt: z.string(),
+});
+
+const accessCodeListSchema = z.object({
+  codes: z.array(accessCodeSchema),
+});
+
 export type SiteConfig = z.infer<typeof siteConfigSchema>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 export type ScenarioDefinition = z.infer<typeof scenarioDefinitionSchema>;
@@ -77,6 +93,8 @@ export type ScenarioRunnerSnapshot = z.infer<typeof scenarioRunnerSnapshotSchema
 export type SiteZone = z.infer<typeof siteZoneSchema>;
 export type SiteDevice = z.infer<typeof siteDeviceSchema>;
 export type SiteTopology = z.infer<typeof topologySchema>;
+export type AccessAuthorisation = z.infer<typeof accessAuthorisationSchema>;
+export type AccessCode = z.infer<typeof accessCodeSchema>;
 
 export class SsiSdk {
   constructor(private readonly baseUrl: string) {}
