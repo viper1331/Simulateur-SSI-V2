@@ -573,6 +573,12 @@ select:focus-visible {
   align-items: center;
 }
 
+.topology-preview__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .topology-copy-feedback {
   font-size: 0.85rem;
   color: #475569;
@@ -584,6 +590,23 @@ select:focus-visible {
 
 .topology-copy-feedback--error {
   color: #b91c1c;
+}
+
+.topology-publish-feedback {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.topology-publish-feedback--success {
+  color: #15803d;
+}
+
+.topology-publish-feedback--error {
+  color: #b91c1c;
+}
+
+.topology-publish-feedback--saving {
+  color: #1d4ed8;
 }
 
 .control-sidebar {

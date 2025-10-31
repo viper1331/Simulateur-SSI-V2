@@ -12,6 +12,7 @@ import {
   type SiteConfig,
   type SiteDevice,
   type SiteTopology,
+  siteTopologySchema,
   traineeLayoutSchema,
   type TraineeLayoutConfig,
 } from '@simu-ssi/sdk';
@@ -185,8 +186,9 @@ function extractDeviceCoords(device: SiteDevice): string | null {
   if (!props) {
     return null;
   }
-  const xValue = props.x;
-  const yValue = props.y;
+  const coordinates = props.coordinates as { xPercent?: number; yPercent?: number } | undefined;
+  const xValue = typeof props.x === 'number' ? props.x : coordinates?.xPercent;
+  const yValue = typeof props.y === 'number' ? props.y : coordinates?.yPercent;
   const x = typeof xValue === 'number' ? Math.round(xValue) : null;
   const y = typeof yValue === 'number' ? Math.round(yValue) : null;
   if (x === null || y === null) {
@@ -197,6 +199,33 @@ function extractDeviceCoords(device: SiteDevice): string | null {
 
 function deviceBadgeClass(kind: string) {
   return `topology-device__badge topology-device__badge--${kind.toLowerCase()}`;
+}
+
+function extractPlanMetadata(topology: SiteTopology | null): { planName: string | null; notes: string[] } {
+  if (!topology) {
+    return { planName: null, notes: [] };
+  }
+  let planName: string | null = null;
+  const notes = new Set<string>();
+
+  for (const device of topology.devices) {
+    const props = device.props as Record<string, unknown> | undefined;
+    const rawName = props?.planName;
+    if (!planName && typeof rawName === 'string' && rawName.trim().length > 0) {
+      planName = rawName.trim();
+    }
+    const rawNotes = props?.planNotes;
+    if (typeof rawNotes === 'string' && rawNotes.trim().length > 0) {
+      for (const line of rawNotes.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.length > 0) {
+          notes.add(trimmed);
+        }
+      }
+    }
+  }
+
+  return { planName, notes: Array.from(notes) };
 }
 
 function createEmptyScenarioDraft(): ScenarioDraft {
@@ -365,6 +394,7 @@ export function App() {
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [topologyLoading, setTopologyLoading] = useState(true);
   const [topologyError, setTopologyError] = useState<string | null>(null);
+  const [topologyFeedback, setTopologyFeedback] = useState<string | null>(null);
   const [layoutDraft, setLayoutDraft] = useState<TraineeLayoutConfig>(() => cloneLayout(DEFAULT_TRAINEE_LAYOUT));
   const [layoutConfig, setLayoutConfig] = useState<TraineeLayoutConfig | null>(null);
   const [layoutLoading, setLayoutLoading] = useState(true);
@@ -437,6 +467,16 @@ export function App() {
       setLayoutError(null);
       setLayoutFeedback('Disposition synchronisée avec un autre poste.');
     });
+    socket.on('topology.update', (payload) => {
+      const parsed = siteTopologySchema.safeParse(payload);
+      if (!parsed.success) {
+        return;
+      }
+      setTopology(parsed.data);
+      setTopologyError(null);
+      setTopologyLoading(false);
+      setTopologyFeedback('Topologie mise à jour depuis le Studio.');
+    });
     return () => {
       socket.disconnect();
     };
@@ -453,6 +493,7 @@ export function App() {
         }
         setTopology(data);
         setTopologyError(null);
+        setTopologyFeedback(null);
       })
       .catch((error) => {
         console.error(error);
@@ -835,6 +876,7 @@ export function App() {
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);
+  const planMetadata = useMemo(() => extractPlanMetadata(topology), [topology]);
   const devicesByZone = useMemo(() => {
     const map = new Map<string, SiteDevice[]>();
     if (!topology) {

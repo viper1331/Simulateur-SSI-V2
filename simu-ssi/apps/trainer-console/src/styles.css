@@ -744,8 +744,38 @@ kbd {
   color: rgba(30, 41, 59, 0.7);
 }
 
+.topology-feedback {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: #1d4ed8;
+}
+
 .topology-error {
   color: #b91c1c;
+}
+
+.topology-plan {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.topology-plan__name {
+  margin: 0 0 8px;
+  font-weight: 500;
+  color: #1e3a8a;
+}
+
+.topology-plan__notes {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  color: #1f2937;
+  font-size: 0.95rem;
 }
 
 .topology-zone-list {

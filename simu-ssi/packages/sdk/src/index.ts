@@ -125,6 +125,7 @@ export type SiteDevice = z.infer<typeof siteDeviceSchema>;
 export type SiteTopology = z.infer<typeof topologySchema>;
 export type AccessAuthorisation = z.infer<typeof accessAuthorisationSchema>;
 export type AccessCode = z.infer<typeof accessCodeSchema>;
+export const siteTopologySchema = topologySchema;
 
 export class SsiSdk {
   constructor(private readonly baseUrl: string) {}
@@ -340,6 +341,21 @@ export class SsiSdk {
     const response = await fetch(`${this.baseUrl}/api/topology`);
     if (!response.ok) {
       throw new Error('Failed to fetch topology');
+    }
+    const json = await response.json();
+    return topologySchema.parse(json);
+  }
+
+  async updateTopology(topology: SiteTopology): Promise<SiteTopology> {
+    const response = await fetch(`${this.baseUrl}/api/topology`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(topology),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      const message = errorBody?.error ?? 'Failed to update topology';
+      throw new Error(message);
     }
     const json = await response.json();
     return topologySchema.parse(json);

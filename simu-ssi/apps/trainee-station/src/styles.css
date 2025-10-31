@@ -555,6 +555,13 @@ button {
   color: #1f2f44;
 }
 
+.instruction-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
 .instruction-text {
   margin: 0;
   font-size: 0.95rem;
