@@ -956,24 +956,59 @@ kbd {
 }
 
 .scenario-event-row {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 20px;
   border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.9));
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+.scenario-event-row__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
   align-items: flex-end;
 }
 
-@media (min-width: 960px) {
-  .scenario-event-row {
-    grid-template-columns: auto repeat(4, minmax(0, 1fr)) auto;
-  }
+.scenario-event-row__title {
+  display: flex;
+  flex: 1 1 220px;
+  align-items: flex-end;
+  gap: 16px;
 }
 
 .scenario-event-row__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
   font-weight: 600;
-  color: rgba(30, 41, 59, 0.6);
+  font-size: 1rem;
+}
+
+.scenario-event-row__meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.scenario-event-row__content {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 680px) {
+  .scenario-event-row__content {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
 }
 
 .scenario-event-field {
@@ -982,6 +1017,7 @@ kbd {
   gap: 6px;
   font-size: 0.85rem;
   color: rgba(30, 41, 59, 0.7);
+  width: 100%;
 }
 
 .scenario-event-field input,
@@ -994,16 +1030,32 @@ kbd {
   color: #0f172a;
 }
 
+.scenario-event-row__title .scenario-event-field {
+  flex: 1;
+}
+
+.scenario-event-row__meta .scenario-event-field {
+  min-width: 140px;
+}
+
 .scenario-event-remove {
-  align-self: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  background: rgba(248, 250, 252, 0.9);
-  font-size: 1.1rem;
+  border: 1px solid rgba(185, 28, 28, 0.35);
+  background: rgba(254, 226, 226, 0.6);
+  font-size: 1.2rem;
   font-weight: 600;
-  color: rgba(185, 28, 28, 0.8);
+  color: rgba(153, 27, 27, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.scenario-event-remove:hover {
+  background: rgba(254, 202, 202, 0.9);
+  transform: translateY(-1px);
 }
 
 .scenario-error {
