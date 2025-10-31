@@ -4,11 +4,12 @@ import {
   DragEvent,
   MouseEvent,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { SsiSdk } from '@simu-ssi/sdk';
+import { SsiSdk, type SiteTopology, type SiteZone } from '@simu-ssi/sdk';
 
 export type DeviceKind = 'DM' | 'DAI' | 'DAS' | 'UGA';
 
@@ -18,6 +19,7 @@ interface DevicePlacement {
   kind: DeviceKind;
   xPercent: number;
   yPercent: number;
+  zoneId?: string;
 }
 
 const DEVICE_DEFINITIONS: Record<
@@ -63,10 +65,12 @@ const createDeviceId = (kind: DeviceKind) => {
 
 export function AdminStudioApp() {
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
-  useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
+  const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const isMountedRef = useRef(true);
+  const copyTimeoutRef = useRef<number | null>(null);
 
   const [planImage, setPlanImage] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string>('Aucun plan importé');
@@ -74,8 +78,65 @@ export function AdminStudioApp() {
   const [devices, setDevices] = useState<DevicePlacement[]>([]);
   const [selectedKind, setSelectedKind] = useState<DeviceKind | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [zones, setZones] = useState<SiteZone[]>([]);
+  const [isLoadingTopology, setIsLoadingTopology] = useState(false);
+  const [topologyError, setTopologyError] = useState<string | null>(null);
+  const [newZoneId, setNewZoneId] = useState('');
+  const [newZoneLabel, setNewZoneLabel] = useState('');
+  const [newZoneKind, setNewZoneKind] = useState('ZF');
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const hasWorkspaceContent = Boolean(planImage || devices.length > 0 || planNotes.trim().length > 0);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const loadTopology = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
+    setIsLoadingTopology(true);
+    try {
+      const topology = await sdk.getTopology();
+      if (!isMountedRef.current) {
+        return;
+      }
+      setZones(topology.zones);
+      setTopologyError(null);
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Impossible de récupérer la topologie actuelle.";
+      setTopologyError(message);
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoadingTopology(false);
+      }
+    }
+  }, [sdk]);
+
+  useEffect(() => {
+    loadTopology();
+  }, [loadTopology]);
+
+  useEffect(() => {
+    if (copyStatus === 'idle') {
+      return;
+    }
+    if (copyTimeoutRef.current) {
+      window.clearTimeout(copyTimeoutRef.current);
+    }
+    copyTimeoutRef.current = window.setTimeout(() => {
+      setCopyStatus('idle');
+    }, 2500);
+  }, [copyStatus]);
 
   const handlePlanFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -183,6 +244,14 @@ export function AdminStudioApp() {
     });
   }, []);
 
+  const handleDeviceZoneChange = useCallback((deviceId: string, zoneId: string) => {
+    setDevices((previous) =>
+      previous.map((device) =>
+        device.id === deviceId ? { ...device, zoneId: zoneId || undefined } : device,
+      ),
+    );
+  }, []);
+
   const handleResetPlan = useCallback(() => {
     setPlanImage(null);
     setPlanName('Aucun plan importé');
@@ -207,6 +276,100 @@ export function AdminStudioApp() {
     }),
     [],
   );
+
+  const handleAddZone = useCallback(() => {
+    const trimmedId = newZoneId.trim();
+    const trimmedLabel = newZoneLabel.trim();
+    const trimmedKind = newZoneKind.trim();
+    if (!trimmedId || !trimmedLabel || !trimmedKind) {
+      alert('Renseignez un identifiant, un libellé et un type de zone.');
+      return;
+    }
+    if (zones.some((zone) => zone.id === trimmedId)) {
+      alert(`La zone « ${trimmedId} » existe déjà.`);
+      return;
+    }
+    setZones((previous) => [...previous, { id: trimmedId, label: trimmedLabel, kind: trimmedKind }]);
+    setNewZoneId('');
+    setNewZoneLabel('');
+  }, [newZoneId, newZoneLabel, newZoneKind, zones]);
+
+  const handleZoneFieldChange = useCallback(
+    (zoneId: string, field: 'label' | 'kind', value: string) => {
+      setZones((previous) =>
+        previous.map((zone) => (zone.id === zoneId ? { ...zone, [field]: value } : zone)),
+      );
+    },
+    [],
+  );
+
+  const handleRemoveZone = useCallback((zoneId: string) => {
+    setZones((previous) => previous.filter((zone) => zone.id !== zoneId));
+    setDevices((previous) =>
+      previous.map((device) => (device.zoneId === zoneId ? { ...device, zoneId: undefined } : device)),
+    );
+  }, []);
+
+  const handleRefreshTopology = useCallback(() => {
+    loadTopology();
+  }, [loadTopology]);
+
+  const siteTopology = useMemo<SiteTopology>(() => {
+    const sanitizedZones = zones
+      .map((zone) => ({
+        id: zone.id.trim(),
+        label: zone.label.trim(),
+        kind: zone.kind.trim(),
+      }))
+      .filter((zone): zone is SiteZone => zone.id.length > 0 && zone.label.length > 0 && zone.kind.length > 0);
+
+    const allowedZoneIds = new Set(sanitizedZones.map((zone) => zone.id));
+
+    const sanitizedDevices = devices.map((device) => {
+      const zoneId = device.zoneId && allowedZoneIds.has(device.zoneId) ? device.zoneId : undefined;
+      const props: Record<string, unknown> = {
+        coordinates: {
+          xPercent: device.xPercent,
+          yPercent: device.yPercent,
+        },
+      };
+      if (planImage) {
+        props.planName = planName;
+      }
+      if (planNotes.trim()) {
+        props.planNotes = planNotes.trim();
+      }
+      const cleanedProps = Object.fromEntries(
+        Object.entries(props).filter(([, value]) => value !== undefined),
+      );
+
+      return {
+        id: device.id,
+        kind: device.kind,
+        zoneId,
+        label: device.label,
+        props: Object.keys(cleanedProps).length > 0 ? cleanedProps : undefined,
+      };
+    });
+
+    return { zones: sanitizedZones, devices: sanitizedDevices };
+  }, [zones, devices, planImage, planName, planNotes]);
+
+  const siteTopologyJson = useMemo(() => JSON.stringify(siteTopology, null, 2), [siteTopology]);
+
+  const handleCopyTopology = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(siteTopologyJson);
+      setCopyStatus('success');
+    } catch (error) {
+      console.error(error);
+      setCopyStatus('error');
+    }
+  }, [siteTopologyJson]);
+
+  const isAddZoneDisabled = !newZoneId.trim() || !newZoneLabel.trim() || !newZoneKind.trim();
+
+  const hasTopologyContent = siteTopology.zones.length > 0 || siteTopology.devices.length > 0;
 
   return (
     <div className="app-shell">
@@ -348,19 +511,35 @@ export function AdminStudioApp() {
               <ul className="device-list">
                 {devices.map((device) => (
                   <li key={device.id} className="device-list__item">
-                    <div className="device-list__meta">
-                      <span
-                        className="device-list__badge"
-                        style={{ backgroundColor: DEVICE_DEFINITIONS[device.kind].color }}
-                      >
-                        {device.kind}
-                      </span>
-                      <div>
-                        <strong>{device.label}</strong>
-                        <span className="device-list__coordinates">
-                          {formatCoordinate(device.xPercent)} · {formatCoordinate(device.yPercent)}
+                    <div className="device-list__info">
+                      <div className="device-list__meta">
+                        <span
+                          className="device-list__badge"
+                          style={{ backgroundColor: DEVICE_DEFINITIONS[device.kind].color }}
+                        >
+                          {device.kind}
                         </span>
+                        <div>
+                          <strong>{device.label}</strong>
+                          <span className="device-list__coordinates">
+                            {formatCoordinate(device.xPercent)} · {formatCoordinate(device.yPercent)}
+                          </span>
+                        </div>
                       </div>
+                      <label className="device-zone">
+                        <span>Zone FPSSI</span>
+                        <select
+                          value={device.zoneId ?? ''}
+                          onChange={(event) => handleDeviceZoneChange(device.id, event.target.value)}
+                        >
+                          <option value="">Sans zone</option>
+                          {zones.map((zone) => (
+                            <option key={zone.id} value={zone.id}>
+                              {zone.label} ({zone.kind})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                     <div className="device-list__actions">
                       <button type="button" className="button button-ghost" onClick={() => handleRenameDevice(device.id)}>
@@ -374,6 +553,131 @@ export function AdminStudioApp() {
                 ))}
               </ul>
             )}
+          </section>
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Zones FPSSI</h2>
+              <div className="topology-status">
+                {isLoadingTopology ? <span>Chargement…</span> : null}
+                {topologyError ? (
+                  <button type="button" className="button button-ghost" onClick={handleRefreshTopology}>
+                    Réessayer
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <p>
+              Déclarez les zones FPSSI pour structurer la topologie. Les zones importées depuis le serveur peuvent être
+              ajustées (libellé et type) avant d&apos;associer les dispositifs placés.
+            </p>
+            {topologyError ? <p className="error-message">{topologyError}</p> : null}
+            <div className="zone-form">
+              <div className="zone-form__grid">
+                <label className="field">
+                  <span className="field-label">Identifiant</span>
+                  <input
+                    type="text"
+                    value={newZoneId}
+                    onChange={(event) => setNewZoneId(event.target.value)}
+                    placeholder="ZF1, ZF-RDC…"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Libellé</span>
+                  <input
+                    type="text"
+                    value={newZoneLabel}
+                    onChange={(event) => setNewZoneLabel(event.target.value)}
+                    placeholder="Zone feu RDC"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Type</span>
+                  <input
+                    type="text"
+                    value={newZoneKind}
+                    onChange={(event) => setNewZoneKind(event.target.value)}
+                    placeholder="ZF, ZS, TA…"
+                  />
+                </label>
+              </div>
+              <div className="button-row">
+                <button type="button" className="button button-primary" onClick={handleAddZone} disabled={isAddZoneDisabled}>
+                  Ajouter la zone
+                </button>
+              </div>
+            </div>
+            {zones.length === 0 ? (
+              <p className="empty-state">Aucune zone n&apos;est définie pour le moment.</p>
+            ) : (
+              <ul className="zone-list">
+                {zones.map((zone) => (
+                  <li key={zone.id} className="zone-list__item">
+                    <div className="zone-list__header">
+                      <span className="zone-id">{zone.id}</span>
+                      <div className="zone-list__actions">
+                        <button type="button" className="button button-ghost" onClick={() => handleRemoveZone(zone.id)}>
+                          Supprimer
+                        </button>
+                      </div>
+                    </div>
+                    <div className="zone-list__fields">
+                      <label className="field">
+                        <span className="field-label">Libellé</span>
+                        <input
+                          type="text"
+                          value={zone.label}
+                          onChange={(event) => handleZoneFieldChange(zone.id, 'label', event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">Type</span>
+                        <input
+                          type="text"
+                          value={zone.kind}
+                          onChange={(event) => handleZoneFieldChange(zone.id, 'kind', event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className="panel">
+            <h2>Export topologie FPSSI</h2>
+            <p>
+              Le JSON ci-dessous respecte le schéma <code>SiteTopology</code> du SDK et peut être envoyé directement au
+              serveur du simulateur.
+            </p>
+            <div className="topology-preview">
+              <textarea
+                className="topology-preview__textarea"
+                value={siteTopologyJson}
+                readOnly
+                rows={10}
+                spellCheck={false}
+              />
+              <div className="topology-preview__actions">
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={handleCopyTopology}
+                  disabled={!hasTopologyContent}
+                >
+                  Copier la topologie
+                </button>
+                <span className={`topology-copy-feedback topology-copy-feedback--${copyStatus}`}>
+                  {copyStatus === 'success'
+                    ? 'Topologie copiée dans le presse-papiers.'
+                    : copyStatus === 'error'
+                      ? 'La copie a échoué. Copiez manuellement le JSON.'
+                      : hasTopologyContent
+                        ? 'Ajustez zones et dispositifs avant export.'
+                        : 'Ajoutez un plan et des dispositifs pour générer la topologie.'}
+                </span>
+              </div>
+            </div>
           </section>
         </aside>
       </div>
