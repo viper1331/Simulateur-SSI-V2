@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { SsiSdk, type SiteTopology, type SiteZone } from '@simu-ssi/sdk';
+import { SsiSdk, siteTopologySchema, type SiteTopology, type SiteZone } from '@simu-ssi/sdk';
 
 export type DeviceKind = 'DM' | 'DAI' | 'DAS' | 'UGA';
 
@@ -68,6 +68,7 @@ export function AdminStudioApp() {
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const topologyFileInputRef = useRef<HTMLInputElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isMountedRef = useRef(true);
   const copyTimeoutRef = useRef<number | null>(null);
@@ -90,6 +91,8 @@ export function AdminStudioApp() {
   const [publishError, setPublishError] = useState<string | null>(null);
 
   const hasWorkspaceContent = Boolean(planImage || devices.length > 0 || planNotes.trim().length > 0);
+
+  const isDeviceKind = useCallback((value: string): value is DeviceKind => value in DEVICE_DEFINITIONS, []);
 
   useEffect(() => {
     return () => {
@@ -286,6 +289,107 @@ export function AdminStudioApp() {
     fileInputRef.current?.click();
   }, []);
 
+  const applyImportedTopology = useCallback(
+    (topology: SiteTopology) => {
+      const plan = topology.plan;
+      const hasPlanImage = Boolean(plan?.image);
+      const importedPlanName = plan?.name?.trim();
+
+      setPlanImage(hasPlanImage ? plan?.image ?? null : null);
+      setPlanName(
+        hasPlanImage
+          ? importedPlanName && importedPlanName.length > 0
+            ? importedPlanName
+            : 'Plan importé'
+          : 'Aucun plan importé',
+      );
+      setPlanNotes(plan?.notes ?? '');
+
+      const sanitizedZones = topology.zones ?? [];
+      setZones(sanitizedZones);
+
+      const allowedZoneIds = new Set(sanitizedZones.map((zone) => zone.id));
+      const warnings: string[] = [];
+      const deviceCounts: Record<DeviceKind, number> = { DM: 0, DAI: 0, DAS: 0, UGA: 0 };
+
+      const importedDevices: DevicePlacement[] = [];
+      for (const device of topology.devices ?? []) {
+        if (!isDeviceKind(device.kind)) {
+          warnings.push(`Dispositif «\u00a0${device.id}\u00a0» ignoré (type «\u00a0${device.kind}\u00a0» non géré).`);
+          continue;
+        }
+
+        const coordinates = (device.props?.coordinates as { xPercent?: number; yPercent?: number } | undefined) ?? {};
+        const xPercent = typeof coordinates.xPercent === 'number' ? coordinates.xPercent : undefined;
+        const yPercent = typeof coordinates.yPercent === 'number' ? coordinates.yPercent : undefined;
+
+        if (xPercent === undefined || yPercent === undefined) {
+          warnings.push(`Dispositif «\u00a0${device.id}\u00a0» ignoré (coordonnées manquantes).`);
+          continue;
+        }
+
+        deviceCounts[device.kind] += 1;
+        const fallbackLabel = `${DEVICE_DEFINITIONS[device.kind].shortLabel} ${deviceCounts[device.kind]}`;
+        const label = device.label?.trim().length ? device.label.trim() : fallbackLabel;
+        const zoneId = device.zoneId && allowedZoneIds.has(device.zoneId) ? device.zoneId : undefined;
+
+        if (device.zoneId && !zoneId) {
+          warnings.push(`Zone «\u00a0${device.zoneId}\u00a0» introuvable pour le dispositif «\u00a0${device.id}\u00a0».`);
+        }
+
+        importedDevices.push({
+          id: device.id,
+          kind: device.kind,
+          label,
+          xPercent,
+          yPercent,
+          zoneId,
+        });
+      }
+
+      setDevices(importedDevices);
+      setSelectedKind(null);
+      setIsDragging(false);
+      setCopyStatus('idle');
+      setPublishStatus('idle');
+      setPublishError(null);
+
+      if (warnings.length > 0) {
+        alert(`La topologie a été importée avec les avertissements suivants :\n- ${warnings.join('\n- ')}`);
+      }
+    },
+    [isDeviceKind],
+  );
+
+  const handleTopologyImportClick = useCallback(() => {
+    topologyFileInputRef.current?.click();
+  }, []);
+
+  const handleTopologyFileUpload = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+
+      try {
+        const content = await file.text();
+        const parsed = siteTopologySchema.parse(JSON.parse(content));
+        applyImportedTopology(parsed);
+      } catch (error) {
+        console.error(error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Impossible de lire la topologie. Vérifiez que le fichier est un JSON valide.';
+        alert(`Échec de l'import de la topologie : ${message}`);
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [applyImportedTopology],
+  );
+
   const markerStyle = useCallback(
     (device: DevicePlacement): CSSProperties => ({
       left: `${device.xPercent}%`,
@@ -383,6 +487,28 @@ export function AdminStudioApp() {
 
   const hasTopologyContent = siteTopology.zones.length > 0 || siteTopology.devices.length > 0;
   const siteTopologyJson = useMemo(() => JSON.stringify(siteTopology, null, 2), [siteTopology]);
+
+  const handleDownloadTopology = useCallback(() => {
+    if (!hasTopologyContent) {
+      return;
+    }
+
+    const blob = new Blob([siteTopologyJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const normalizedName =
+      planName.trim().length > 0 && planName !== 'Aucun plan importé' ? planName.trim() : 'topologie';
+    const slug = normalizedName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '');
+    const fileName = `${slug || 'topologie'}-fpssi.json`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [hasTopologyContent, planName, siteTopologyJson]);
 
   const handleCopyTopology = useCallback(async () => {
     try {
@@ -701,10 +827,10 @@ export function AdminStudioApp() {
             )}
           </section>
           <section className="panel">
-            <h2>Export topologie FPSSI</h2>
+            <h2>Import / export topologie FPSSI</h2>
             <p>
-              Le JSON ci-dessous respecte le schéma <code>SiteTopology</code> du SDK et peut être envoyé directement au
-              serveur du simulateur.
+              Importez un fichier JSON existant ou exportez la configuration actuelle. Le JSON respecte le schéma
+              <code>SiteTopology</code> du SDK et peut être envoyé directement au serveur du simulateur.
             </p>
             <div className="topology-preview">
               <textarea
@@ -716,6 +842,17 @@ export function AdminStudioApp() {
               />
               <div className="topology-preview__actions">
                 <div className="topology-preview__buttons">
+                  <button type="button" className="button" onClick={handleTopologyImportClick}>
+                    Importer un fichier
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={handleDownloadTopology}
+                    disabled={!hasTopologyContent}
+                  >
+                    Télécharger le JSON
+                  </button>
                   <button
                     type="button"
                     className="button"
@@ -733,6 +870,13 @@ export function AdminStudioApp() {
                     {publishStatus === 'saving' ? 'Publication…' : 'Mettre à disposition'}
                   </button>
                 </div>
+                <input
+                  ref={topologyFileInputRef}
+                  type="file"
+                  accept="application/json"
+                  className="visually-hidden"
+                  onChange={handleTopologyFileUpload}
+                />
                 <span className={`topology-copy-feedback topology-copy-feedback--${copyStatus}`}>
                   {copyStatus === 'success'
                     ? 'Topologie copiée dans le presse-papiers.'
