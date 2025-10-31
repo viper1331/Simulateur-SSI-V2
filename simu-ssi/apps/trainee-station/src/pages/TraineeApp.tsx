@@ -137,6 +137,11 @@ export function TraineeApp() {
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
 
   useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
     const socket = io(baseUrl);
     socket.on('state.update', (state: Snapshot) => setSnapshot(state));
     socket.on('scenario.update', (status: ScenarioRunnerSnapshot) => setScenarioStatus(status));
