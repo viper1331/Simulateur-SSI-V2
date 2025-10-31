@@ -5,6 +5,7 @@ import type {
   ScenarioRunnerSnapshot,
 } from '@simu-ssi/sdk';
 import type { DomainLogEvent, SsiDomain } from '@simu-ssi/domain-ssi';
+import { createLogger, toError } from './logger';
 
 interface ScenarioRunnerEventMap {
   'scenario.update': ScenarioRunnerSnapshot;
@@ -24,6 +25,7 @@ export class ScenarioRunner {
   private readonly emitter = new EventEmitter<ScenarioRunnerEventMap>();
   private context?: ActiveScenarioContext;
   private snapshot: ScenarioRunnerSnapshot = { status: 'idle' };
+  private readonly log = createLogger('ScenarioRunner');
   private readonly handleDomainEvent = (event: DomainLogEvent) => {
     if (!this.context) {
       return;
@@ -31,6 +33,10 @@ export class ScenarioRunner {
     if (!this.context.awaitingSystemReset) {
       return;
     }
+    this.log.debug('Domain event received while awaiting reset', {
+      source: event.source,
+      message: event.message,
+    });
     if (event.source === 'CMSI' && event.message === 'System reset to idle') {
       this.stop('completed');
     }
@@ -58,6 +64,10 @@ export class ScenarioRunner {
     const startedAt = Date.now();
     this.domain.emitter.off('events.append', this.handleDomainEvent);
     this.domain.emitter.on('events.append', this.handleDomainEvent);
+    this.log.info('Scenario run started', {
+      scenarioId: scenario.id,
+      eventCount: orderedEvents.length,
+    });
     this.context = {
       scenario: normalizedScenario,
       startedAt,
@@ -87,6 +97,7 @@ export class ScenarioRunner {
   stop(status: 'stopped' | 'idle' | 'completed' = 'stopped') {
     this.domain.emitter.off('events.append', this.handleDomainEvent);
     if (!this.context) {
+      this.log.debug('Scenario stop requested with no active context', { status });
       if (status === 'idle') {
         this.updateSnapshot({ status: 'idle' });
       }
@@ -97,6 +108,10 @@ export class ScenarioRunner {
     const scenario = this.context.scenario;
     const startedAt = this.context.startedAt;
     this.context = undefined;
+    this.log.info('Scenario stopped', {
+      scenarioId: scenario.id,
+      status,
+    });
     this.updateSnapshot({
       status,
       scenario,
@@ -114,17 +129,26 @@ export class ScenarioRunner {
     }
     const { scenario } = this.context;
     if (!scenario.events[index]) {
+      this.log.warn('Attempted to execute missing scenario event', { index });
       return;
     }
     const event = scenario.events[index];
 
     if (event.type === 'SYSTEM_RESET') {
       this.context.awaitingSystemReset = true;
+      this.log.info('Awaiting system reset after event', {
+        index,
+        eventType: event.type,
+      });
     } else {
       try {
         this.dispatchEvent(event);
+        this.log.debug('Scenario event dispatched', {
+          eventType: event.type,
+          index,
+        });
       } catch (error) {
-        console.error('Scenario event execution failed', error);
+        this.log.error('Scenario event execution failed', { error: toError(error), eventType: event.type });
       }
     }
 
@@ -146,6 +170,9 @@ export class ScenarioRunner {
       this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
       this.context = undefined;
       this.domain.emitter.off('events.append', this.handleDomainEvent);
+      this.log.info('Scenario completed', {
+        scenarioId: scenario.id,
+      });
     }
   }
 

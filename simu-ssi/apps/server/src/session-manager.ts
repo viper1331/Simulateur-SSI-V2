@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from './prisma';
 import type { Prisma } from '@prisma/client';
+import { createLogger, toError } from './logger';
 
 const improvementSchema = z.object({
   title: z.string().min(1),
@@ -64,10 +65,14 @@ interface SessionManagerEventMap {
   'session.update': SessionView | null;
 }
 
+const sessionLogger = createLogger('SessionManager');
+
 export class SessionManager extends EventEmitter<SessionManagerEventMap> {
   private activeSessionId: string | null = null;
 
   private currentSession: SessionView | null = null;
+
+  private readonly log = sessionLogger;
 
   async hydrate() {
     const record = await prisma.session.findFirst({
@@ -77,10 +82,15 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
     if (!record) {
       this.activeSessionId = null;
       this.currentSession = null;
+      this.log.debug('No existing sessions found during hydration');
       return null;
     }
     this.activeSessionId = record.endedAt ? null : record.id;
     this.currentSession = this.serialize(record);
+    this.log.info('Hydrated session state', {
+      activeSessionId: this.activeSessionId,
+      status: this.currentSession.status,
+    });
     return this.currentSession;
   }
 
@@ -98,6 +108,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       take: limit,
       include: { trainee: true, trainer: true },
     });
+    this.log.debug('Listed sessions', { limit, count: records.length });
     return records.map((record) => this.serialize(record));
   }
 
@@ -106,11 +117,15 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       where: { id },
       include: { trainee: true, trainer: true },
     });
+    this.log.debug('Fetched session', { id, found: Boolean(record) });
     return record ? this.serialize(record) : null;
   }
 
   async createSession(input: SessionCreateInput): Promise<SessionView> {
     if (this.activeSessionId) {
+      this.log.warn('Attempt to create session while another is active', {
+        activeSessionId: this.activeSessionId,
+      });
       throw new Error('SESSION_ALREADY_ACTIVE');
     }
     const session = await prisma.session.create({
@@ -128,10 +143,16 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
     this.activeSessionId = session.id;
     this.currentSession = this.serialize(session);
     this.emit('session.update', this.currentSession);
+    this.log.info('Session created', {
+      sessionId: session.id,
+      traineeId: session.traineeId,
+      trainerId: session.trainerId,
+    });
     return this.currentSession;
   }
 
   async updateSession(id: string, input: SessionUpdateInput): Promise<SessionView> {
+    this.log.debug('Updating session', { id, payload: input });
     const session = await prisma.session.update({
       where: { id },
       data: {
@@ -149,10 +170,15 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       this.currentSession = this.serialize(session);
       this.emit('session.update', this.currentSession);
     }
+    this.log.info('Session updated', {
+      sessionId: session.id,
+      status: session.endedAt ? 'completed' : 'active',
+    });
     return this.serialize(session);
   }
 
   async closeSession(id: string, input: SessionCloseInput): Promise<SessionView> {
+    this.log.debug('Closing session', { id });
     const improvementJson =
       input.improvementAreas === undefined
         ? undefined
@@ -173,6 +199,10 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
     }
     this.currentSession = this.serialize(session);
     this.emit('session.update', this.currentSession);
+    this.log.info('Session closed', {
+      sessionId: session.id,
+      improvementCount: input.improvementAreas?.length ?? 0,
+    });
     return this.currentSession;
   }
 
@@ -220,7 +250,7 @@ function parseImprovementAreas(json: string | null): ImprovementArea[] {
     }
     return result;
   } catch (error) {
-    console.error('Failed to parse improvement axes JSON', error);
+    sessionLogger.error('Failed to parse improvement axes JSON', { error: toError(error) });
     return [];
   }
 }
