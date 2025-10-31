@@ -6,6 +6,25 @@ const siteConfigSchema = z.object({
   processAckRequired: z.boolean(),
 });
 
+const siteZoneSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  kind: z.string().min(1),
+});
+
+const siteDeviceSchema = z.object({
+  id: z.string().min(1),
+  kind: z.string().min(1),
+  zoneId: z.string().min(1).optional(),
+  label: z.string().optional(),
+  props: z.record(z.unknown()).optional(),
+});
+
+const topologySchema = z.object({
+  zones: z.array(siteZoneSchema),
+  devices: z.array(siteDeviceSchema),
+});
+
 const scenarioEventBaseSchema = z.object({
   id: z.string().uuid().optional(),
   label: z.string().optional(),
@@ -55,6 +74,9 @@ export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 export type ScenarioDefinition = z.infer<typeof scenarioDefinitionSchema>;
 export type ScenarioPayload = z.infer<typeof scenarioPayloadSchema>;
 export type ScenarioRunnerSnapshot = z.infer<typeof scenarioRunnerSnapshotSchema>;
+export type SiteZone = z.infer<typeof siteZoneSchema>;
+export type SiteDevice = z.infer<typeof siteDeviceSchema>;
+export type SiteTopology = z.infer<typeof topologySchema>;
 
 export class SsiSdk {
   constructor(private readonly baseUrl: string) {}
@@ -190,6 +212,15 @@ export class SsiSdk {
     }
     const json = await response.json();
     return scenarioRunnerSnapshotSchema.parse(json);
+  }
+
+  async getTopology(): Promise<SiteTopology> {
+    const response = await fetch(`${this.baseUrl}/api/topology`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch topology');
+    }
+    const json = await response.json();
+    return topologySchema.parse(json);
   }
 
   private async post(path: string, body?: unknown) {

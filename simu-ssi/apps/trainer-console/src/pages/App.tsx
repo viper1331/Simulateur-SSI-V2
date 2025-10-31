@@ -8,6 +8,8 @@ import {
   type ScenarioPayload,
   type ScenarioRunnerSnapshot,
   type SiteConfig,
+  type SiteDevice,
+  type SiteTopology,
 } from '@simu-ssi/sdk';
 
 interface CmsiStateData {
@@ -46,6 +48,21 @@ const CMSI_STATUS_LABELS: Record<string, string> = {
   EVAC_ACTIVE: 'Evacuation',
   EVAC_SUSPENDED: 'Suspendue',
 };
+
+const ZONE_KIND_LABELS: Record<string, string> = {
+  ZF: 'Zone de Fonctionnement',
+  ZD: 'Zone de Détection',
+  ZS: 'Zone de Sécurité',
+};
+
+const DEVICE_KIND_LABELS: Record<string, string> = {
+  DM: 'DM',
+  DAI: 'DAI',
+  DAS: 'DAS',
+  UGA: 'UGA',
+};
+
+const UNASSIGNED_ZONE_KEY = '__UNASSIGNED__';
 
 function formatCmsiStatus(status?: string) {
   if (!status) return '—';
@@ -96,6 +113,40 @@ function describeScenarioEvent(event: ScenarioEvent | null | undefined): string 
     default:
       return 'Action scénario';
   }
+}
+
+function formatZoneKind(kind?: string) {
+  if (!kind) {
+    return 'Type non défini';
+  }
+  return ZONE_KIND_LABELS[kind] ?? kind;
+}
+
+function formatDeviceKind(kind: string) {
+  return DEVICE_KIND_LABELS[kind] ?? kind;
+}
+
+function resolveDeviceLabel(device: SiteDevice) {
+  return device.label?.trim().length ? device.label : device.id;
+}
+
+function extractDeviceCoords(device: SiteDevice): string | null {
+  const props = device.props as Record<string, unknown> | undefined;
+  if (!props) {
+    return null;
+  }
+  const xValue = props.x;
+  const yValue = props.y;
+  const x = typeof xValue === 'number' ? Math.round(xValue) : null;
+  const y = typeof yValue === 'number' ? Math.round(yValue) : null;
+  if (x === null || y === null) {
+    return null;
+  }
+  return `${x} × ${y}`;
+}
+
+function deviceBadgeClass(kind: string) {
+  return `topology-device__badge topology-device__badge--${kind.toLowerCase()}`;
 }
 
 function createEmptyScenarioDraft(): ScenarioDraft {
@@ -253,6 +304,9 @@ export function App() {
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [topology, setTopology] = useState<SiteTopology | null>(null);
+  const [topologyLoading, setTopologyLoading] = useState(true);
+  const [topologyError, setTopologyError] = useState<string | null>(null);
 
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
@@ -279,6 +333,35 @@ export function App() {
       socket.disconnect();
     };
   }, [baseUrl, refreshScenarioStatus, refreshScenarios, sdk]);
+
+  useEffect(() => {
+    let active = true;
+    setTopologyLoading(true);
+    sdk
+      .getTopology()
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setTopology(data);
+        setTopologyError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        if (!active) {
+          return;
+        }
+        setTopologyError("Impossible de récupérer la cartographie du site.");
+      })
+      .finally(() => {
+        if (active) {
+          setTopologyLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [sdk]);
 
   const handleConfigSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -509,6 +592,30 @@ export function App() {
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);
+  const devicesByZone = useMemo(() => {
+    const map = new Map<string, SiteDevice[]>();
+    if (!topology) {
+      return map;
+    }
+    for (const device of topology.devices) {
+      const zoneKey = device.zoneId ?? UNASSIGNED_ZONE_KEY;
+      const current = map.get(zoneKey) ?? [];
+      current.push(device);
+      map.set(zoneKey, current);
+    }
+    for (const [, devices] of map) {
+      devices.sort((a, b) => {
+        const kindComparison = a.kind.localeCompare(b.kind);
+        if (kindComparison !== 0) {
+          return kindComparison;
+        }
+        return resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b));
+      });
+    }
+    return map;
+  }, [topology]);
+  const unassignedDevices = devicesByZone.get(UNASSIGNED_ZONE_KEY) ?? [];
+  const hasTopologyData = Boolean(topology && (topology.zones.length > 0 || topology.devices.length > 0));
   const sortedDraftEvents = useMemo(
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
     [draftScenario.events],
@@ -696,6 +803,82 @@ export function App() {
                   Appliquer la configuration
                 </button>
               </form>
+            </div>
+
+            <div className="card topology-card">
+              <div className="card__header">
+                <h2 className="card__title">Cartographie du site</h2>
+                <p className="card__description">
+                  Synchronisez-vous avec l'Admin Studio : zones et dispositifs configurés pour l'exercice.
+                </p>
+              </div>
+              {topologyLoading ? (
+                <p className="topology-placeholder">Chargement de la topologie…</p>
+              ) : topologyError ? (
+                <p className="topology-error">{topologyError}</p>
+              ) : hasTopologyData ? (
+                <>
+                  {topology?.zones.length ? (
+                    <ul className="topology-zone-list">
+                      {topology.zones.map((zone) => {
+                        const zoneDevices = devicesByZone.get(zone.id) ?? [];
+                        return (
+                          <li key={zone.id} className="topology-zone">
+                            <div className="topology-zone__header">
+                              <div className="topology-zone__title">
+                                <span className="topology-zone__name">{zone.label}</span>
+                                <span className="topology-zone__id">#{zone.id}</span>
+                              </div>
+                              <span className="topology-zone__kind">{formatZoneKind(zone.kind)}</span>
+                            </div>
+                            {zoneDevices.length === 0 ? (
+                              <p className="topology-zone__empty">Aucun dispositif associé.</p>
+                            ) : (
+                              <ul className="topology-device-list">
+                                {zoneDevices.map((device) => {
+                                  const coords = extractDeviceCoords(device);
+                                  return (
+                                    <li key={device.id} className="topology-device">
+                                      <span className={deviceBadgeClass(device.kind)}>
+                                        {formatDeviceKind(device.kind)}
+                                      </span>
+                                      <div className="topology-device__meta">
+                                        <span className="topology-device__label">{resolveDeviceLabel(device)}</span>
+                                        {coords && <span className="topology-device__coords">{coords}</span>}
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                  {unassignedDevices.length > 0 && (
+                    <div className="topology-unassigned">
+                      <span className="topology-unassigned__label">Dispositifs sans zone</span>
+                      <ul className="topology-device-list">
+                        {unassignedDevices.map((device) => {
+                          const coords = extractDeviceCoords(device);
+                          return (
+                            <li key={device.id} className="topology-device">
+                              <span className={deviceBadgeClass(device.kind)}>{formatDeviceKind(device.kind)}</span>
+                              <div className="topology-device__meta">
+                                <span className="topology-device__label">{resolveDeviceLabel(device)}</span>
+                                {coords && <span className="topology-device__coords">{coords}</span>}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="topology-empty">Aucun plan n'a encore été défini dans l'Admin Studio.</p>
+              )}
             </div>
 
             <div className="card dm-card">
