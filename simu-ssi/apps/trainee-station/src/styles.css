@@ -739,6 +739,28 @@ button {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+.instruction-step.is-completed {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.instruction-step.is-completed::before {
+  background: #9ca3af;
+  border-color: #e5e7eb;
+  box-shadow: none;
+}
+
+.instruction-step.is-next {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.instruction-step.is-next::before {
+  background: #2563eb;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.28);
+}
+
 .scenario-guidance {
   display: flex;
   flex-direction: column;
