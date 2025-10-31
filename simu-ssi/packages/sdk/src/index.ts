@@ -627,6 +627,17 @@ export class SsiSdk {
     return scenarioRunnerSnapshotSchema.parse(json);
   }
 
+  async completeScenario(): Promise<ScenarioRunnerSnapshot> {
+    const response = await fetch(`${this.baseUrl}/api/scenarios/complete`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to complete scenario');
+    }
+    const json = await response.json();
+    return scenarioRunnerSnapshotSchema.parse(json);
+  }
+
   async getTopology(): Promise<SiteTopology> {
     const response = await fetch(`${this.baseUrl}/api/topology`);
     if (!response.ok) {
