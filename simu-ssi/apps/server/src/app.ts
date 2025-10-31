@@ -15,6 +15,7 @@ import {
   siteTopologySchema,
   traineeLayoutSchema,
   type ScenarioDefinition,
+  type SiteTopology,
   type TraineeLayoutConfig,
 } from '@simu-ssi/sdk';
 import { ScenarioRunner } from './scenario-runner';
@@ -126,6 +127,8 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   const scenarioRunner = new ScenarioRunner(domainContext.domain);
   let latestLayout: TraineeLayoutConfig = DEFAULT_TRAINEE_LAYOUT;
+  let latestTopology: SiteTopology | null = null;
+  let lastTopologyBroadcastSignature: string | null = null;
   let ioRef: SocketIOServer | null = null;
   void loadTraineeLayout()
     .then((layout) => {
@@ -134,6 +137,57 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     })
     .catch((error) => {
       log.error("Échec du chargement de la disposition stagiaire au démarrage", { error: toError(error) });
+    });
+
+  async function loadLatestTopology(): Promise<SiteTopology> {
+    const [zones, devices, config] = await Promise.all([
+      prisma.zone.findMany({ orderBy: { label: 'asc' } }),
+      prisma.device.findMany({ orderBy: { id: 'asc' } }),
+      prisma.siteConfig.findUnique({ where: { id: 1 } }),
+    ]);
+    const payload = formatTopologyResponse(zones, devices, {
+      name: config?.planName ?? undefined,
+      image: config?.planImage ?? undefined,
+      notes: config?.planNotes ?? undefined,
+    });
+    const parsed = siteTopologySchema.parse(payload);
+    latestTopology = parsed;
+    return parsed;
+  }
+
+  function resolveActiveTopology(): SiteTopology | null {
+    const snapshot = scenarioRunner.state;
+    if (snapshot.status === 'running' && snapshot.scenario?.topology?.plan?.image) {
+      return snapshot.scenario.topology ?? null;
+    }
+    return latestTopology;
+  }
+
+  function broadcastActiveTopology(force = false) {
+    if (!ioRef) {
+      return;
+    }
+    const topology = resolveActiveTopology();
+    if (!topology) {
+      return;
+    }
+    const signature = JSON.stringify(topology);
+    if (!force && signature === lastTopologyBroadcastSignature) {
+      return;
+    }
+    ioRef.emit('topology.update', topology);
+    lastTopologyBroadcastSignature = signature;
+  }
+
+  void loadLatestTopology()
+    .then((topology) => {
+      log.info("Topologie du site chargée au démarrage", {
+        zoneCount: topology.zones.length,
+        deviceCount: topology.devices.length,
+      });
+    })
+    .catch((error) => {
+      log.error("Échec du chargement initial de la topologie du site", { error: toError(error) });
     });
 
   app.get('/api/users', async (req, res) => {
@@ -703,19 +757,36 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   });
 
   app.get('/api/topology', async (_req, res) => {
-    const [zones, devices, config] = await Promise.all([
-      prisma.zone.findMany({ orderBy: { label: 'asc' } }),
-      prisma.device.findMany({ orderBy: { id: 'asc' } }),
-      prisma.siteConfig.findUnique({ where: { id: 1 } }),
-    ]);
-    log.debug("Topologie récupérée", { zoneCount: zones.length, deviceCount: devices.length });
-    res.json(
-      formatTopologyResponse(zones, devices, {
-        name: config?.planName ?? undefined,
-        image: config?.planImage ?? undefined,
-        notes: config?.planNotes ?? undefined,
-      }),
-    );
+    const snapshot = scenarioRunner.state;
+    const activeScenarioTopology =
+      snapshot.status === 'running' ? snapshot.scenario?.topology : undefined;
+    if (activeScenarioTopology?.plan?.image) {
+      log.debug("Topologie récupérée depuis le scénario actif", {
+        zoneCount: activeScenarioTopology.zones.length,
+        deviceCount: activeScenarioTopology.devices.length,
+      });
+      return res.json(activeScenarioTopology);
+    }
+
+    if (!latestTopology) {
+      try {
+        const topology = await loadLatestTopology();
+        log.debug("Topologie récupérée", {
+          zoneCount: topology.zones.length,
+          deviceCount: topology.devices.length,
+        });
+        return res.json(topology);
+      } catch (error) {
+        log.error("Échec de la récupération de la topologie", { error: toError(error) });
+        return res.status(500).json({ error: 'FAILED_TO_LOAD_TOPOLOGY' });
+      }
+    }
+
+    log.debug("Topologie récupérée", {
+      zoneCount: latestTopology.zones.length,
+      deviceCount: latestTopology.devices.length,
+    });
+    res.json(latestTopology);
   });
 
   app.put('/api/topology', async (req, res) => {
@@ -782,14 +853,14 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       image: persistedConfig?.planImage ?? undefined,
       notes: persistedConfig?.planNotes ?? undefined,
     });
+    const parsedTopology = siteTopologySchema.parse(payload);
+    latestTopology = parsedTopology;
     log.info("Topologie mise à jour", {
       zoneCount: persistedZones.length,
       deviceCount: persistedDevices.length,
     });
-    res.json(payload);
-    if (ioRef) {
-      ioRef.emit('topology.update', payload);
-    }
+    res.json(parsedTopology);
+    broadcastActiveTopology(true);
   });
 
   app.get('/api/scenarios', async (_req, res) => {
@@ -876,6 +947,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }
     const scenario = serializeScenarioRecord(record);
     scenarioRunner.run(scenario);
+    broadcastActiveTopology(true);
     log.info("Exécution de scénario demandée", { scenarioId: scenario.id });
     await prisma.eventLog.create({
       data: {
@@ -901,6 +973,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       });
     }
     res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
+    broadcastActiveTopology(true);
   });
 
   app.get('/api/scenarios/active', (_req, res) => {
@@ -926,6 +999,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   scenarioRunner.on('scenario.update', (snapshot) => {
     io.emit('scenario.update', snapshot);
+    broadcastActiveTopology();
   });
 
   sessionManager.on('session.update', (session) => {
@@ -937,6 +1011,18 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     socket.emit('scenario.update', scenarioRunner.state);
     socket.emit('layout.update', latestLayout);
     socket.emit('session.update', sessionManager.getCurrentSession());
+    const activeTopology = resolveActiveTopology();
+    if (activeTopology) {
+      socket.emit('topology.update', activeTopology);
+    } else if (!latestTopology) {
+      loadLatestTopology()
+        .then((topology) => {
+          socket.emit('topology.update', topology);
+        })
+        .catch((error) => {
+          log.error("Échec du chargement de la topologie pour un nouveau client", { error: toError(error) });
+        });
+    }
   });
 
   return { app, server: server as HttpServer, io };
