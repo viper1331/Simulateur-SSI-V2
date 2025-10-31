@@ -458,6 +458,28 @@ export function TraineeApp() {
     return { dmZones, daiZones };
   }, [scenarioUiStatus.scenario?.manualResettable]);
 
+  const hasOutstandingManualResets = useMemo(() => {
+    const normalize = (zone: string) => zone.trim().toUpperCase();
+    const dmLatched = snapshot?.dmLatched ?? {};
+    const daiActivated = snapshot?.daiActivated ?? {};
+    const activeDmZones = Object.keys(dmLatched).map(normalize);
+    const activeDaiZones = Object.keys(daiActivated).map(normalize);
+
+    if (!manualResetConstraints) {
+      return activeDmZones.length > 0 || activeDaiZones.length > 0;
+    }
+
+    const requiresManualDm = manualResetConstraints.dmZones.size > 0;
+    const requiresManualDai = manualResetConstraints.daiZones.size > 0;
+
+    const pendingDm =
+      requiresManualDm && activeDmZones.some((zone) => manualResetConstraints.dmZones.has(zone));
+    const pendingDai =
+      requiresManualDai && activeDaiZones.some((zone) => manualResetConstraints.daiZones.has(zone));
+
+    return pendingDm || pendingDai;
+  }, [manualResetConstraints, snapshot?.daiActivated, snapshot?.dmLatched]);
+
   const canResetZone = useCallback(
     (kind: 'DM' | 'DAI', zoneId: string) => isManualResetAllowed(manualResetConstraints, kind, zoneId),
     [manualResetConstraints],
@@ -611,8 +633,9 @@ export function TraineeApp() {
 
   const handleResetRequest = useCallback(() => {
     if (accessLevel < 2) return;
+    if (hasOutstandingManualResets) return;
     sdk.resetSystem().catch(console.error);
-  }, [accessLevel, sdk]);
+  }, [accessLevel, hasOutstandingManualResets, sdk]);
 
   const handleResetDm = useCallback(
     (zoneId: string) => {
@@ -925,8 +948,13 @@ export function TraineeApp() {
       label: 'Demande de réarmement',
       tone: 'blue',
       onClick: handleResetRequest,
-      disabled: accessLevel < 2,
-      title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
+      disabled: accessLevel < 2 || hasOutstandingManualResets,
+      title:
+        accessLevel < 2
+          ? 'Code niveau 2 requis'
+          : hasOutstandingManualResets
+          ? 'Réarmez les dispositifs requis avant de demander la remise à zéro'
+          : undefined,
     },
     {
       id: 'reset-dm-zf1',
