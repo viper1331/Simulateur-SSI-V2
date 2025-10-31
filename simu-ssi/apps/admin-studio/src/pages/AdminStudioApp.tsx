@@ -370,7 +370,15 @@ export function AdminStudioApp() {
       };
     });
 
-    return { zones: sanitizedZones, devices: sanitizedDevices };
+    const plan = planImage
+      ? {
+          image: planImage,
+          name: planName.trim().length > 0 ? planName.trim() : undefined,
+          notes: planNotes.trim().length > 0 ? planNotes.trim() : undefined,
+        }
+      : undefined;
+
+    return { plan, zones: sanitizedZones, devices: sanitizedDevices };
   }, [zones, devices, planImage, planName, planNotes]);
 
   const hasTopologyContent = siteTopology.zones.length > 0 || siteTopology.devices.length > 0;

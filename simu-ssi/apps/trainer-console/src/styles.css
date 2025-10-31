@@ -1518,6 +1518,112 @@ kbd {
   }
 }
 
+.scenario-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.scenario-plan {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(226, 232, 240, 0.7));
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.scenario-plan__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.scenario-plan__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.scenario-plan__subtitle {
+  margin: 6px 0 0;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.scenario-plan__stage {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #e2e8f0;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+}
+
+.scenario-plan__stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.scenario-plan__marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #ffffff;
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.25);
+  letter-spacing: 0.04em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.scenario-plan__marker--dm {
+  background: #dc2626;
+}
+
+.scenario-plan__marker--dai {
+  background: #f97316;
+}
+
+.scenario-plan__marker--das {
+  background: #0ea5e9;
+}
+
+.scenario-plan__marker--uga {
+  background: #8b5cf6;
+}
+
+.scenario-plan__marker.is-active {
+  transform: translate(-50%, -50%) scale(1.08);
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25), 0 8px 18px rgba(15, 23, 42, 0.35);
+}
+
+.scenario-plan__notes {
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
+  padding-top: 12px;
+}
+
+.scenario-plan__notes h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.scenario-plan__notes ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #475569;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
 .scenario-sidebar {
   display: flex;
   flex-direction: column;

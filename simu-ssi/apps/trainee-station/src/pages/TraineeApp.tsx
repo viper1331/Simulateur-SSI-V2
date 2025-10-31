@@ -6,6 +6,7 @@ import {
   SsiSdk,
   traineeLayoutSchema,
   siteTopologySchema,
+  type SiteDevice,
   type SiteTopology,
   type ScenarioDefinition,
   type ScenarioEvent,
@@ -59,6 +60,13 @@ const cmsiStatusTone: Record<string, BoardModuleTone> = {
   EVAC_PENDING: 'warning',
   EVAC_SUSPENDED: 'info',
   SAFE_HOLD: 'safe',
+};
+
+const DEVICE_MARKER_LABELS: Record<string, string> = {
+  DM: 'DM',
+  DAI: 'DAI',
+  DAS: 'DAS',
+  UGA: 'UGA',
 };
 
 function translateScenarioStatus(
@@ -235,24 +243,79 @@ function orderItems<T extends { id: string }>(items: T[], order: string[], hidde
     .map(({ item }) => item);
 }
 
+function splitPlanNotes(value?: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 function extractPlanNotes(topology: SiteTopology | null): string[] {
   if (!topology) {
     return [];
   }
   const notes = new Set<string>();
+  for (const note of splitPlanNotes(topology.plan?.notes)) {
+    notes.add(note);
+  }
   for (const device of topology.devices) {
     const props = device.props as Record<string, unknown> | undefined;
     const rawNotes = props?.planNotes;
-    if (typeof rawNotes === 'string' && rawNotes.trim().length > 0) {
-      for (const line of rawNotes.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (trimmed.length > 0) {
-          notes.add(trimmed);
-        }
+    if (typeof rawNotes === 'string') {
+      for (const line of splitPlanNotes(rawNotes)) {
+        notes.add(line);
       }
     }
   }
   return Array.from(notes);
+}
+
+function getDevicePosition(device: SiteDevice): { x: number; y: number } | null {
+  const props = device.props as Record<string, unknown> | undefined;
+  if (!props) {
+    return null;
+  }
+  const coordinates = props.coordinates as { xPercent?: number; yPercent?: number } | undefined;
+  const xValue = typeof props.x === 'number' ? props.x : coordinates?.xPercent;
+  const yValue = typeof props.y === 'number' ? props.y : coordinates?.yPercent;
+  if (typeof xValue !== 'number' || typeof yValue !== 'number') {
+    return null;
+  }
+  return { x: xValue, y: yValue };
+}
+
+function isDeviceActive(device: SiteDevice, snapshot: Snapshot | null): boolean {
+  if (!snapshot) {
+    return false;
+  }
+  switch (device.kind) {
+    case 'DM':
+      return device.zoneId ? Boolean(snapshot.dmLatched?.[device.zoneId]) : false;
+    case 'DAI':
+      return device.zoneId ? Boolean(snapshot.daiActivated?.[device.zoneId]) : false;
+    case 'DAS':
+      return Boolean(snapshot.dasApplied);
+    case 'UGA':
+      return Boolean(snapshot.ugaActive || snapshot.localAudibleActive);
+    default:
+      return false;
+  }
+}
+
+function isDeviceActionable(device: SiteDevice, snapshot: Snapshot | null, accessLevel: number): boolean {
+  if (accessLevel < 2) {
+    return false;
+  }
+  if (device.kind === 'DM' && device.zoneId) {
+    return Boolean(snapshot?.dmLatched?.[device.zoneId]);
+  }
+  if (device.kind === 'DAI' && device.zoneId) {
+    return Boolean(snapshot?.daiActivated?.[device.zoneId]);
+  }
+  return false;
 }
 
 export function TraineeApp() {
@@ -437,6 +500,14 @@ export function TraineeApp() {
     [accessLevel, sdk],
   );
 
+  const handleResetDai = useCallback(
+    (zoneId: string) => {
+      if (accessLevel < 2) return;
+      sdk.resetAutomaticDetector(zoneId).catch(console.error);
+    },
+    [accessLevel, sdk],
+  );
+
   const handleManualEvacToggle = useCallback(() => {
     if (accessLevel < 2) return;
     if (snapshot?.manualEvacuation) {
@@ -445,6 +516,23 @@ export function TraineeApp() {
       sdk.startManualEvacuation('poste-apprenant').catch(console.error);
     }
   }, [accessLevel, sdk, snapshot?.manualEvacuation]);
+
+  const handlePlanDeviceClick = useCallback(
+    (device: SiteDevice) => {
+      if (device.kind === 'DM' && device.zoneId) {
+        if (snapshot?.dmLatched?.[device.zoneId]) {
+          handleResetDm(device.zoneId);
+        }
+        return;
+      }
+      if (device.kind === 'DAI' && device.zoneId) {
+        if (snapshot?.daiActivated?.[device.zoneId]) {
+          handleResetDai(device.zoneId);
+        }
+      }
+    },
+    [handleResetDai, handleResetDm, snapshot],
+  );
 
   const handleSilenceAlarm = useCallback(() => {
     sdk.silenceAudibleAlarm().catch(console.error);
@@ -507,6 +595,8 @@ export function TraineeApp() {
     () => deriveScenarioAdaptation(scenarioStatus.scenario),
     [scenarioStatus.scenario],
   );
+  const planName = topology?.plan?.name?.trim() ?? null;
+  const planImage = topology?.plan?.image ?? null;
 
   const handleTraineeSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     setSelectedTraineeId(event.target.value);
@@ -987,19 +1077,71 @@ export function TraineeApp() {
               <BoardTile key={module.id} module={module} />
             ))}
           </div>
+          {planImage && (
+            <div className="floor-plan" aria-label="Plan interactif du site">
+              <div className="floor-plan__header">
+                <div>
+                  <h3 className="floor-plan__title">Plan du site</h3>
+                  {planName && <p className="floor-plan__subtitle">{planName}</p>}
+                </div>
+                <p className="floor-plan__hint">
+                  {accessLevel >= 2
+                    ? 'Cliquez sur un DM ou une DAI active pour les réarmer.'
+                    : 'Passez au niveau 2 pour réarmer depuis le plan.'}
+                </p>
+              </div>
+              <div className="floor-plan__stage">
+                <img src={planImage} alt={planName ? `Plan ${planName}` : 'Plan du site'} />
+                {topology?.devices.map((device) => {
+                  const position = getDevicePosition(device);
+                  if (!position) {
+                    return null;
+                  }
+                  const markerLabel = DEVICE_MARKER_LABELS[device.kind] ?? device.kind;
+                  const deviceLabel = device.label?.trim().length ? device.label.trim() : device.id;
+                  const zoneLabel = device.zoneId ? ` (${device.zoneId})` : '';
+                  const active = isDeviceActive(device, snapshot);
+                  const actionable = isDeviceActionable(device, snapshot, accessLevel);
+                  const className = [
+                    'floor-plan__marker',
+                    `floor-plan__marker--${device.kind.toLowerCase()}`,
+                    active ? 'is-active' : '',
+                    actionable ? 'is-actionable' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ');
+                  const title = `${markerLabel} · ${deviceLabel}${zoneLabel}`;
+                  return (
+                    <button
+                      key={device.id}
+                      type="button"
+                      className={className}
+                      style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                      onClick={() => handlePlanDeviceClick(device)}
+                      title={title}
+                      aria-label={title}
+                      disabled={!actionable}
+                    >
+                      {markerLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="control-strip">
             {orderedControlButtons.map((button) => (
-            <ControlButton
-              key={button.id}
-              label={button.label}
-              tone={button.tone}
-              onClick={button.onClick}
-              disabled={button.disabled}
-              title={button.title}
-              highlighted={button.highlighted}
-            />
-          ))}
-        </div>
+              <ControlButton
+                key={button.id}
+                label={button.label}
+                tone={button.tone}
+                onClick={button.onClick}
+                disabled={button.disabled}
+                title={button.title}
+                highlighted={button.highlighted}
+              />
+            ))}
+          </div>
         </section>
         <section className="side-panels">
           {orderedSidePanels.map((panel) => (

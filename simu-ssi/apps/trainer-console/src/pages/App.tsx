@@ -238,6 +238,16 @@ function deviceBadgeClass(kind: string) {
   return `topology-device__badge topology-device__badge--${kind.toLowerCase()}`;
 }
 
+function splitPlanNotes(value?: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 function extractPlanMetadata(topology: SiteTopology | null): { planName: string | null; notes: string[] } {
   if (!topology) {
     return { planName: null, notes: [] };
@@ -245,24 +255,70 @@ function extractPlanMetadata(topology: SiteTopology | null): { planName: string 
   let planName: string | null = null;
   const notes = new Set<string>();
 
+  if (topology.plan?.name && topology.plan.name.trim().length > 0) {
+    planName = topology.plan.name.trim();
+  }
+  for (const note of splitPlanNotes(topology.plan?.notes)) {
+    notes.add(note);
+  }
+
   for (const device of topology.devices) {
-    const props = device.props as Record<string, unknown> | undefined;
-    const rawName = props?.planName;
-    if (!planName && typeof rawName === 'string' && rawName.trim().length > 0) {
-      planName = rawName.trim();
-    }
-    const rawNotes = props?.planNotes;
-    if (typeof rawNotes === 'string' && rawNotes.trim().length > 0) {
-      for (const line of rawNotes.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (trimmed.length > 0) {
-          notes.add(trimmed);
+    if (!planName) {
+      const props = device.props as Record<string, unknown> | undefined;
+      const rawName = props?.planName;
+      if (!planName && typeof rawName === 'string' && rawName.trim().length > 0) {
+        planName = rawName.trim();
+      }
+      const rawNotes = props?.planNotes;
+      if (typeof rawNotes === 'string') {
+        for (const line of splitPlanNotes(rawNotes)) {
+          notes.add(line);
+        }
+      }
+    } else {
+      const props = device.props as Record<string, unknown> | undefined;
+      const rawNotes = props?.planNotes;
+      if (typeof rawNotes === 'string') {
+        for (const line of splitPlanNotes(rawNotes)) {
+          notes.add(line);
         }
       }
     }
   }
 
   return { planName, notes: Array.from(notes) };
+}
+
+function getDevicePosition(device: SiteDevice): { x: number; y: number } | null {
+  const props = device.props as Record<string, unknown> | undefined;
+  if (!props) {
+    return null;
+  }
+  const coordinates = props.coordinates as { xPercent?: number; yPercent?: number } | undefined;
+  const xValue = typeof props.x === 'number' ? props.x : coordinates?.xPercent;
+  const yValue = typeof props.y === 'number' ? props.y : coordinates?.yPercent;
+  if (typeof xValue !== 'number' || typeof yValue !== 'number') {
+    return null;
+  }
+  return { x: xValue, y: yValue };
+}
+
+function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): boolean {
+  if (!snapshot) {
+    return false;
+  }
+  switch (device.kind) {
+    case 'DM':
+      return device.zoneId ? Boolean(snapshot.dmLatched?.[device.zoneId]) : false;
+    case 'DAI':
+      return device.zoneId ? Boolean(snapshot.daiActivated?.[device.zoneId]) : false;
+    case 'DAS':
+      return Boolean(snapshot.dasApplied);
+    case 'UGA':
+      return Boolean(snapshot.ugaActive || snapshot.localAudibleActive);
+    default:
+      return false;
+  }
 }
 
 function createEmptyScenarioDraft(): ScenarioDraft {
@@ -2422,12 +2478,63 @@ export function App() {
                   })}
                 </ul>
               </aside>
-              <form className="scenario-form" onSubmit={handleScenarioSubmit}>
-                <div className="scenario-form__row">
-                  <label className="scenario-form__field">
-                    <span>Nom du scénario</span>
-                    <input
-                      value={draftScenario.name}
+              <div className="scenario-editor">
+                {topology?.plan?.image && (
+                  <section className="scenario-plan" aria-label="Plan interactif du site">
+                    <div className="scenario-plan__header">
+                      <div>
+                        <h3 className="scenario-plan__title">Plan interactif</h3>
+                        {planMetadata.planName && (
+                          <p className="scenario-plan__subtitle">{planMetadata.planName}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="scenario-plan__stage">
+                      <img
+                        src={topology.plan.image}
+                        alt={planMetadata.planName ? `Plan ${planMetadata.planName}` : 'Plan du site'}
+                      />
+                      {topology.devices.map((device) => {
+                        const position = getDevicePosition(device);
+                        if (!position) {
+                          return null;
+                        }
+                        const zoneLabel = device.zoneId ? ` (${device.zoneId})` : '';
+                        const label = `${formatDeviceKind(device.kind)} · ${resolveDeviceLabel(device)}${zoneLabel}`;
+                        const active = isDeviceActive(device, snapshot);
+                        return (
+                          <span
+                            key={device.id}
+                            className={`scenario-plan__marker scenario-plan__marker--${device.kind.toLowerCase()}${
+                              active ? ' is-active' : ''
+                            }`}
+                            style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                            title={label}
+                            aria-label={label}
+                          >
+                            {formatDeviceKind(device.kind)}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {planMetadata.notes.length > 0 && (
+                      <div className="scenario-plan__notes">
+                        <h4>Repères site</h4>
+                        <ul>
+                          {planMetadata.notes.map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+                )}
+                <form className="scenario-form" onSubmit={handleScenarioSubmit}>
+                  <div className="scenario-form__row">
+                    <label className="scenario-form__field">
+                      <span>Nom du scénario</span>
+                      <input
+                        value={draftScenario.name}
                       onChange={(event) => handleScenarioNameChange(event.target.value)}
                       placeholder="Ex : Exercice évacuation étage 2"
                       className="text-input"
@@ -2579,23 +2686,29 @@ export function App() {
                     );
                   })}
                 </div>
-                {scenarioFeedback && <p className="scenario-feedback">{scenarioFeedback}</p>}
-                {scenarioError && <p className="scenario-error">{scenarioError}</p>}
-                <div className="scenario-form__actions">
-                  <button type="submit" className="btn btn--primary" disabled={scenarioSaving} aria-busy={scenarioSaving}>
-                    {scenarioSaving
-                      ? 'Enregistrement…'
-                      : editingScenarioId
-                      ? 'Mettre à jour le scénario'
-                      : 'Créer le scénario'}
-                  </button>
-                  {editingScenarioId && (
-                    <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
-                      Réinitialiser le formulaire
+                  {scenarioFeedback && <p className="scenario-feedback">{scenarioFeedback}</p>}
+                  {scenarioError && <p className="scenario-error">{scenarioError}</p>}
+                  <div className="scenario-form__actions">
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={scenarioSaving}
+                      aria-busy={scenarioSaving}
+                    >
+                      {scenarioSaving
+                        ? 'Enregistrement…'
+                        : editingScenarioId
+                        ? 'Mettre à jour le scénario'
+                        : 'Créer le scénario'}
                     </button>
-                  )}
-                </div>
-              </form>
+                    {editingScenarioId && (
+                      <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
+                        Réinitialiser le formulaire
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         </section>

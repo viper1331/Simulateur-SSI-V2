@@ -12,6 +12,9 @@ model SiteConfig {
   evacOnDAI          Boolean  @default(false)
   evacOnDMDelayMs    Int      @default(300000)
   processAckRequired Boolean  @default(true)
+  planName           String?
+  planImage          String?
+  planNotes          String?
   updatedAt          DateTime @updatedAt
 }
 

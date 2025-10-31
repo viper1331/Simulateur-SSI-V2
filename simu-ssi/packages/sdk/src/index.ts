@@ -12,6 +12,14 @@ const siteZoneSchema = z.object({
   kind: z.string().min(1),
 });
 
+const sitePlanSchema = z
+  .object({
+    image: z.string().min(1),
+    name: z.string().min(1).optional(),
+    notes: z.string().optional(),
+  })
+  .optional();
+
 const siteDeviceSchema = z.object({
   id: z.string().min(1),
   kind: z.string().min(1),
@@ -21,6 +29,7 @@ const siteDeviceSchema = z.object({
 });
 
 const topologySchema = z.object({
+  plan: sitePlanSchema,
   zones: z.array(siteZoneSchema),
   devices: z.array(siteDeviceSchema),
 });
