@@ -7,10 +7,13 @@ import { DomainContext } from './state';
 import { createServer, type Server as HttpServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import {
+  DEFAULT_TRAINEE_LAYOUT,
   scenarioDefinitionSchema,
   scenarioPayloadSchema,
   scenarioRunnerSnapshotSchema,
+  traineeLayoutSchema,
   type ScenarioDefinition,
+  type TraineeLayoutConfig,
 } from '@simu-ssi/sdk';
 import { ScenarioRunner } from './scenario-runner';
 
@@ -37,6 +40,10 @@ const accessCodeVerifySchema = z.object({
   code: z.string().max(32),
 });
 
+const BOARD_ORDER_BASELINE = DEFAULT_TRAINEE_LAYOUT.boardModuleOrder;
+const CONTROL_ORDER_BASELINE = DEFAULT_TRAINEE_LAYOUT.controlButtonOrder;
+const SIDE_ORDER_BASELINE = DEFAULT_TRAINEE_LAYOUT.sidePanelOrder;
+
 export function createHttpServer(domainContext: DomainContext): {
   app: Express;
   server: HttpServer;
@@ -47,6 +54,15 @@ export function createHttpServer(domainContext: DomainContext): {
   app.use(express.json());
 
   const scenarioRunner = new ScenarioRunner(domainContext.domain);
+  let latestLayout: TraineeLayoutConfig = DEFAULT_TRAINEE_LAYOUT;
+  let ioRef: SocketIOServer | null = null;
+  void loadTraineeLayout()
+    .then((layout) => {
+      latestLayout = layout;
+    })
+    .catch((error) => {
+      console.error('Failed to load trainee layout at startup', error);
+    });
 
   app.get('/api/config/site', async (_req, res) => {
     const config = await prisma.siteConfig.findUniqueOrThrow({ where: { id: 1 } });
@@ -55,6 +71,45 @@ export function createHttpServer(domainContext: DomainContext): {
       evacOnDMDelayMs: config.evacOnDMDelayMs,
       processAckRequired: config.processAckRequired,
     });
+  });
+
+  app.get('/api/config/trainee-layout', async (_req, res) => {
+    try {
+      const layout = await loadTraineeLayout();
+      latestLayout = layout;
+      res.json(layout);
+    } catch (error) {
+      console.error('Failed to fetch trainee layout', error);
+      res.status(500).json({ error: 'FAILED_TO_FETCH_TRAINEE_LAYOUT' });
+    }
+  });
+
+  app.put('/api/config/trainee-layout', async (req, res) => {
+    const parsed = traineeLayoutSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const layout = parsed.data;
+    if (!isPermutationOf(layout.boardModuleOrder, BOARD_ORDER_BASELINE)) {
+      return res.status(400).json({ error: 'INVALID_BOARD_ORDER' });
+    }
+    if (!isPermutationOf(layout.controlButtonOrder, CONTROL_ORDER_BASELINE)) {
+      return res.status(400).json({ error: 'INVALID_CONTROL_ORDER' });
+    }
+    if (!isPermutationOf(layout.sidePanelOrder, SIDE_ORDER_BASELINE)) {
+      return res.status(400).json({ error: 'INVALID_PANEL_ORDER' });
+    }
+    try {
+      const persisted = await persistTraineeLayout(layout);
+      latestLayout = persisted;
+      res.json(persisted);
+      if (ioRef) {
+        ioRef.emit('layout.update', persisted);
+      }
+    } catch (error) {
+      console.error('Failed to persist trainee layout', error);
+      res.status(500).json({ error: 'FAILED_TO_SAVE_TRAINEE_LAYOUT' });
+    }
   });
 
   app.put('/api/config/site', async (req, res) => {
@@ -407,6 +462,7 @@ export function createHttpServer(domainContext: DomainContext): {
       origin: '*',
     },
   });
+  ioRef = io;
 
   domainContext.domain.emitter.on('state.update', (snapshot) => {
     io.emit('state.update', snapshot);
@@ -422,6 +478,7 @@ export function createHttpServer(domainContext: DomainContext): {
 
   io.on('connection', (socket) => {
     socket.emit('scenario.update', scenarioRunner.state);
+    socket.emit('layout.update', latestLayout);
   });
 
   return { app, server: server as HttpServer, io };
@@ -437,6 +494,54 @@ function parseDeviceProps(json: string | null): Record<string, unknown> | undefi
   } catch (error) {
     console.error('Failed to parse device props json', error);
     return undefined;
+  }
+}
+
+function isPermutationOf(order: string[], baseline: string[]): boolean {
+  if (order.length !== baseline.length) {
+    return false;
+  }
+  const seen = new Set(order);
+  if (seen.size !== baseline.length) {
+    return false;
+  }
+  return baseline.every((item) => seen.has(item));
+}
+
+async function loadTraineeLayout(): Promise<TraineeLayoutConfig> {
+  const record = await prisma.traineeLayout.findUnique({ where: { id: 1 } });
+  if (!record) {
+    return DEFAULT_TRAINEE_LAYOUT;
+  }
+  try {
+    const parsed = JSON.parse(record.configJson);
+    const layout = traineeLayoutSchema.parse(parsed);
+    if (
+      isPermutationOf(layout.boardModuleOrder, BOARD_ORDER_BASELINE) &&
+      isPermutationOf(layout.controlButtonOrder, CONTROL_ORDER_BASELINE) &&
+      isPermutationOf(layout.sidePanelOrder, SIDE_ORDER_BASELINE)
+    ) {
+      return layout;
+    }
+  } catch (error) {
+    console.error('Failed to parse trainee layout JSON', error);
+  }
+  return DEFAULT_TRAINEE_LAYOUT;
+}
+
+async function persistTraineeLayout(layout: TraineeLayoutConfig): Promise<TraineeLayoutConfig> {
+  const json = JSON.stringify(layout);
+  const record = await prisma.traineeLayout.upsert({
+    where: { id: 1 },
+    update: { configJson: json },
+    create: { id: 1, configJson: json },
+  });
+  try {
+    const parsed = JSON.parse(record.configJson);
+    return traineeLayoutSchema.parse(parsed);
+  } catch (error) {
+    console.error('Failed to parse persisted trainee layout JSON', error);
+    return DEFAULT_TRAINEE_LAYOUT;
   }
 }
 

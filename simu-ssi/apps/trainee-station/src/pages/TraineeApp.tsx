@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
-import { SsiSdk, type ScenarioRunnerSnapshot } from '@simu-ssi/sdk';
+import {
+  DEFAULT_TRAINEE_LAYOUT,
+  SsiSdk,
+  traineeLayoutSchema,
+  type ScenarioRunnerSnapshot,
+  type TraineeLayoutConfig,
+} from '@simu-ssi/sdk';
 
 interface CmsiStateData {
   status: string;
@@ -82,6 +88,18 @@ function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): stri
   }
 }
 
+function orderItems<T extends { id: string }>(items: T[], order: string[]): T[] {
+  const orderIndex = new Map(order.map((id, index) => [id, index]));
+  return items
+    .map((item, originalIndex) => ({ item, originalIndex }))
+    .sort((a, b) => {
+      const aIndex = orderIndex.has(a.item.id) ? orderIndex.get(a.item.id)! : order.length + a.originalIndex;
+      const bIndex = orderIndex.has(b.item.id) ? orderIndex.get(b.item.id)! : order.length + b.originalIndex;
+      return aIndex - bIndex;
+    })
+    .map(({ item }) => item);
+}
+
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -90,6 +108,7 @@ export function TraineeApp() {
   const [ledMessage, setLedMessage] = useState<string>('Niveau 1 actif — arrêt signal sonore disponible.');
   const [codeBuffer, setCodeBuffer] = useState<string>('');
   const [verifyingAccess, setVerifyingAccess] = useState<boolean>(false);
+  const [layout, setLayout] = useState<TraineeLayoutConfig>(DEFAULT_TRAINEE_LAYOUT);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
 
@@ -97,11 +116,27 @@ export function TraineeApp() {
     const socket = io(baseUrl);
     socket.on('state.update', (state: Snapshot) => setSnapshot(state));
     socket.on('scenario.update', (status: ScenarioRunnerSnapshot) => setScenarioStatus(status));
+    socket.on('layout.update', (payload) => {
+      const parsed = traineeLayoutSchema.safeParse(payload);
+      if (parsed.success) {
+        setLayout(parsed.data);
+      }
+    });
     return () => socket.disconnect();
   }, [baseUrl]);
 
   useEffect(() => {
     sdk.getActiveScenario().then(setScenarioStatus).catch(console.error);
+  }, [sdk]);
+
+  useEffect(() => {
+    sdk
+      .getTraineeLayout()
+      .then(setLayout)
+      .catch((error) => {
+        console.error(error);
+        setLayout(DEFAULT_TRAINEE_LAYOUT);
+      });
   }, [sdk]);
 
   useEffect(() => {
@@ -260,10 +295,143 @@ export function TraineeApp() {
     ];
   }, [snapshot]);
 
+  const orderedBoardModules = useMemo(
+    () => orderItems(boardModules, layout.boardModuleOrder),
+    [boardModules, layout.boardModuleOrder],
+  );
+
   const scenarioStatusLabel = translateScenarioStatus(scenarioStatus.status);
   const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
 
   const cmsiMode = snapshot?.cmsi.manual ? 'Mode manuel' : 'Mode automatique';
+
+  const controlButtons: ControlButtonItem[] = [
+    {
+      id: 'silence',
+      label: 'Arrêt signal sonore',
+      tone: 'red',
+      onClick: handleSilenceAlarm,
+      disabled: !snapshot?.ugaActive,
+      title: !snapshot?.ugaActive ? 'Aucune alarme sonore en cours' : undefined,
+    },
+    {
+      id: 'ack',
+      label: 'Acquittement',
+      tone: 'amber',
+      onClick: handleAck,
+      disabled: accessLevel < 2,
+      title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
+    },
+    {
+      id: 'reset-request',
+      label: 'Demande de réarmement',
+      tone: 'blue',
+      onClick: handleResetRequest,
+      disabled: accessLevel < 2,
+      title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
+    },
+    {
+      id: 'reset-dm-zf1',
+      label: 'Réarmement DM ZF1',
+      tone: 'green',
+      onClick: () => handleResetDm('ZF1'),
+      disabled: accessLevel < 2,
+      title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
+    },
+    {
+      id: 'manual-evac-toggle',
+      label: snapshot?.manualEvacuation ? 'Arrêt évacuation manuelle' : 'Déclencher évacuation manuelle',
+      tone: snapshot?.manualEvacuation ? 'blue' : 'purple',
+      onClick: handleManualEvacToggle,
+      disabled: accessLevel < 2,
+      title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
+    },
+  ];
+
+  const orderedControlButtons = orderItems(controlButtons, layout.controlButtonOrder);
+
+  const sidePanelItems: SidePanelItem[] = [
+    {
+      id: 'access-control',
+      element: (
+        <AccessControlPanel
+          accessLevel={accessLevel}
+          ledMessage={ledMessage}
+          codeBuffer={codeBuffer}
+          verifying={verifyingAccess}
+          onDigit={handleAccessDigit}
+          onClear={handleAccessClear}
+          onSubmit={handleAccessSubmit}
+          onLock={handleAccessLock}
+        />
+      ),
+    },
+    {
+      id: 'event-recap',
+      element: (
+        <article className="detail-panel">
+          <h3 className="detail-title">Récapitulatif évènementiel</h3>
+          <ul className="detail-list">
+            <li>
+              <span className="detail-label">Processus</span>
+              <span className="detail-value">{snapshot?.processAck?.isAcked ? 'Acquitté' : 'En attente'}</span>
+            </li>
+            <li>
+              <span className="detail-label">Suspension</span>
+              <span className="detail-value">{snapshot?.cmsi.suspendFlag ? 'Active' : 'Inactive'}</span>
+            </li>
+            <li>
+              <span className="detail-label">UGA</span>
+              <span className="detail-value">{snapshot?.ugaActive ? 'Active' : 'Arrêtée'}</span>
+            </li>
+            <li>
+              <span className="detail-label">DAS</span>
+              <span className="detail-value">{snapshot?.dasApplied ? 'Appliqués' : 'Repos'}</span>
+            </li>
+            <li>
+              <span className="detail-label">Déclenchements DM</span>
+              <span className="detail-value">{Object.keys(snapshot?.dmLatched ?? {}).length}</span>
+            </li>
+            <li>
+              <span className="detail-label">Détections DAI</span>
+              <span className="detail-value">{Object.keys(snapshot?.daiActivated ?? {}).length}</span>
+            </li>
+            <li>
+              <span className="detail-label">Scénario</span>
+              <span className="detail-value">
+                {scenarioStatus.scenario?.name
+                  ? `${scenarioStatus.scenario.name} (${scenarioStatusLabel})`
+                  : scenarioStatusLabel}
+              </span>
+            </li>
+            <li>
+              <span className="detail-label">Prochain événement</span>
+              <span className="detail-value">{nextScenarioEvent}</span>
+            </li>
+          </ul>
+        </article>
+      ),
+    },
+    {
+      id: 'instructions',
+      element: (
+        <article className="detail-panel">
+          <h3 className="detail-title">Consignes Apprenant</h3>
+          <p className="instruction-text">
+            Surveillez l&apos;évolution du synoptique, vérifiez les zones en alarme et appliquez la procédure
+            d&apos;acquittement avant de réarmer le système. Utilisez les boutons du bandeau de commande pour
+            reproduire fidèlement les actions terrain.
+          </p>
+          <p className="instruction-text">
+            Lorsque plusieurs déclencheurs manuels sont actifs, procédez au réarmement zone par zone afin
+            d&apos;observer les retours d&apos;information dans le tableau répétiteur.
+          </p>
+        </article>
+      ),
+    },
+  ];
+
+  const orderedSidePanels = orderItems(sidePanelItems, layout.sidePanelOrder);
 
   return (
     <div className="trainee-shell">
@@ -298,110 +466,27 @@ export function TraineeApp() {
             <div className="panel-mode">{cmsiMode}</div>
           </header>
           <div className="synoptic-board">
-            {boardModules.map((module) => (
+            {orderedBoardModules.map((module) => (
               <BoardTile key={module.id} module={module} />
             ))}
           </div>
           <div className="control-strip">
-            <ControlButton
-              label="Arrêt signal sonore"
-              tone="red"
-              onClick={handleSilenceAlarm}
-              disabled={!snapshot?.ugaActive}
-              title={!snapshot?.ugaActive ? 'Aucune alarme sonore en cours' : undefined}
-            />
-            <ControlButton
-              label="Acquittement"
-              tone="amber"
-              onClick={handleAck}
-              disabled={accessLevel < 2}
-              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
-            />
-            <ControlButton
-              label="Demande de réarmement"
-              tone="blue"
-              onClick={handleResetRequest}
-              disabled={accessLevel < 2}
-              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
-            />
-            <ControlButton
-              label="Réarmement DM ZF1"
-              tone="green"
-              onClick={() => handleResetDm('ZF1')}
-              disabled={accessLevel < 2}
-              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
-            />
-            <ControlButton
-              label={snapshot?.manualEvacuation ? 'Arrêt évacuation manuelle' : 'Déclencher évacuation manuelle'}
-              tone={snapshot?.manualEvacuation ? 'blue' : 'purple'}
-              onClick={handleManualEvacToggle}
-              disabled={accessLevel < 2}
-              title={accessLevel < 2 ? 'Code niveau 2 requis' : undefined}
-            />
+            {orderedControlButtons.map((button) => (
+              <ControlButton
+                key={button.id}
+                label={button.label}
+                tone={button.tone}
+                onClick={button.onClick}
+                disabled={button.disabled}
+                title={button.title}
+              />
+            ))}
           </div>
         </section>
         <section className="side-panels">
-          <AccessControlPanel
-            accessLevel={accessLevel}
-            ledMessage={ledMessage}
-            codeBuffer={codeBuffer}
-            verifying={verifyingAccess}
-            onDigit={handleAccessDigit}
-            onClear={handleAccessClear}
-            onSubmit={handleAccessSubmit}
-            onLock={handleAccessLock}
-          />
-          <article className="detail-panel">
-            <h3 className="detail-title">Récapitulatif évènementiel</h3>
-            <ul className="detail-list">
-              <li>
-                <span className="detail-label">Processus</span>
-                <span className="detail-value">{snapshot?.processAck?.isAcked ? 'Acquitté' : 'En attente'}</span>
-              </li>
-              <li>
-                <span className="detail-label">Suspension</span>
-                <span className="detail-value">{snapshot?.cmsi.suspendFlag ? 'Active' : 'Inactive'}</span>
-              </li>
-              <li>
-                <span className="detail-label">UGA</span>
-                <span className="detail-value">{snapshot?.ugaActive ? 'Active' : 'Arrêtée'}</span>
-              </li>
-              <li>
-                <span className="detail-label">DAS</span>
-                <span className="detail-value">{snapshot?.dasApplied ? 'Appliqués' : 'Repos'}</span>
-              </li>
-              <li>
-                <span className="detail-label">Déclenchements DM</span>
-                <span className="detail-value">{Object.keys(snapshot?.dmLatched ?? {}).length}</span>
-              </li>
-              <li>
-                <span className="detail-label">Détections DAI</span>
-                <span className="detail-value">{Object.keys(snapshot?.daiActivated ?? {}).length}</span>
-              </li>
-              <li>
-                <span className="detail-label">Scénario</span>
-                <span className="detail-value">
-                  {scenarioStatus.scenario?.name ? `${scenarioStatus.scenario.name} (${scenarioStatusLabel})` : scenarioStatusLabel}
-                </span>
-              </li>
-              <li>
-                <span className="detail-label">Prochain événement</span>
-                <span className="detail-value">{nextScenarioEvent}</span>
-              </li>
-            </ul>
-          </article>
-          <article className="detail-panel">
-            <h3 className="detail-title">Consignes Apprenant</h3>
-            <p className="instruction-text">
-              Surveillez l&apos;évolution du synoptique, vérifiez les zones en alarme et appliquez la procédure
-              d&apos;acquittement avant de réarmer le système. Utilisez les boutons du bandeau de commande pour
-              reproduire fidèlement les actions terrain.
-            </p>
-            <p className="instruction-text">
-              Lorsque plusieurs déclencheurs manuels sont actifs, procédez au réarmement zone par zone afin
-              d&apos;observer les retours d&apos;information dans le tableau répétiteur.
-            </p>
-          </article>
+          {orderedSidePanels.map((panel) => (
+            <Fragment key={panel.id}>{panel.element}</Fragment>
+          ))}
         </section>
       </main>
       <footer className="trainee-footer">
@@ -427,6 +512,10 @@ interface ControlButtonProps {
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+}
+
+interface ControlButtonItem extends ControlButtonProps {
+  id: string;
 }
 
 function ControlButton({ label, tone, onClick, disabled, title }: ControlButtonProps) {
@@ -468,6 +557,11 @@ interface AccessControlPanelProps {
   onClear: () => void;
   onSubmit: () => void;
   onLock: () => void;
+}
+
+interface SidePanelItem {
+  id: string;
+  element: JSX.Element;
 }
 
 function AccessControlPanel({

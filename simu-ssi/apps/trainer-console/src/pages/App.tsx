@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { ManualEvacuationPanel, StatusTile, TimelineBadge } from '@simu-ssi/shared-ui';
 import {
   SsiSdk,
+  DEFAULT_TRAINEE_LAYOUT,
   type AccessCode,
   type ScenarioDefinition,
   type ScenarioEvent,
@@ -11,6 +12,8 @@ import {
   type SiteConfig,
   type SiteDevice,
   type SiteTopology,
+  traineeLayoutSchema,
+  type TraineeLayoutConfig,
 } from '@simu-ssi/sdk';
 
 interface CmsiStateData {
@@ -64,6 +67,40 @@ const DEVICE_KIND_LABELS: Record<string, string> = {
 };
 
 const UNASSIGNED_ZONE_KEY = '__UNASSIGNED__';
+
+const BOARD_TILE_LABELS: Record<string, string> = {
+  'cmsi-status': 'CMSI – état général',
+  uga: 'UGA – diffusion sonore',
+  das: 'DAS – actionneurs',
+  'manual-evac': 'Commande évacuation manuelle',
+  dai: 'DAI – détection auto',
+};
+
+for (let index = 1; index <= 8; index += 1) {
+  BOARD_TILE_LABELS[`dm-zf${index}`] = `DM ZF${index}`;
+}
+
+const CONTROL_BUTTON_LABELS: Record<string, string> = {
+  silence: 'Arrêt signal sonore',
+  ack: 'Acquittement Process',
+  'reset-request': 'Demande de réarmement',
+  'reset-dm-zf1': 'Réarmement DM ZF1',
+  'manual-evac-toggle': 'Commande évacuation manuelle',
+};
+
+const SIDE_PANEL_LABELS: Record<string, string> = {
+  'access-control': "Clavier d'accès et niveaux",
+  'event-recap': 'Récapitulatif évènementiel',
+  instructions: 'Consignes Apprenant',
+};
+
+function cloneLayout(layout: TraineeLayoutConfig): TraineeLayoutConfig {
+  return {
+    boardModuleOrder: [...layout.boardModuleOrder],
+    controlButtonOrder: [...layout.controlButtonOrder],
+    sidePanelOrder: [...layout.sidePanelOrder],
+  };
+}
 
 function formatCmsiStatus(status?: string) {
   if (!status) return '—';
@@ -315,6 +352,12 @@ export function App() {
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [topologyLoading, setTopologyLoading] = useState(true);
   const [topologyError, setTopologyError] = useState<string | null>(null);
+  const [layoutDraft, setLayoutDraft] = useState<TraineeLayoutConfig>(() => cloneLayout(DEFAULT_TRAINEE_LAYOUT));
+  const [layoutConfig, setLayoutConfig] = useState<TraineeLayoutConfig | null>(null);
+  const [layoutLoading, setLayoutLoading] = useState(true);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [layoutFeedback, setLayoutFeedback] = useState<string | null>(null);
+  const [layoutSaving, setLayoutSaving] = useState(false);
 
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
@@ -349,12 +392,38 @@ export function App() {
       .finally(() => setAccessCodesLoading(false));
     refreshScenarios();
     refreshScenarioStatus();
+    setLayoutLoading(true);
+    setLayoutFeedback(null);
+    sdk
+      .getTraineeLayout()
+      .then((layout) => {
+        setLayoutConfig(layout);
+        setLayoutDraft(cloneLayout(layout));
+        setLayoutError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setLayoutError('Impossible de charger la disposition du poste apprenant.');
+      })
+      .finally(() => {
+        setLayoutLoading(false);
+      });
     const socket = io(baseUrl);
     socket.on('state.update', (state: DomainSnapshot) => setSnapshot(state));
     socket.on('events.append', (event: { ts: number; message: string; source: string }) => {
       setEvents((prev) => [`[${new Date(event.ts).toLocaleTimeString()}] ${event.source}: ${event.message}`, ...prev].slice(0, 12));
     });
     socket.on('scenario.update', (status: ScenarioRunnerSnapshot) => setScenarioStatus(status));
+    socket.on('layout.update', (payload) => {
+      const parsed = traineeLayoutSchema.safeParse(payload);
+      if (!parsed.success) {
+        return;
+      }
+      setLayoutConfig(parsed.data);
+      setLayoutDraft(cloneLayout(parsed.data));
+      setLayoutError(null);
+      setLayoutFeedback('Disposition synchronisée avec un autre poste.');
+    });
     return () => {
       socket.disconnect();
     };
@@ -487,6 +556,63 @@ export function App() {
     },
     [sdk],
   );
+
+  const handleLayoutMove = useCallback(
+    (section: 'board' | 'controls' | 'panels', id: string, direction: -1 | 1) => {
+      setLayoutFeedback(null);
+      setLayoutError(null);
+      setLayoutDraft((prev) => {
+        const board = [...prev.boardModuleOrder];
+        const controls = [...prev.controlButtonOrder];
+        const panels = [...prev.sidePanelOrder];
+        const target = section === 'board' ? board : section === 'controls' ? controls : panels;
+        const index = target.indexOf(id);
+        const newIndex = index + direction;
+        if (index === -1 || newIndex < 0 || newIndex >= target.length) {
+          return prev;
+        }
+        target.splice(index, 1);
+        target.splice(newIndex, 0, id);
+        return {
+          boardModuleOrder: board,
+          controlButtonOrder: controls,
+          sidePanelOrder: panels,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleLayoutRestoreSaved = useCallback(() => {
+    setLayoutFeedback(null);
+    setLayoutError(null);
+    if (layoutConfig) {
+      setLayoutDraft(cloneLayout(layoutConfig));
+    }
+  }, [layoutConfig]);
+
+  const handleLayoutResetToDefault = useCallback(() => {
+    setLayoutFeedback(null);
+    setLayoutError(null);
+    setLayoutDraft(cloneLayout(DEFAULT_TRAINEE_LAYOUT));
+  }, []);
+
+  const handleLayoutSave = useCallback(async () => {
+    setLayoutSaving(true);
+    setLayoutFeedback(null);
+    setLayoutError(null);
+    try {
+      const updated = await sdk.updateTraineeLayout(layoutDraft);
+      setLayoutConfig(updated);
+      setLayoutDraft(cloneLayout(updated));
+      setLayoutFeedback('Disposition du poste apprenant enregistrée.');
+    } catch (error) {
+      console.error(error);
+      setLayoutError("Impossible d'enregistrer la disposition du poste apprenant.");
+    } finally {
+      setLayoutSaving(false);
+    }
+  }, [layoutDraft, sdk]);
 
   const handleAccessCodeInputChange = useCallback((level: number, value: string) => {
     setCodeInputs((prev) => ({ ...prev, [level]: value }));
@@ -703,6 +829,7 @@ export function App() {
     accessCodes.forEach((entry) => map.set(entry.level, entry));
     return map;
   }, [accessCodes]);
+  const isLayoutDirty = layoutConfig ? JSON.stringify(layoutDraft) !== JSON.stringify(layoutConfig) : false;
 
   return (
     <div className="app-shell">
@@ -883,6 +1010,138 @@ export function App() {
                   Appliquer la configuration
                 </button>
               </form>
+            </div>
+
+            <div className="card layout-card">
+              <div className="card__header">
+                <h2 className="card__title">Disposition du poste apprenant</h2>
+                <p className="card__description">
+                  Réorganisez les cartes visuelles et panneaux pour qu&apos;ils correspondent à votre déroulé pédagogique.
+                </p>
+              </div>
+              {layoutLoading ? (
+                <p className="layout-card__placeholder">Chargement de la disposition…</p>
+              ) : (
+                <>
+                  {layoutError && <p className="layout-card__error">{layoutError}</p>}
+                  <div className="layout-grid">
+                    <div className="layout-section">
+                      <h3 className="layout-section__title">Synoptique CMSI</h3>
+                      <p className="layout-section__subtitle">Ordre des cartes lumineuses.</p>
+                      <ul className="layout-list">
+                        {layoutDraft.boardModuleOrder.map((id, index) => (
+                          <li key={id} className="layout-list__item">
+                            <span className="layout-list__label">{BOARD_TILE_LABELS[id] ?? id}</span>
+                            <div className="layout-list__actions">
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('board', id, -1)}
+                                disabled={index === 0 || layoutSaving}
+                              >
+                                Monter
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('board', id, 1)}
+                                disabled={index === layoutDraft.boardModuleOrder.length - 1 || layoutSaving}
+                              >
+                                Descendre
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="layout-section">
+                      <h3 className="layout-section__title">Bandeau de commandes</h3>
+                      <p className="layout-section__subtitle">Séquence des actions disponibles.</p>
+                      <ul className="layout-list">
+                        {layoutDraft.controlButtonOrder.map((id, index) => (
+                          <li key={id} className="layout-list__item">
+                            <span className="layout-list__label">{CONTROL_BUTTON_LABELS[id] ?? id}</span>
+                            <div className="layout-list__actions">
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('controls', id, -1)}
+                                disabled={index === 0 || layoutSaving}
+                              >
+                                Monter
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('controls', id, 1)}
+                                disabled={index === layoutDraft.controlButtonOrder.length - 1 || layoutSaving}
+                              >
+                                Descendre
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="layout-section">
+                      <h3 className="layout-section__title">Panneaux latéraux</h3>
+                      <p className="layout-section__subtitle">Priorité des informations affichées.</p>
+                      <ul className="layout-list">
+                        {layoutDraft.sidePanelOrder.map((id, index) => (
+                          <li key={id} className="layout-list__item">
+                            <span className="layout-list__label">{SIDE_PANEL_LABELS[id] ?? id}</span>
+                            <div className="layout-list__actions">
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('panels', id, -1)}
+                                disabled={index === 0 || layoutSaving}
+                              >
+                                Monter
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('panels', id, 1)}
+                                disabled={index === layoutDraft.sidePanelOrder.length - 1 || layoutSaving}
+                              >
+                                Descendre
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="layout-card__actions">
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={handleLayoutRestoreSaved}
+                      disabled={layoutSaving || !layoutConfig}
+                    >
+                      Rétablir la disposition enregistrée
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--outline"
+                      onClick={handleLayoutResetToDefault}
+                      disabled={layoutSaving}
+                    >
+                      Réinitialiser aux valeurs par défaut
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={handleLayoutSave}
+                      disabled={layoutSaving || !isLayoutDirty}
+                    >
+                      {layoutSaving ? 'Enregistrement…' : 'Enregistrer la disposition'}
+                    </button>
+                  </div>
+                  {layoutFeedback && <p className="layout-card__feedback">{layoutFeedback}</p>}
+                </>
+              )}
             </div>
 
             <div className="card topology-card">
