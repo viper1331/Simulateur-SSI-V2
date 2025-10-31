@@ -3,6 +3,7 @@ import {
   CSSProperties,
   DragEvent,
   MouseEvent,
+  PointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -70,6 +71,13 @@ export function AdminStudioApp() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const topologyFileInputRef = useRef<HTMLInputElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const pointerDownRef = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    fromInteractiveTarget: boolean;
+  } | null>(null);
+  const skipClickRef = useRef(false);
   const isMountedRef = useRef(true);
   const copyTimeoutRef = useRef<number | null>(null);
   const publishTimeoutRef = useRef<number | null>(null);
@@ -213,8 +221,8 @@ export function AdminStudioApp() {
     setIsDragging(false);
   }, []);
 
-  const handleStageClick = useCallback(
-    (event: MouseEvent<HTMLDivElement>) => {
+  const placeDeviceAtCoordinates = useCallback(
+    (clientX: number, clientY: number) => {
       if (!planImage || !selectedKind) {
         return;
       }
@@ -223,8 +231,8 @@ export function AdminStudioApp() {
         return;
       }
       const rect = imageEl.getBoundingClientRect();
-      const x = (event.clientX - rect.left) / rect.width;
-      const y = (event.clientY - rect.top) / rect.height;
+      const x = (clientX - rect.left) / rect.width;
+      const y = (clientY - rect.top) / rect.height;
       if (Number.isNaN(x) || Number.isNaN(y) || x < 0 || x > 1 || y < 0 || y > 1) {
         return;
       }
@@ -241,6 +249,86 @@ export function AdminStudioApp() {
       });
     },
     [planImage, selectedKind],
+  );
+
+  const handleStagePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    const interactiveTarget = (event.target as HTMLElement | null)?.closest(
+      'button, a, input, textarea, select',
+    );
+    const fromInteractiveTarget = Boolean(
+      interactiveTarget && event.currentTarget.contains(interactiveTarget) && interactiveTarget !== event.currentTarget,
+    );
+    pointerDownRef.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      fromInteractiveTarget,
+    };
+    if (!fromInteractiveTarget) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore failures on browsers that do not support pointer capture.
+      }
+    }
+  }, []);
+
+  const handleStagePointerUp = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const start = pointerDownRef.current;
+      pointerDownRef.current = null;
+      if (!start || start.id !== event.pointerId) {
+        return;
+      }
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      if (start.fromInteractiveTarget) {
+        return;
+      }
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+      }
+      const moveDistance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      if (moveDistance > 12) {
+        return;
+      }
+      event.preventDefault();
+      placeDeviceAtCoordinates(event.clientX, event.clientY);
+      skipClickRef.current = true;
+    },
+    [placeDeviceAtCoordinates],
+  );
+
+  const handleStagePointerCancel = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointerDownRef.current = null;
+    skipClickRef.current = false;
+  }, []);
+
+  const handleStagePointerLeave = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointerDownRef.current = null;
+    skipClickRef.current = false;
+  }, []);
+
+  const handleStageClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (skipClickRef.current) {
+        skipClickRef.current = false;
+        event.preventDefault();
+        return;
+      }
+      placeDeviceAtCoordinates(event.clientX, event.clientY);
+    },
+    [placeDeviceAtCoordinates],
   );
 
   const handleRemoveDevice = useCallback((id: string) => {
@@ -577,6 +665,10 @@ export function AdminStudioApp() {
           </div>
           <div
             className={`plan-stage${planImage ? '' : ' plan-stage--empty'}${isDragging ? ' plan-stage--dragging' : ''}`}
+            onPointerDown={handleStagePointerDown}
+            onPointerUp={handleStagePointerUp}
+            onPointerCancel={handleStagePointerCancel}
+            onPointerLeave={handleStagePointerLeave}
             onClick={handleStageClick}
             onDrop={handlePlanDrop}
             onDragEnter={handleDragOver}
@@ -623,7 +715,7 @@ export function AdminStudioApp() {
           <p className="stage-hint">
             {planImage
               ? selectedKind
-                ? `Cliquez sur le plan pour placer un ${DEVICE_DEFINITIONS[selectedKind].label.toLowerCase()}.`
+                ? `Touchez ou cliquez sur le plan pour placer un ${DEVICE_DEFINITIONS[selectedKind].label.toLowerCase()}.`
                 : 'Sélectionnez un type de dispositif dans la palette pour commencer le placement.'
               : "Importez un plan pour activer l'espace de travail."}
           </p>
