@@ -95,6 +95,18 @@ const SIDE_PANEL_LABELS: Record<string, string> = {
   instructions: 'Consignes Apprenant',
 };
 
+const NAVIGATION_SECTIONS = [
+  { id: 'overview', label: "Vue d'ensemble" },
+  { id: 'operations', label: 'Opérations en direct' },
+  { id: 'configuration', label: 'Paramètres & accès' },
+  { id: 'trainee', label: 'Poste apprenant' },
+  { id: 'topology', label: 'Cartographie' },
+  { id: 'scenarios', label: 'Scénarios pédagogiques' },
+  { id: 'journal', label: "Journal d'événements" },
+] as const;
+
+type SectionId = (typeof NAVIGATION_SECTIONS)[number]['id'];
+
 function cloneLayout(layout: TraineeLayoutConfig): TraineeLayoutConfig {
   return {
     boardModuleOrder: [...layout.boardModuleOrder],
@@ -358,6 +370,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<DomainSnapshot | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [events, setEvents] = useState<string[]>([]);
+  const [activeSection, setActiveSection] = useState<SectionId>(NAVIGATION_SECTIONS[0].id);
   const [ackPending, setAckPending] = useState(false);
   const [clearPending, setClearPending] = useState(false);
   const [simulateDmPending, setSimulateDmPending] = useState(false);
@@ -500,12 +513,33 @@ export function App() {
   }, [sdk]);
 
   useEffect(() => {
-    if (!topologyFeedback) {
+    if (typeof IntersectionObserver === 'undefined') {
       return;
     }
-    const timeout = window.setTimeout(() => setTopologyFeedback(null), 4000);
-    return () => window.clearTimeout(timeout);
-  }, [topologyFeedback]);
+    const sectionIds = NAVIGATION_SECTIONS.map((section) => section.id) as SectionId[];
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort(
+            (a, b) =>
+              sectionIds.indexOf(a.target.id as SectionId) - sectionIds.indexOf(b.target.id as SectionId),
+          );
+        if (visible.length > 0) {
+          const next = visible[0].target.id as SectionId;
+          setActiveSection((current) => (current === next ? current : next));
+        }
+      },
+      { rootMargin: '-40% 0px -55% 0px' },
+    );
+    sectionIds.forEach((id) => {
+      const element = document.getElementById(id);
+      if (element) {
+        observer.observe(element);
+      }
+    });
+    return () => observer.disconnect();
+  }, []);
 
   const handleConfigSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -882,156 +916,305 @@ export function App() {
   const isLayoutDirty = layoutConfig ? JSON.stringify(layoutDraft) !== JSON.stringify(layoutConfig) : false;
 
   return (
-    <div className="app-shell">
-      <div className="app-surface">
-        <header className="app-header">
-          <div className="app-header__content">
-            <p className="app-eyebrow">Poste formateur</p>
-            <h1 className="app-title">Console de supervision SSI</h1>
-            <p className="app-subtitle">
-              Orchestration en temps réel des scénarios d'évacuation, visualisation des états critiques et pilotage des actions d'exploitation.
-            </p>
-            <div className="app-metrics">
-              <div className="metric-card">
-                <span className="metric-card__label">DM actifs</span>
-                <span className="metric-card__value">{dmList.length}</span>
-              </div>
-              <div className="metric-card">
-                <span className="metric-card__label">DAI actives</span>
-                <span className="metric-card__value">{daiList.length}</span>
-              </div>
-              <div className="metric-card">
-                <span className="metric-card__label">Process</span>
-                <span className="metric-card__value metric-card__value--pill">
-                  {snapshot?.processAck?.isAcked ? 'Acquitté' : 'En attente'}
-                </span>
-              </div>
-              <div className="metric-card">
-                <span className="metric-card__label">Dernier événement</span>
-                <span className="metric-card__value metric-card__value--small">
-                  {events[0] ?? '—'}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="app-shortcuts">
-            <span className="app-shortcuts__label">Raccourcis</span>
-            <div className="shortcut-line">
-              <span className="shortcut-line__keys">
-                <kbd>Ctrl</kbd>
-                <span>+</span>
-                <kbd>M</kbd>
-              </span>
-              <span className="shortcut-line__description">Déclenchement</span>
-            </div>
-            <div className="shortcut-line">
-              <span className="shortcut-line__keys">
-                <kbd>Ctrl</kbd>
-                <span>+</span>
-                <kbd>Shift</kbd>
-                <span>+</span>
-                <kbd>M</kbd>
-              </span>
-              <span className="shortcut-line__description">Arrêt diffusion</span>
-            </div>
-          </div>
-        </header>
+    <div className="console-shell">
+      <aside className="primary-menu">
+        <div className="primary-menu__header">
+          <p className="primary-menu__eyebrow">Console formateur</p>
+          <h2 className="primary-menu__title">Menu principal</h2>
+          <p className="primary-menu__subtitle">
+            Gérez la session de formation et accédez rapidement aux outils clés.
+          </p>
+        </div>
+        <nav className="primary-menu__nav" aria-label="Navigation principale">
+          <ul className="primary-menu__list">
+            {NAVIGATION_SECTIONS.map((section) => (
+              <li key={section.id} className="primary-menu__item">
+                <a
+                  href={`#${section.id}`}
+                  className={`primary-menu__link ${activeSection === section.id ? 'is-active' : ''}`}
+                  onClick={() => setActiveSection(section.id)}
+                  onFocus={() => setActiveSection(section.id)}
+                >
+                  <span>{section.label}</span>
+                  <span className="primary-menu__chevron" aria-hidden="true">
+                    →
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div className="primary-menu__footer">
+          <span className="primary-menu__hint">Dernier événement</span>
+          <span className="primary-menu__last-event" title={events[0] ?? '—'}>
+            {events[0] ?? '—'}
+          </span>
+        </div>
+      </aside>
 
-        <section className="status-grid">
-          <StatusTile
-            title="CMSI"
-            value={formatCmsiStatus(snapshot?.cmsi?.status)}
-            tone={deriveTone(snapshot)}
-            footer={snapshot?.cmsi?.manual ? 'Mode manuel engagé' : 'Mode automatique'}
-          />
-          <StatusTile
-            title="UGA"
-            value={snapshot?.ugaActive ? 'Diffusion' : 'Repos'}
-            tone={snapshot?.ugaActive ? 'critical' : 'neutral'}
-            footer={snapshot?.ugaActive ? 'Sonorisation en cours' : 'Pré-alerte en veille'}
-          />
-          <StatusTile
-            title="DAS"
-            value={snapshot?.dasApplied ? 'Appliqués' : 'Sécurisés'}
-            tone={snapshot?.dasApplied ? 'warning' : 'success'}
-            footer={snapshot?.dasApplied ? 'Isolements réalisés' : 'Conditions nominales'}
-          />
-          <StatusTile
-            title="Process Ack"
-            value={snapshot?.processAck?.isAcked ? 'Fourni' : 'Requis'}
-            tone={snapshot?.processAck?.isAcked ? 'success' : 'warning'}
-            footer={snapshot?.processAck?.isAcked ? 'Exploitation validée' : 'En attente opérateur'}
-          />
-          <StatusTile
-            title="Scénario"
-            value={scenarioStatus.scenario?.name ?? 'Aucun chargé'}
-            tone={scenarioIsRunning ? 'warning' : scenarioStatus.status === 'completed' ? 'success' : 'neutral'}
-            footer={`${scenarioStateLabel} · ${nextScenarioEvent}`}
-          />
+      <main className="console-content">
+        <section id="overview" className="console-section console-section--hero">
+          <header className="app-header">
+            <div className="app-header__content">
+              <p className="app-eyebrow">Poste formateur</p>
+              <h1 className="app-title">Console de supervision SSI</h1>
+              <p className="app-subtitle">
+                Orchestration en temps réel des scénarios d'évacuation, visualisation des états critiques et pilotage des actions d'exploitation.
+              </p>
+              <div className="app-metrics">
+                <div className="metric-card">
+                  <span className="metric-card__label">DM actifs</span>
+                  <span className="metric-card__value">{dmList.length}</span>
+                </div>
+                <div className="metric-card">
+                  <span className="metric-card__label">DAI actives</span>
+                  <span className="metric-card__value">{daiList.length}</span>
+                </div>
+                <div className="metric-card">
+                  <span className="metric-card__label">Process</span>
+                  <span className="metric-card__value metric-card__value--pill">
+                    {snapshot?.processAck?.isAcked ? 'Acquitté' : 'En attente'}
+                  </span>
+                </div>
+                <div className="metric-card">
+                  <span className="metric-card__label">Dernier événement</span>
+                  <span className="metric-card__value metric-card__value--small">
+                    {events[0] ?? '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="app-shortcuts">
+              <span className="app-shortcuts__label">Raccourcis</span>
+              <div className="shortcut-line">
+                <span className="shortcut-line__keys">
+                  <kbd>Ctrl</kbd>
+                  <span>+</span>
+                  <kbd>M</kbd>
+                </span>
+                <span className="shortcut-line__description">Déclenchement</span>
+              </div>
+              <div className="shortcut-line">
+                <span className="shortcut-line__keys">
+                  <kbd>Ctrl</kbd>
+                  <span>+</span>
+                  <kbd>Shift</kbd>
+                  <span>+</span>
+                  <kbd>M</kbd>
+                </span>
+                <span className="shortcut-line__description">Arrêt diffusion</span>
+              </div>
+            </div>
+          </header>
+
+          <div className="status-grid">
+            <StatusTile
+              title="CMSI"
+              value={formatCmsiStatus(snapshot?.cmsi?.status)}
+              tone={deriveTone(snapshot)}
+              footer={snapshot?.cmsi?.manual ? 'Mode manuel engagé' : 'Mode automatique'}
+            />
+            <StatusTile
+              title="UGA"
+              value={snapshot?.ugaActive ? 'Diffusion' : 'Repos'}
+              tone={snapshot?.ugaActive ? 'critical' : 'neutral'}
+              footer={snapshot?.ugaActive ? 'Sonorisation en cours' : 'Pré-alerte en veille'}
+            />
+            <StatusTile
+              title="DAS"
+              value={snapshot?.dasApplied ? 'Appliqués' : 'Sécurisés'}
+              tone={snapshot?.dasApplied ? 'warning' : 'success'}
+              footer={snapshot?.dasApplied ? 'Isolements réalisés' : 'Conditions nominales'}
+            />
+            <StatusTile
+              title="Process Ack"
+              value={snapshot?.processAck?.isAcked ? 'Fourni' : 'Requis'}
+              tone={snapshot?.processAck?.isAcked ? 'success' : 'warning'}
+              footer={snapshot?.processAck?.isAcked ? 'Exploitation validée' : 'En attente opérateur'}
+            />
+            <StatusTile
+              title="Scénario"
+              value={scenarioStatus.scenario?.name ?? 'Aucun chargé'}
+              tone={scenarioIsRunning ? 'warning' : scenarioStatus.status === 'completed' ? 'success' : 'neutral'}
+              footer={`${scenarioStateLabel} · ${nextScenarioEvent}`}
+            />
+          </div>
         </section>
 
-        <main className="app-main">
-          <section className="app-column app-column--primary">
-            <div className="card timeline-card">
-              <div className="card__header">
-                <h2 className="card__title">Chronologie d'évacuation</h2>
-                <p className="card__description">
-                  Surveillez les jalons clés, le reste à courir et les transitions critiques de l'exercice en cours.
-                </p>
+        <section id="operations" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Opérations en direct</h2>
+            <p className="section-header__subtitle">
+              Surveillez l'état du CMSI et pilotez les actions immédiates pendant l'exercice.
+            </p>
+          </div>
+          <div className="app-main">
+            <div className="app-column app-column--primary">
+              <div className="card timeline-card">
+                <div className="card__header">
+                  <h2 className="card__title">Chronologie d'évacuation</h2>
+                  <p className="card__description">
+                    Surveillez les jalons clés, le reste à courir et les transitions critiques de l'exercice en cours.
+                  </p>
+                </div>
+                <div className="timeline-badges">
+                  {snapshot?.cmsi?.status === 'EVAC_PENDING' && (
+                    <TimelineBadge label="Pré-alerte" state="pending" remainingMs={remainingMs} />
+                  )}
+                  {snapshot?.cmsi?.status === 'EVAC_ACTIVE' && (
+                    <TimelineBadge label={snapshot.cmsi.manual ? 'Manuelle' : 'Automatique'} state="active" />
+                  )}
+                  {snapshot?.cmsi?.status === 'EVAC_SUSPENDED' && (
+                    <TimelineBadge label="Suspension" state="suspended" />
+                  )}
+                  {snapshot?.cmsi?.status === 'SAFE_HOLD' && <TimelineBadge label="Maintien sécurisé" state="safehold" />}
+                  {!snapshot && <p className="timeline-empty">Aucun scénario en cours.</p>}
+                </div>
+                <div className="timeline-meta">
+                  <div>
+                    <span className="timeline-meta__label">Délai T+5 configuré</span>
+                    <span className="timeline-meta__value">{config?.evacOnDMDelayMs ?? '—'} ms</span>
+                  </div>
+                  <div>
+                    <span className="timeline-meta__label">Dernier déclencheur</span>
+                    <span className="timeline-meta__value">{snapshot?.cmsi?.zoneId ?? '—'}</span>
+                  </div>
+                  <div>
+                    <span className="timeline-meta__label">Depuis</span>
+                    <span className="timeline-meta__value">{formatTime(snapshot?.cmsi?.startedAt)}</span>
+                  </div>
+                </div>
               </div>
-              <div className="timeline-badges">
-                {snapshot?.cmsi?.status === 'EVAC_PENDING' && (
-                  <TimelineBadge label="Pré-alerte" state="pending" remainingMs={remainingMs} />
-                )}
-                {snapshot?.cmsi?.status === 'EVAC_ACTIVE' && (
-                  <TimelineBadge label={snapshot.cmsi.manual ? 'Manuelle' : 'Automatique'} state="active" />
-                )}
-                {snapshot?.cmsi?.status === 'EVAC_SUSPENDED' && (
-                  <TimelineBadge label="Suspension" state="suspended" />
-                )}
-                {snapshot?.cmsi?.status === 'SAFE_HOLD' && <TimelineBadge label="Maintien sécurisé" state="safehold" />}
-                {!snapshot && <p className="timeline-empty">Aucun scénario en cours.</p>}
+
+              <div className="card dm-card">
+                <div className="card__header">
+                  <h2 className="card__title">Déclencheurs DM verrouillés</h2>
+                  <p className="card__description">Surveillez les zones à réarmer et assurez le retour à la normale.</p>
+                </div>
+                <ul className="dm-list">
+                  {dmList.length === 0 && <li className="dm-list__empty">Aucun DM en cours.</li>}
+                  {dmList.map((dm) => (
+                    <li key={dm.zoneId} className="dm-item">
+                      <div className="dm-item__meta">
+                        <span className="dm-item__zone">Zone {dm.zoneId}</span>
+                        {dm.lastActivatedAt ? (
+                          <span className="dm-item__time">{formatTime(dm.lastActivatedAt)}</span>
+                        ) : (
+                          <span className="dm-item__time">Horodatage indisponible</span>
+                        )}
+                      </div>
+                      <button
+                        className="btn btn--outline"
+                        onClick={() => handleResetDm(dm.zoneId)}
+                        disabled={resettingZone === dm.zoneId}
+                        aria-busy={resettingZone === dm.zoneId}
+                      >
+                        {resettingZone === dm.zoneId ? 'Réarmement…' : 'Réarmer'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <div className="timeline-meta">
-                <div>
-                  <span className="timeline-meta__label">Délai T+5 configuré</span>
-                  <span className="timeline-meta__value">{config?.evacOnDMDelayMs ?? '—'} ms</span>
+
+              <div className="card dai-card">
+                <div className="card__header">
+                  <h2 className="card__title">Détections automatiques</h2>
+                  <p className="card__description">Visualisez les déclenchements DAI et réinitialisez les capteurs simulés.</p>
                 </div>
-                <div>
-                  <span className="timeline-meta__label">Dernier déclencheur</span>
-                  <span className="timeline-meta__value">{snapshot?.cmsi?.zoneId ?? '—'}</span>
-                </div>
-                <div>
-                  <span className="timeline-meta__label">Depuis</span>
-                  <span className="timeline-meta__value">{formatTime(snapshot?.cmsi?.startedAt)}</span>
-                </div>
+                <ul className="dai-list">
+                  {daiList.length === 0 && <li className="dai-list__empty">Aucune détection active.</li>}
+                  {daiList.map((dai) => (
+                    <li key={dai.zoneId} className="dai-item">
+                      <div className="dai-item__meta">
+                        <span className="dai-item__zone">Zone {dai.zoneId}</span>
+                        {dai.lastActivatedAt ? (
+                          <span className="dai-item__time">{formatTime(dai.lastActivatedAt)}</span>
+                        ) : (
+                          <span className="dai-item__time">Horodatage indisponible</span>
+                        )}
+                      </div>
+                      <button
+                        className="btn btn--outline"
+                        onClick={() => handleResetDai(dai.zoneId)}
+                        disabled={resettingDaiZone === dai.zoneId}
+                        aria-busy={resettingDaiZone === dai.zoneId}
+                      >
+                        {resettingDaiZone === dai.zoneId ? 'Réinitialisation…' : 'Réinitialiser'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            <ManualEvacuationPanel
-              manualActive={manualActive}
-              reason={snapshot?.manualEvacuationReason}
-              onStart={(reason) => sdk.startManualEvacuation(reason)}
-              onStop={(reason) => sdk.stopManualEvacuation(reason)}
-            />
+            <div className="app-column app-column--secondary">
+              <ManualEvacuationPanel
+                manualActive={manualActive}
+                reason={snapshot?.manualEvacuationReason}
+                onStart={(reason) => sdk.startManualEvacuation(reason)}
+                onStop={(reason) => sdk.stopManualEvacuation(reason)}
+              />
 
-            <div className="card log-card">
-              <div className="card__header">
-                <h2 className="card__title">Journal en direct</h2>
-                <p className="card__description">Historique condensé des événements récents côté CMSI et scénarios.</p>
+              <div className="card actions-card">
+                <div className="card__header">
+                  <h2 className="card__title">Actions rapides</h2>
+                  <p className="card__description">Déclenchez, acquittez ou réinitialisez les séquences en un clic.</p>
+                </div>
+                <div className="action-grid">
+                  <button
+                    className="btn btn--secondary"
+                    onClick={handleAcknowledge}
+                    disabled={ackPending}
+                    aria-busy={ackPending}
+                  >
+                    {ackPending ? 'Acquittement…' : 'Acquit Process'}
+                  </button>
+                  <button
+                    className="btn btn--ghost"
+                    onClick={handleClearAck}
+                    disabled={clearPending}
+                    aria-busy={clearPending}
+                  >
+                    {clearPending ? 'Nettoyage…' : "Effacer l'acquit"}
+                  </button>
+                  <button
+                    className="btn btn--warning"
+                    onClick={handleSimulateDm}
+                    disabled={simulateDmPending}
+                    aria-busy={simulateDmPending}
+                  >
+                    {simulateDmPending ? 'Simulation…' : 'Simuler DM ZF1'}
+                  </button>
+                  <button
+                    className="btn btn--secondary"
+                    onClick={handleSimulateDai}
+                    disabled={simulateDaiPending}
+                    aria-busy={simulateDaiPending}
+                  >
+                    {simulateDaiPending ? 'Détection…' : 'Simuler DAI ZF1'}
+                  </button>
+                  <button
+                    className="btn btn--success"
+                    onClick={handleResetSystem}
+                    disabled={resetPending}
+                    aria-busy={resetPending}
+                  >
+                    {resetPending ? 'Reset en cours…' : 'Demander un reset'}
+                  </button>
+                </div>
               </div>
-              <ul className="log-list">
-                {events.length === 0 && <li className="log-list__empty">Aucun événement pour le moment.</li>}
-                {events.map((entry) => (
-                  <li key={entry} className="log-entry">
-                    {entry}
-                  </li>
-                ))}
-              </ul>
             </div>
-          </section>
+          </div>
+        </section>
 
-          <section className="app-column app-column--secondary">
+        <section id="configuration" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Paramètres & accès</h2>
+            <p className="section-header__subtitle">
+              Configurez les déclencheurs automatiques et sécurisez l'accès opérateur.
+            </p>
+          </div>
+          <div className="configuration-grid">
             <div className="card config-card">
               <div className="card__header">
                 <h2 className="card__title">Paramétrage du site</h2>
@@ -1062,345 +1245,11 @@ export function App() {
               </form>
             </div>
 
-            <div className="card layout-card">
-              <div className="card__header">
-                <h2 className="card__title">Disposition du poste apprenant</h2>
-                <p className="card__description">
-                  Réorganisez les cartes visuelles et panneaux pour qu&apos;ils correspondent à votre déroulé pédagogique.
-                </p>
-              </div>
-              {layoutLoading ? (
-                <p className="layout-card__placeholder">Chargement de la disposition…</p>
-              ) : (
-                <>
-                  {layoutError && <p className="layout-card__error">{layoutError}</p>}
-                  <div className="layout-grid">
-                    <div className="layout-section">
-                      <h3 className="layout-section__title">Synoptique CMSI</h3>
-                      <p className="layout-section__subtitle">Ordre des cartes lumineuses.</p>
-                      <ul className="layout-list">
-                        {layoutDraft.boardModuleOrder.map((id, index) => (
-                          <li key={id} className="layout-list__item">
-                            <span className="layout-list__label">{BOARD_TILE_LABELS[id] ?? id}</span>
-                            <div className="layout-list__actions">
-                              <button
-                                type="button"
-                                className="layout-list__button"
-                                onClick={() => handleLayoutMove('board', id, -1)}
-                                disabled={index === 0 || layoutSaving}
-                              >
-                                Monter
-                              </button>
-                              <button
-                                type="button"
-                                className="layout-list__button"
-                                onClick={() => handleLayoutMove('board', id, 1)}
-                                disabled={index === layoutDraft.boardModuleOrder.length - 1 || layoutSaving}
-                              >
-                                Descendre
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="layout-section">
-                      <h3 className="layout-section__title">Bandeau de commandes</h3>
-                      <p className="layout-section__subtitle">Séquence des actions disponibles.</p>
-                      <ul className="layout-list">
-                        {layoutDraft.controlButtonOrder.map((id, index) => (
-                          <li key={id} className="layout-list__item">
-                            <span className="layout-list__label">{CONTROL_BUTTON_LABELS[id] ?? id}</span>
-                            <div className="layout-list__actions">
-                              <button
-                                type="button"
-                                className="layout-list__button"
-                                onClick={() => handleLayoutMove('controls', id, -1)}
-                                disabled={index === 0 || layoutSaving}
-                              >
-                                Monter
-                              </button>
-                              <button
-                                type="button"
-                                className="layout-list__button"
-                                onClick={() => handleLayoutMove('controls', id, 1)}
-                                disabled={index === layoutDraft.controlButtonOrder.length - 1 || layoutSaving}
-                              >
-                                Descendre
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="layout-section">
-                      <h3 className="layout-section__title">Panneaux latéraux</h3>
-                      <p className="layout-section__subtitle">Priorité des informations affichées.</p>
-                      <ul className="layout-list">
-                        {layoutDraft.sidePanelOrder.map((id, index) => (
-                          <li key={id} className="layout-list__item">
-                            <span className="layout-list__label">{SIDE_PANEL_LABELS[id] ?? id}</span>
-                            <div className="layout-list__actions">
-                              <button
-                                type="button"
-                                className="layout-list__button"
-                                onClick={() => handleLayoutMove('panels', id, -1)}
-                                disabled={index === 0 || layoutSaving}
-                              >
-                                Monter
-                              </button>
-                              <button
-                                type="button"
-                                className="layout-list__button"
-                                onClick={() => handleLayoutMove('panels', id, 1)}
-                                disabled={index === layoutDraft.sidePanelOrder.length - 1 || layoutSaving}
-                              >
-                                Descendre
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="layout-card__actions">
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      onClick={handleLayoutRestoreSaved}
-                      disabled={layoutSaving || !layoutConfig}
-                    >
-                      Rétablir la disposition enregistrée
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--outline"
-                      onClick={handleLayoutResetToDefault}
-                      disabled={layoutSaving}
-                    >
-                      Réinitialiser aux valeurs par défaut
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--primary"
-                      onClick={handleLayoutSave}
-                      disabled={layoutSaving || !isLayoutDirty}
-                    >
-                      {layoutSaving ? 'Enregistrement…' : 'Enregistrer la disposition'}
-                    </button>
-                  </div>
-                  {layoutFeedback && <p className="layout-card__feedback">{layoutFeedback}</p>}
-                </>
-              )}
-            </div>
-
-            <div className="card topology-card">
-              <div className="card__header">
-                <h2 className="card__title">Cartographie du site</h2>
-                <p className="card__description">
-                  Synchronisez-vous avec l'Admin Studio : zones et dispositifs configurés pour l'exercice.
-                </p>
-              </div>
-              {topologyFeedback && <p className="topology-feedback">{topologyFeedback}</p>}
-              {topologyLoading ? (
-                <p className="topology-placeholder">Chargement de la topologie…</p>
-              ) : topologyError ? (
-                <p className="topology-error">{topologyError}</p>
-              ) : hasTopologyData ? (
-                <>
-                  {(planMetadata.planName || planMetadata.notes.length > 0) && (
-                    <div className="topology-plan">
-                      {planMetadata.planName && (
-                        <p className="topology-plan__name">
-                          Plan importé : <strong>{planMetadata.planName}</strong>
-                        </p>
-                      )}
-                      {planMetadata.notes.length > 0 && (
-                        <ul className="topology-plan__notes">
-                          {planMetadata.notes.map((note) => (
-                            <li key={note}>{note}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                  {topology?.zones.length ? (
-                    <ul className="topology-zone-list">
-                      {topology.zones.map((zone) => {
-                        const zoneDevices = devicesByZone.get(zone.id) ?? [];
-                        return (
-                          <li key={zone.id} className="topology-zone">
-                            <div className="topology-zone__header">
-                              <div className="topology-zone__title">
-                                <span className="topology-zone__name">{zone.label}</span>
-                                <span className="topology-zone__id">#{zone.id}</span>
-                              </div>
-                              <span className="topology-zone__kind">{formatZoneKind(zone.kind)}</span>
-                            </div>
-                            {zoneDevices.length === 0 ? (
-                              <p className="topology-zone__empty">Aucun dispositif associé.</p>
-                            ) : (
-                              <ul className="topology-device-list">
-                                {zoneDevices.map((device) => {
-                                  const coords = extractDeviceCoords(device);
-                                  return (
-                                    <li key={device.id} className="topology-device">
-                                      <span className={deviceBadgeClass(device.kind)}>
-                                        {formatDeviceKind(device.kind)}
-                                      </span>
-                                      <div className="topology-device__meta">
-                                        <span className="topology-device__label">{resolveDeviceLabel(device)}</span>
-                                        {coords && <span className="topology-device__coords">{coords}</span>}
-                                      </div>
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : null}
-                  {unassignedDevices.length > 0 && (
-                    <div className="topology-unassigned">
-                      <span className="topology-unassigned__label">Dispositifs sans zone</span>
-                      <ul className="topology-device-list">
-                        {unassignedDevices.map((device) => {
-                          const coords = extractDeviceCoords(device);
-                          return (
-                            <li key={device.id} className="topology-device">
-                              <span className={deviceBadgeClass(device.kind)}>{formatDeviceKind(device.kind)}</span>
-                              <div className="topology-device__meta">
-                                <span className="topology-device__label">{resolveDeviceLabel(device)}</span>
-                                {coords && <span className="topology-device__coords">{coords}</span>}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="topology-empty">Aucun plan n'a encore été défini dans l'Admin Studio.</p>
-              )}
-            </div>
-
-            <div className="card dm-card">
-              <div className="card__header">
-                <h2 className="card__title">Déclencheurs DM verrouillés</h2>
-                <p className="card__description">Surveillez les zones à réarmer et assurez le retour à la normale.</p>
-              </div>
-              <ul className="dm-list">
-                {dmList.length === 0 && <li className="dm-list__empty">Aucun DM en cours.</li>}
-                {dmList.map((dm) => (
-                  <li key={dm.zoneId} className="dm-item">
-                    <div className="dm-item__meta">
-                      <span className="dm-item__zone">Zone {dm.zoneId}</span>
-                      {dm.lastActivatedAt ? (
-                        <span className="dm-item__time">{formatTime(dm.lastActivatedAt)}</span>
-                      ) : (
-                        <span className="dm-item__time">Horodatage indisponible</span>
-                      )}
-                    </div>
-                    <button
-                      className="btn btn--outline"
-                      onClick={() => handleResetDm(dm.zoneId)}
-                      disabled={resettingZone === dm.zoneId}
-                      aria-busy={resettingZone === dm.zoneId}
-                    >
-                      {resettingZone === dm.zoneId ? 'Réarmement…' : 'Réarmer'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="card dai-card">
-              <div className="card__header">
-                <h2 className="card__title">Détections automatiques</h2>
-                <p className="card__description">Visualisez les déclenchements DAI et réinitialisez les capteurs simulés.</p>
-              </div>
-              <ul className="dai-list">
-                {daiList.length === 0 && <li className="dai-list__empty">Aucune détection active.</li>}
-                {daiList.map((dai) => (
-                  <li key={dai.zoneId} className="dai-item">
-                    <div className="dai-item__meta">
-                      <span className="dai-item__zone">Zone {dai.zoneId}</span>
-                      {dai.lastActivatedAt ? (
-                        <span className="dai-item__time">{formatTime(dai.lastActivatedAt)}</span>
-                      ) : (
-                        <span className="dai-item__time">Horodatage indisponible</span>
-                      )}
-                    </div>
-                    <button
-                      className="btn btn--outline"
-                      onClick={() => handleResetDai(dai.zoneId)}
-                      disabled={resettingDaiZone === dai.zoneId}
-                      aria-busy={resettingDaiZone === dai.zoneId}
-                    >
-                      {resettingDaiZone === dai.zoneId ? 'Réinitialisation…' : 'Réinitialiser'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="card actions-card">
-              <div className="card__header">
-                <h2 className="card__title">Actions rapides</h2>
-                <p className="card__description">Déclenchez, acquittez ou réinitialisez les séquences en un clic.</p>
-              </div>
-              <div className="action-grid">
-                <button
-                  className="btn btn--secondary"
-                  onClick={handleAcknowledge}
-                  disabled={ackPending}
-                  aria-busy={ackPending}
-                >
-                  {ackPending ? 'Acquittement…' : 'Acquit Process'}
-                </button>
-                <button
-                  className="btn btn--ghost"
-                  onClick={handleClearAck}
-                  disabled={clearPending}
-                  aria-busy={clearPending}
-                >
-                  {clearPending ? 'Nettoyage…' : "Effacer l'acquit"}
-                </button>
-                <button
-                  className="btn btn--warning"
-                  onClick={handleSimulateDm}
-                  disabled={simulateDmPending}
-                  aria-busy={simulateDmPending}
-                >
-                  {simulateDmPending ? 'Simulation…' : 'Simuler DM ZF1'}
-                </button>
-                <button
-                  className="btn btn--secondary"
-                  onClick={handleSimulateDai}
-                  disabled={simulateDaiPending}
-                  aria-busy={simulateDaiPending}
-                >
-                  {simulateDaiPending ? 'Détection…' : 'Simuler DAI ZF1'}
-                </button>
-                <button
-                  className="btn btn--success"
-                  onClick={handleResetSystem}
-                  disabled={resetPending}
-                  aria-busy={resetPending}
-                >
-                  {resetPending ? 'Reset en cours…' : 'Demander un reset'}
-                </button>
-              </div>
-            </div>
-
             <div className="card access-card">
               <div className="card__header">
-                <h2 className="card__title">Codes d&apos;accès SSI</h2>
+                <h2 className="card__title">Codes d'accès SSI</h2>
                 <p className="card__description">
-                  Définissez les codes d&apos;accès des niveaux opérateur. Les codes sont appliqués instantanément au poste apprenant.
+                  Définissez les codes d'accès des niveaux opérateur. Les codes sont appliqués instantanément au poste apprenant.
                 </p>
               </div>
               {accessCodesError && <p className="card__alert">{accessCodesError}</p>}
@@ -1451,241 +1300,498 @@ export function App() {
                 </div>
               )}
               <p className="access-card__hint">
-                Le niveau 1 reste accessible sans code. Le niveau 3 est réservé aux équipes de maintenance et n&apos;est pas utilisable
+                Le niveau 1 reste accessible sans code. Le niveau 3 est réservé aux équipes de maintenance et n'est pas utilisable
                 depuis le poste apprenant.
               </p>
             </div>
+          </div>
+        </section>
 
-            <div className="card scenario-card">
-              <div className="card__header">
-                <h2 className="card__title">Scénarios personnalisés</h2>
-                <p className="card__description">Composez vos exercices DAI/DM et diffusez-les instantanément auprès du poste apprenant.</p>
-              </div>
-              <div className="scenario-status">
-                <div className="scenario-status__meta">
-                  <span className="scenario-status__label">Scénario courant</span>
-                  <strong className="scenario-status__name">{scenarioStatus.scenario?.name ?? 'Aucun scénario actif'}</strong>
+        <section id="trainee" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Poste apprenant</h2>
+            <p className="section-header__subtitle">
+              Ajustez l'interface de l'apprenant pour suivre votre déroulé pédagogique.
+            </p>
+          </div>
+          <div className="card layout-card">
+            <div className="card__header">
+              <h2 className="card__title">Disposition du poste apprenant</h2>
+              <p className="card__description">
+                Réorganisez les cartes visuelles et panneaux pour qu&apos;ils correspondent à votre déroulé pédagogique.
+              </p>
+            </div>
+            {layoutLoading ? (
+              <p className="layout-card__placeholder">Chargement de la disposition…</p>
+            ) : (
+              <>
+                {layoutError && <p className="layout-card__error">{layoutError}</p>}
+                <div className="layout-grid">
+                  <div className="layout-section">
+                    <h3 className="layout-section__title">Synoptique CMSI</h3>
+                    <p className="layout-section__subtitle">Ordre des cartes lumineuses.</p>
+                    <ul className="layout-list">
+                      {layoutDraft.boardModuleOrder.map((id, index) => (
+                        <li key={id} className="layout-list__item">
+                          <span className="layout-list__label">{BOARD_TILE_LABELS[id] ?? id}</span>
+                          <div className="layout-list__actions">
+                            <button
+                              type="button"
+                              className="layout-list__button"
+                              onClick={() => handleLayoutMove('board', id, -1)}
+                              disabled={index === 0 || layoutSaving}
+                            >
+                              Monter
+                            </button>
+                            <button
+                              type="button"
+                              className="layout-list__button"
+                              onClick={() => handleLayoutMove('board', id, 1)}
+                              disabled={index === layoutDraft.boardModuleOrder.length - 1 || layoutSaving}
+                            >
+                              Descendre
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="layout-section">
+                    <h3 className="layout-section__title">Bandeau de commandes</h3>
+                    <p className="layout-section__subtitle">Séquence des actions disponibles.</p>
+                    <ul className="layout-list">
+                      {layoutDraft.controlButtonOrder.map((id, index) => (
+                        <li key={id} className="layout-list__item">
+                          <span className="layout-list__label">{CONTROL_BUTTON_LABELS[id] ?? id}</span>
+                          <div className="layout-list__actions">
+                            <button
+                              type="button"
+                              className="layout-list__button"
+                              onClick={() => handleLayoutMove('controls', id, -1)}
+                              disabled={index === 0 || layoutSaving}
+                            >
+                              Monter
+                            </button>
+                            <button
+                              type="button"
+                              className="layout-list__button"
+                              onClick={() => handleLayoutMove('controls', id, 1)}
+                              disabled={index === layoutDraft.controlButtonOrder.length - 1 || layoutSaving}
+                            >
+                              Descendre
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="layout-section">
+                    <h3 className="layout-section__title">Panneaux latéraux</h3>
+                    <p className="layout-section__subtitle">Priorité des informations affichées.</p>
+                    <ul className="layout-list">
+                      {layoutDraft.sidePanelOrder.map((id, index) => (
+                        <li key={id} className="layout-list__item">
+                          <span className="layout-list__label">{SIDE_PANEL_LABELS[id] ?? id}</span>
+                          <div className="layout-list__actions">
+                            <button
+                              type="button"
+                              className="layout-list__button"
+                              onClick={() => handleLayoutMove('panels', id, -1)}
+                              disabled={index === 0 || layoutSaving}
+                            >
+                              Monter
+                            </button>
+                            <button
+                              type="button"
+                              className="layout-list__button"
+                              onClick={() => handleLayoutMove('panels', id, 1)}
+                              disabled={index === layoutDraft.sidePanelOrder.length - 1 || layoutSaving}
+                            >
+                              Descendre
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-                <div className={`scenario-status__badge scenario-status__badge--${scenarioStatus.status}`}>
-                  {scenarioStateLabel}
-                </div>
-                <div className="scenario-status__next">
-                  <span className="scenario-status__hint">Prochain événement</span>
-                  <span>{nextScenarioEvent}</span>
-                </div>
-                <div className="scenario-status__actions">
+                <div className="layout-card__actions">
                   <button
                     type="button"
                     className="btn btn--ghost"
-                    onClick={handleScenarioStop}
-                    disabled={!scenarioIsRunning}
+                    onClick={handleLayoutRestoreSaved}
+                    disabled={layoutSaving || !layoutConfig}
                   >
-                    Arrêter le scénario
+                    Rétablir la disposition enregistrée
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--outline"
+                    onClick={handleLayoutResetToDefault}
+                    disabled={layoutSaving}
+                  >
+                    Réinitialiser aux valeurs par défaut
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={handleLayoutSave}
+                    disabled={layoutSaving || !isLayoutDirty}
+                  >
+                    {layoutSaving ? 'Enregistrement…' : 'Enregistrer la disposition'}
                   </button>
                 </div>
-              </div>
-              <div className="scenario-layout">
-                <aside className="scenario-sidebar">
-                  <div className="scenario-sidebar__header">
-                    <h3 className="scenario-sidebar__title">Bibliothèque</h3>
-                    <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
-                      Nouveau
-                    </button>
-                  </div>
-                  <ul className="scenario-list">
-                    {scenarios.length === 0 && <li className="scenario-list__empty">Aucun scénario enregistré.</li>}
-                    {scenarios.map((scenario) => {
-                      const isActive = scenarioStatus.scenario?.id === scenario.id;
+                {layoutFeedback && <p className="layout-card__feedback">{layoutFeedback}</p>}
+              </>
+            )}
+          </div>
+        </section>
+
+        <section id="topology" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Cartographie du site</h2>
+            <p className="section-header__subtitle">
+              Visualisez les zones et dispositifs importés depuis l'Admin Studio.
+            </p>
+          </div>
+          <div className="card topology-card">
+            <div className="card__header">
+              <h2 className="card__title">Cartographie du site</h2>
+              <p className="card__description">
+                Synchronisez-vous avec l'Admin Studio : zones et dispositifs configurés pour l'exercice.
+              </p>
+            </div>
+            {topologyLoading ? (
+              <p className="topology-placeholder">Chargement de la topologie…</p>
+            ) : topologyError ? (
+              <p className="topology-error">{topologyError}</p>
+            ) : hasTopologyData ? (
+              <>
+                {topology?.zones.length ? (
+                  <ul className="topology-zone-list">
+                    {topology.zones.map((zone) => {
+                      const zoneDevices = devicesByZone.get(zone.id) ?? [];
                       return (
-                        <li key={scenario.id} className={`scenario-list__item ${isActive ? 'is-active' : ''}`}>
-                          <div className="scenario-list__meta">
-                            <span className="scenario-list__name">{scenario.name}</span>
-                            <span className="scenario-list__count">{scenario.events.length} évènement(s)</span>
+                        <li key={zone.id} className="topology-zone">
+                          <div className="topology-zone__header">
+                            <div className="topology-zone__title">
+                              <span className="topology-zone__name">{zone.label}</span>
+                              <span className="topology-zone__id">#{zone.id}</span>
+                            </div>
+                            <span className="topology-zone__kind">{formatZoneKind(zone.kind)}</span>
                           </div>
-                          <div className="scenario-list__actions">
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
-                              onClick={() => handleScenarioRun(scenario.id)}
-                              disabled={scenarioIsRunning && isActive}
-                            >
-                              Lancer
-                            </button>
-                            <button type="button" className="btn btn--outline" onClick={() => handleScenarioEdit(scenario)}>
-                              Modifier
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn--ghost scenario-delete"
-                              onClick={() => handleScenarioDelete(scenario.id)}
-                              disabled={scenarioDeleting === scenario.id}
-                              aria-busy={scenarioDeleting === scenario.id}
-                            >
-                              Supprimer
-                            </button>
-                          </div>
+                          {zoneDevices.length === 0 ? (
+                            <p className="topology-zone__empty">Aucun dispositif associé.</p>
+                          ) : (
+                            <ul className="topology-device-list">
+                              {zoneDevices.map((device) => {
+                                const coords = extractDeviceCoords(device);
+                                return (
+                                  <li key={device.id} className="topology-device">
+                                    <span className={deviceBadgeClass(device.kind)}>
+                                      {formatDeviceKind(device.kind)}
+                                    </span>
+                                    <div className="topology-device__meta">
+                                      <span className="topology-device__label">{resolveDeviceLabel(device)}</span>
+                                      {coords && <span className="topology-device__coords">{coords}</span>}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
                         </li>
                       );
                     })}
                   </ul>
-                </aside>
-                <form className="scenario-form" onSubmit={handleScenarioSubmit}>
-                  <div className="scenario-form__row">
-                    <label className="scenario-form__field">
-                      <span>Nom du scénario</span>
-                      <input
-                        value={draftScenario.name}
-                        onChange={(event) => handleScenarioNameChange(event.target.value)}
-                        placeholder="Ex : Exercice évacuation étage 2"
-                        className="text-input"
-                      />
-                    </label>
-                    <label className="scenario-form__field">
-                      <span>Description</span>
-                      <textarea
-                        value={draftScenario.description ?? ''}
-                        onChange={(event) => handleScenarioDescriptionChange(event.target.value)}
-                        placeholder="Objectifs, consignes pédagogiques…"
-                        className="text-area"
-                        rows={2}
-                      />
-                    </label>
-                  </div>
-                  <div className="scenario-events">
-                    <div className="scenario-events__header">
-                      <h4>Évènements programmés</h4>
-                      <button type="button" className="btn btn--ghost" onClick={handleScenarioAddEvent}>
-                        Ajouter un événement
-                      </button>
-                    </div>
-                    {sortedDraftEvents.length === 0 && (
-                      <p className="scenario-events__empty">Ajoutez une action pour démarrer la construction du scénario.</p>
-                    )}
-                    {sortedDraftEvents.map((eventDraft, index) => {
-                      const offsetValue = Number.isFinite(eventDraft.offset) ? eventDraft.offset : 0;
-                      const zoneEvent =
-                        eventDraft.type === 'DM_TRIGGER' ||
-                        eventDraft.type === 'DM_RESET' ||
-                        eventDraft.type === 'DAI_TRIGGER' ||
-                        eventDraft.type === 'DAI_RESET';
-                      const reasonEvent = eventDraft.type === 'MANUAL_EVAC_START' || eventDraft.type === 'MANUAL_EVAC_STOP';
-                      const ackEvent = eventDraft.type === 'PROCESS_ACK';
-                      return (
-                        <div key={eventDraft.id} className="scenario-event-row">
-                          <div className="scenario-event-row__header">
-                            <div className="scenario-event-row__title">
-                              <span className="scenario-event-row__index">#{index + 1}</span>
-                              <label className="scenario-event-field scenario-event-field--type">
-                                <span>Action</span>
-                                <select
-                                  value={eventDraft.type}
-                                  onChange={(input) =>
-                                    handleScenarioEventTypeChange(
-                                      eventDraft.id,
-                                      input.target.value as ScenarioEvent['type'],
-                                    )
-                                  }
-                                >
-                                  {SCENARIO_EVENT_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
+                ) : null}
+                {unassignedDevices.length > 0 && (
+                  <div className="topology-unassigned">
+                    <span className="topology-unassigned__label">Dispositifs sans zone</span>
+                    <ul className="topology-device-list">
+                      {unassignedDevices.map((device) => {
+                        const coords = extractDeviceCoords(device);
+                        return (
+                          <li key={device.id} className="topology-device">
+                            <span className={deviceBadgeClass(device.kind)}>{formatDeviceKind(device.kind)}</span>
+                            <div className="topology-device__meta">
+                              <span className="topology-device__label">{resolveDeviceLabel(device)}</span>
+                              {coords && <span className="topology-device__coords">{coords}</span>}
                             </div>
-                            <div className="scenario-event-row__meta">
-                              <label className="scenario-event-field scenario-event-field--offset">
-                                <span>Offset (s)</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={0.1}
-                                  value={offsetValue}
-                                  onChange={(input) => {
-                                    const value = Number.parseFloat(input.target.value);
-                                    handleScenarioEventOffsetChange(
-                                      eventDraft.id,
-                                      Number.isNaN(value) ? 0 : value,
-                                    );
-                                  }}
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                className="scenario-event-remove"
-                                onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
-                                aria-label={`Supprimer l'événement ${index + 1}`}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          </div>
-                          <div className="scenario-event-row__content">
-                            {zoneEvent && (
-                              <label className="scenario-event-field scenario-event-field--zone">
-                                <span>Zone</span>
-                                <input
-                                  value={(eventDraft as { zoneId: string }).zoneId}
-                                  onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
-                                  placeholder="ZF1"
-                                />
-                              </label>
-                            )}
-                            {reasonEvent && (
-                              <label className="scenario-event-field scenario-event-field--reason">
-                                <span>Motif</span>
-                                <input
-                                  value={(eventDraft as { reason?: string }).reason ?? ''}
-                                  onChange={(input) => handleScenarioEventReasonChange(eventDraft.id, input.target.value)}
-                                  placeholder="Ex : Exercice, dérangement"
-                                />
-                              </label>
-                            )}
-                            {ackEvent && (
-                              <label className="scenario-event-field scenario-event-field--acked">
-                                <span>Opérateur</span>
-                                <input
-                                  value={(eventDraft as { ackedBy?: string }).ackedBy ?? ''}
-                                  onChange={(input) => handleScenarioEventAckedByChange(eventDraft.id, input.target.value)}
-                                  placeholder="trainer / trainee"
-                                />
-                              </label>
-                            )}
-                            <label className="scenario-event-field scenario-event-field--label">
-                              <span>Libellé</span>
-                              <input
-                                value={eventDraft.label ?? ''}
-                                onChange={(input) => handleScenarioEventLabelChange(eventDraft.id, input.target.value)}
-                                placeholder="Note pédagogique (optionnel)"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   </div>
-                  {scenarioError && <p className="scenario-error">{scenarioError}</p>}
-                  <div className="scenario-form__actions">
-                    <button type="submit" className="btn btn--primary" disabled={scenarioSaving} aria-busy={scenarioSaving}>
-                      {scenarioSaving
-                        ? 'Enregistrement…'
-                        : editingScenarioId
-                        ? 'Mettre à jour le scénario'
-                        : 'Créer le scénario'}
-                    </button>
-                    {editingScenarioId && (
-                      <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
-                        Réinitialiser le formulaire
-                      </button>
-                    )}
-                  </div>
-                </form>
+                )}
+              </>
+            ) : (
+              <p className="topology-empty">Aucun plan n'a encore été défini dans l'Admin Studio.</p>
+            )}
+          </div>
+        </section>
+
+        <section id="scenarios" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Scénarios pédagogiques</h2>
+            <p className="section-header__subtitle">
+              Composez vos exercices DAI/DM et diffusez-les instantanément auprès du poste apprenant.
+            </p>
+          </div>
+          <div className="card scenario-card">
+            <div className="card__header">
+              <h2 className="card__title">Scénarios personnalisés</h2>
+              <p className="card__description">Composez vos exercices DAI/DM et diffusez-les instantanément auprès du poste apprenant.</p>
+            </div>
+            <div className="scenario-status">
+              <div className="scenario-status__meta">
+                <span className="scenario-status__label">Scénario courant</span>
+                <strong className="scenario-status__name">
+                  {scenarioStatus.scenario?.name ?? 'Aucun scénario actif'}
+                </strong>
+              </div>
+              <div className={`scenario-status__badge scenario-status__badge--${scenarioStatus.status}`}>
+                {scenarioStateLabel}
+              </div>
+              <div className="scenario-status__next">
+                <span className="scenario-status__hint">Prochain événement</span>
+                <span>{nextScenarioEvent}</span>
+              </div>
+              <div className="scenario-status__actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={handleScenarioStop}
+                  disabled={!scenarioIsRunning}
+                >
+                  Arrêter le scénario
+                </button>
               </div>
             </div>
-          </section>
-        </main>
-      </div>
+            <div className="scenario-layout">
+              <aside className="scenario-sidebar">
+                <div className="scenario-sidebar__header">
+                  <h3 className="scenario-sidebar__title">Bibliothèque</h3>
+                  <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
+                    Nouveau
+                  </button>
+                </div>
+                <ul className="scenario-list">
+                  {scenarios.length === 0 && <li className="scenario-list__empty">Aucun scénario enregistré.</li>}
+                  {scenarios.map((scenario) => {
+                    const isActive = scenarioStatus.scenario?.id === scenario.id;
+                    return (
+                      <li key={scenario.id} className={`scenario-list__item ${isActive ? 'is-active' : ''}`}>
+                        <div className="scenario-list__meta">
+                          <span className="scenario-list__name">{scenario.name}</span>
+                          <span className="scenario-list__count">{scenario.events.length} évènement(s)</span>
+                        </div>
+                        <div className="scenario-list__actions">
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            onClick={() => handleScenarioRun(scenario.id)}
+                            disabled={scenarioIsRunning && isActive}
+                          >
+                            Lancer
+                          </button>
+                          <button type="button" className="btn btn--outline" onClick={() => handleScenarioEdit(scenario)}>
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--ghost scenario-delete"
+                            onClick={() => handleScenarioDelete(scenario.id)}
+                            disabled={scenarioDeleting === scenario.id}
+                            aria-busy={scenarioDeleting === scenario.id}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </aside>
+              <form className="scenario-form" onSubmit={handleScenarioSubmit}>
+                <div className="scenario-form__row">
+                  <label className="scenario-form__field">
+                    <span>Nom du scénario</span>
+                    <input
+                      value={draftScenario.name}
+                      onChange={(event) => handleScenarioNameChange(event.target.value)}
+                      placeholder="Ex : Exercice évacuation étage 2"
+                      className="text-input"
+                    />
+                  </label>
+                  <label className="scenario-form__field">
+                    <span>Description</span>
+                    <textarea
+                      value={draftScenario.description ?? ''}
+                      onChange={(event) => handleScenarioDescriptionChange(event.target.value)}
+                      placeholder="Objectifs, consignes pédagogiques…"
+                      className="text-area"
+                      rows={2}
+                    />
+                  </label>
+                </div>
+                <div className="scenario-events">
+                  <div className="scenario-events__header">
+                    <h4>Évènements programmés</h4>
+                    <button type="button" className="btn btn--ghost" onClick={handleScenarioAddEvent}>
+                      Ajouter un événement
+                    </button>
+                  </div>
+                  {sortedDraftEvents.length === 0 && (
+                    <p className="scenario-events__empty">Ajoutez une action pour démarrer la construction du scénario.</p>
+                  )}
+                  {sortedDraftEvents.map((eventDraft, index) => {
+                    const offsetValue = Number.isFinite(eventDraft.offset) ? eventDraft.offset : 0;
+                    const zoneEvent =
+                      eventDraft.type === 'DM_TRIGGER' ||
+                      eventDraft.type === 'DM_RESET' ||
+                      eventDraft.type === 'DAI_TRIGGER' ||
+                      eventDraft.type === 'DAI_RESET';
+                    const reasonEvent = eventDraft.type === 'MANUAL_EVAC_START' || eventDraft.type === 'MANUAL_EVAC_STOP';
+                    const ackEvent = eventDraft.type === 'PROCESS_ACK';
+                    return (
+                      <div key={eventDraft.id} className="scenario-event-row">
+                        <div className="scenario-event-row__header">
+                          <div className="scenario-event-row__title">
+                            <span className="scenario-event-row__index">#{index + 1}</span>
+                            <label className="scenario-event-field scenario-event-field--type">
+                              <span>Action</span>
+                              <select
+                                value={eventDraft.type}
+                                onChange={(input) =>
+                                  handleScenarioEventTypeChange(
+                                    eventDraft.id,
+                                    input.target.value as ScenarioEvent['type'],
+                                  )
+                                }
+                              >
+                                {SCENARIO_EVENT_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          <div className="scenario-event-row__meta">
+                            <label className="scenario-event-field scenario-event-field--offset">
+                              <span>Offset (s)</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.1}
+                                value={offsetValue}
+                                onChange={(input) => {
+                                  const value = Number.parseFloat(input.target.value);
+                                  handleScenarioEventOffsetChange(
+                                    eventDraft.id,
+                                    Number.isNaN(value) ? 0 : value,
+                                  );
+                                }}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="scenario-event-remove"
+                              onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
+                              aria-label={`Supprimer l'événement ${index + 1}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                        <div className="scenario-event-row__content">
+                          {zoneEvent && (
+                            <label className="scenario-event-field scenario-event-field--zone">
+                              <span>Zone</span>
+                              <input
+                                value={(eventDraft as { zoneId: string }).zoneId}
+                                onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
+                                placeholder="ZF1"
+                              />
+                            </label>
+                          )}
+                          {reasonEvent && (
+                            <label className="scenario-event-field scenario-event-field--reason">
+                              <span>Motif</span>
+                              <input
+                                value={(eventDraft as { reason?: string }).reason ?? ''}
+                                onChange={(input) => handleScenarioEventReasonChange(eventDraft.id, input.target.value)}
+                                placeholder="Ex : Exercice, dérangement"
+                              />
+                            </label>
+                          )}
+                          {ackEvent && (
+                            <label className="scenario-event-field scenario-event-field--acked">
+                              <span>Opérateur</span>
+                              <input
+                                value={(eventDraft as { ackedBy?: string }).ackedBy ?? ''}
+                                onChange={(input) => handleScenarioEventAckedByChange(eventDraft.id, input.target.value)}
+                                placeholder="trainer / trainee"
+                              />
+                            </label>
+                          )}
+                          <label className="scenario-event-field scenario-event-field--label">
+                            <span>Libellé</span>
+                            <input
+                              value={eventDraft.label ?? ''}
+                              onChange={(input) => handleScenarioEventLabelChange(eventDraft.id, input.target.value)}
+                              placeholder="Note pédagogique (optionnel)"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {scenarioError && <p className="scenario-error">{scenarioError}</p>}
+                <div className="scenario-form__actions">
+                  <button type="submit" className="btn btn--primary" disabled={scenarioSaving} aria-busy={scenarioSaving}>
+                    {scenarioSaving
+                      ? 'Enregistrement…'
+                      : editingScenarioId
+                      ? 'Mettre à jour le scénario'
+                      : 'Créer le scénario'}
+                  </button>
+                  {editingScenarioId && (
+                    <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
+                      Réinitialiser le formulaire
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section id="journal" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Journal d'événements</h2>
+            <p className="section-header__subtitle">
+              Conservez une trace synthétique des dernières interactions pour débriefer la session.
+            </p>
+          </div>
+          <div className="card log-card">
+            <div className="card__header">
+              <h2 className="card__title">Journal en direct</h2>
+              <p className="card__description">Historique condensé des événements récents côté CMSI et scénarios.</p>
+            </div>
+            <ul className="log-list">
+              {events.length === 0 && <li className="log-list__empty">Aucun événement pour le moment.</li>}
+              {events.map((entry) => (
+                <li key={entry} className="log-entry">
+                  {entry}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
