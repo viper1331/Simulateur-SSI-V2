@@ -13,8 +13,10 @@ import {
 interface CmsiStateData {
   status: string;
   manual?: boolean;
-  suspendFlag?: boolean;
   deadline?: number;
+  remainingMs?: number;
+  zoneId?: string;
+  startedAt?: number;
 }
 
 interface Snapshot {
@@ -285,7 +287,11 @@ export function TraineeApp() {
     }
   }, [codeBuffer, handleAccessLock, sdk, verifyingAccess]);
 
-  const remainingDeadline = snapshot?.cmsi.deadline
+  const remainingDeadline = snapshot?.cmsi.status === 'EVAC_SUSPENDED'
+    ? snapshot.cmsi.remainingMs != null
+      ? Math.max(0, Math.floor(snapshot.cmsi.remainingMs / 1000))
+      : null
+    : snapshot?.cmsi.deadline
     ? Math.max(0, Math.floor((snapshot.cmsi.deadline - now) / 1000))
     : null;
 
@@ -440,7 +446,13 @@ export function TraineeApp() {
             </li>
             <li>
               <span className="detail-label">Suspension</span>
-              <span className="detail-value">{snapshot?.cmsi.suspendFlag ? 'Active' : 'Inactive'}</span>
+              <span className="detail-value">
+                {snapshot?.cmsi.status === 'EVAC_SUSPENDED'
+                  ? remainingDeadline != null
+                    ? `Active (${remainingDeadline}s restantes)`
+                    : 'Active'
+                  : 'Inactive'}
+              </span>
             </li>
             <li>
               <span className="detail-label">Signal sonore</span>

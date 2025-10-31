@@ -20,8 +20,8 @@ import {
 interface CmsiStateData {
   status: string;
   deadline?: number;
-  suspendFlag?: boolean;
   manual?: boolean;
+  remainingMs?: number;
   startedAt?: number;
   zoneId?: string;
 }
@@ -927,8 +927,11 @@ export function App() {
     }
   };
 
-  const remainingMs =
-    snapshot?.cmsi?.deadline != null ? Math.max(0, snapshot.cmsi.deadline - now) : undefined;
+  const remainingMs = snapshot?.cmsi?.status === 'EVAC_SUSPENDED'
+    ? snapshot.cmsi.remainingMs ?? undefined
+    : snapshot?.cmsi?.deadline != null
+    ? Math.max(0, snapshot.cmsi.deadline - now)
+    : undefined;
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);
@@ -1139,7 +1142,7 @@ export function App() {
                     <TimelineBadge label={snapshot.cmsi.manual ? 'Manuelle' : 'Automatique'} state="active" />
                   )}
                   {snapshot?.cmsi?.status === 'EVAC_SUSPENDED' && (
-                    <TimelineBadge label="Suspension" state="suspended" />
+                    <TimelineBadge label="Suspension" state="suspended" remainingMs={remainingMs} />
                   )}
                   {snapshot?.cmsi?.status === 'SAFE_HOLD' && <TimelineBadge label="Maintien sécurisé" state="safehold" />}
                   {!snapshot && <p className="timeline-empty">Aucun scénario en cours.</p>}
