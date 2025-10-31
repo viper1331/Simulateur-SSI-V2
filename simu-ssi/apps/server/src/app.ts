@@ -1013,6 +1013,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
       ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
+      ...(parsed.data.evacuationAudio ? { evacuationAudio: parsed.data.evacuationAudio } : {}),
     };
     const record = await prisma.scenario.create({
       data: {
@@ -1028,6 +1029,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
       ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
+      ...(parsed.data.evacuationAudio ? { evacuationAudio: parsed.data.evacuationAudio } : {}),
     });
     log.info("Scénario créé", { scenarioId: scenario.id });
     res.status(201).json({ scenario });
@@ -1047,6 +1049,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
       ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
+      ...(parsed.data.evacuationAudio ? { evacuationAudio: parsed.data.evacuationAudio } : {}),
     };
     const record = await prisma.scenario.update({
       where: { id: req.params.id },
@@ -1062,6 +1065,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       events: eventsWithIds,
       ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
       ...(parsed.data.manualResettable ? { manualResettable: parsed.data.manualResettable } : {}),
+      ...(parsed.data.evacuationAudio ? { evacuationAudio: parsed.data.evacuationAudio } : {}),
     });
     log.info("Scénario mis à jour", { scenarioId: scenario.id });
     res.json({ scenario });
@@ -1308,21 +1312,20 @@ async function persistTraineeLayout(layout: TraineeLayoutConfig): Promise<Traine
 }
 
 function serializeScenarioRecord(record: { id: string; name: string; json: string }): ScenarioDefinition {
-  let payload: { description?: string; events: unknown; topology?: unknown; manualResettable?: unknown };
+  let rawPayload: unknown;
   try {
-    payload = JSON.parse(record.json);
+    rawPayload = JSON.parse(record.json);
   } catch (error) {
-    payload = { description: undefined, events: [] };
+    rawPayload = {};
   }
+  const payload = (rawPayload && typeof rawPayload === 'object' ? rawPayload : {}) as Record<string, unknown>;
   return scenarioDefinitionSchema.parse({
     id: record.id,
     name: record.name,
-    description: payload.description,
+    description: typeof payload.description === 'string' ? payload.description : undefined,
     events: Array.isArray(payload.events) ? payload.events : [],
-    topology: payload && typeof payload === 'object' && payload.topology != null ? payload.topology : undefined,
-    manualResettable:
-      payload && typeof payload === 'object' && payload.manualResettable != null
-        ? payload.manualResettable
-        : undefined,
+    topology: payload.topology != null ? payload.topology : undefined,
+    manualResettable: payload.manualResettable != null ? payload.manualResettable : undefined,
+    evacuationAudio: payload.evacuationAudio != null ? payload.evacuationAudio : undefined,
   });
 }

@@ -10,6 +10,7 @@ import {
   type SiteTopology,
   type ScenarioEvent,
   type ScenarioRunnerSnapshot,
+  type ScenarioAudioAsset,
   type TraineeLayoutConfig,
   type SessionSummary,
   sessionSchema,
@@ -457,6 +458,7 @@ export function TraineeApp() {
   const scenarioStatusRef = useRef<ScenarioRunnerSnapshot>({ status: 'idle' });
   const pendingTopologyRef = useRef<SiteTopology | null>(null);
   const accessLevelResetTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const evacuationAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const scenarioUiStatus = useMemo<ScenarioRunnerSnapshot>(
     () =>
@@ -807,6 +809,50 @@ export function TraineeApp() {
     () => deriveScenarioAdaptation(scenarioUiStatus),
     [scenarioUiStatus],
   );
+  const evacuationAudioAsset = useMemo<ScenarioAudioAsset | null>(() => {
+    const scenario = scenarioUiStatus.scenario;
+    if (!scenario?.evacuationAudio) {
+      return null;
+    }
+    const { automatic, manual } = scenario.evacuationAudio;
+    if (snapshot?.manualEvacuation) {
+      return manual ?? automatic ?? null;
+    }
+    if (snapshot?.ugaActive) {
+      return automatic ?? manual ?? null;
+    }
+    return null;
+  }, [scenarioUiStatus.scenario, snapshot?.manualEvacuation, snapshot?.ugaActive]);
+  useEffect(() => {
+    const audioElement = evacuationAudioRef.current;
+    if (!audioElement) {
+      return;
+    }
+    const asset = evacuationAudioAsset;
+    const shouldPlay = Boolean(asset && (snapshot?.ugaActive || snapshot?.manualEvacuation));
+    if (!shouldPlay) {
+      if (!audioElement.paused) {
+        audioElement.pause();
+        audioElement.currentTime = 0;
+      }
+      if (!asset) {
+        audioElement.removeAttribute('src');
+      }
+      return;
+    }
+    if (audioElement.src !== asset.dataUrl) {
+      audioElement.src = asset.dataUrl;
+    }
+    audioElement.loop = true;
+    if (audioElement.paused) {
+      const playPromise = audioElement.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((error) => {
+          console.error("Impossible de lire le son d'évacuation.", error);
+        });
+      }
+    }
+  }, [evacuationAudioAsset, snapshot?.manualEvacuation, snapshot?.ugaActive]);
   const planName = topology?.plan?.name?.trim() ?? null;
   const planImage = topology?.plan?.image ?? null;
   const zoneDisplayMap = useMemo(() => {
@@ -1313,6 +1359,7 @@ export function TraineeApp() {
 
   return (
     <div className="trainee-shell">
+      <audio ref={evacuationAudioRef} aria-hidden="true" preload="auto" style={{ display: 'none' }} />
       <header className="trainee-header">
         <div className="header-identification">
           <div className="header-titles">

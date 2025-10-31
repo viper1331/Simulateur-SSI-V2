@@ -16,6 +16,8 @@ import {
   type ScenarioEvent,
   type ScenarioManualResetSelection,
   type ScenarioPayload,
+  type ScenarioEvacuationAudio,
+  type ScenarioAudioAsset,
   scenarioDefinitionSchema,
   scenarioPayloadSchema,
   type ScenarioRunnerSnapshot,
@@ -59,6 +61,7 @@ interface ScenarioDraft {
   events: ScenarioEventDraft[];
   manualResetMode: 'all' | 'custom';
   manualResettable: ScenarioManualResetSelection;
+  evacuationAudio?: ScenarioEvacuationAudio;
 }
 
 const CMSI_STATUS_LABELS: Record<string, string> = {
@@ -353,6 +356,32 @@ function normalizeManualResetSelection(
   };
 }
 
+function sanitizeAudioAsset(asset?: ScenarioAudioAsset | null): ScenarioAudioAsset | undefined {
+  if (!asset) {
+    return undefined;
+  }
+  const name = asset.name?.trim();
+  const dataUrl = asset.dataUrl?.toString().trim();
+  if (!name || !dataUrl) {
+    return undefined;
+  }
+  return { name, dataUrl };
+}
+
+function normalizeEvacuationAudio(
+  audio?: ScenarioEvacuationAudio | null,
+): ScenarioEvacuationAudio | undefined {
+  if (!audio) {
+    return undefined;
+  }
+  const automatic = sanitizeAudioAsset(audio.automatic);
+  const manual = sanitizeAudioAsset(audio.manual);
+  if (!automatic && !manual) {
+    return undefined;
+  }
+  return { ...(automatic ? { automatic } : {}), ...(manual ? { manual } : {}) };
+}
+
 function createEmptyScenarioDraft(): ScenarioDraft {
   return {
     name: '',
@@ -361,6 +390,7 @@ function createEmptyScenarioDraft(): ScenarioDraft {
     events: [],
     manualResetMode: 'all',
     manualResettable: createEmptyManualResetSelection(),
+    evacuationAudio: undefined,
   };
 }
 
@@ -474,6 +504,7 @@ function normalizeEventForPayload(event: ScenarioEventDraft): ScenarioEvent {
 }
 
 function draftToPayload(draft: ScenarioDraft): ScenarioPayload {
+  const evacuationAudio = normalizeEvacuationAudio(draft.evacuationAudio);
   return {
     name: draft.name.trim(),
     description: draft.description?.trim() ? draft.description.trim() : undefined,
@@ -482,6 +513,7 @@ function draftToPayload(draft: ScenarioDraft): ScenarioPayload {
     ...(draft.manualResetMode === 'custom'
       ? { manualResettable: normalizeManualResetSelection(draft.manualResettable) }
       : {}),
+    ...(evacuationAudio ? { evacuationAudio } : {}),
   };
 }
 
@@ -494,6 +526,7 @@ function scenarioDefinitionToDraft(definition: ScenarioDefinition): ScenarioDraf
     events: definition.events.map(ensureDraftEvent),
     manualResetMode: definition.manualResettable ? 'custom' : 'all',
     manualResettable: normalizeManualResetSelection(definition.manualResettable),
+    evacuationAudio: normalizeEvacuationAudio(definition.evacuationAudio) ?? undefined,
   };
 }
 
@@ -542,6 +575,8 @@ function extractScenarioPayload(data: unknown): ScenarioPayload | null {
       description: rest.description,
       events: rest.events,
       topology: rest.topology,
+      ...(rest.manualResettable ? { manualResettable: rest.manualResettable } : {}),
+      ...(rest.evacuationAudio ? { evacuationAudio: rest.evacuationAudio } : {}),
     };
   }
   return null;
@@ -720,6 +755,8 @@ export function App() {
   const trainerOptions = useMemo(() => users.filter((user) => user.role === 'TRAINER'), [users]);
   const recentSessions = useMemo(() => sessions.slice(0, 6), [sessions]);
   const scenarioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const scenarioAutomaticAudioInputRef = useRef<HTMLInputElement | null>(null);
+  const scenarioManualAudioInputRef = useRef<HTMLInputElement | null>(null);
   const userImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -1689,6 +1726,102 @@ export function App() {
     });
   };
 
+  const handleScenarioEvacuationAudioSelect = useCallback(
+    (kind: 'automatic' | 'manual') => {
+      setScenarioError(null);
+      setScenarioFeedback(null);
+      if (kind === 'automatic') {
+        scenarioAutomaticAudioInputRef.current?.click();
+      } else {
+        scenarioManualAudioInputRef.current?.click();
+      }
+    },
+    [scenarioAutomaticAudioInputRef, scenarioManualAudioInputRef],
+  );
+
+  const handleScenarioEvacuationAudioChange = useCallback(
+    async (kind: 'automatic' | 'manual', event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      if (file.type && !file.type.startsWith('audio/')) {
+        setScenarioError('Sélectionnez un fichier audio (mp3, wav, …).');
+        event.target.value = '';
+        return;
+      }
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error("Format de fichier audio invalide."));
+            }
+          };
+          reader.onerror = () => {
+            reject(reader.error ?? new Error("Lecture du fichier audio impossible."));
+          };
+          reader.readAsDataURL(file);
+        });
+        setDraftScenario((prev) => {
+          const previous = prev.evacuationAudio ?? {};
+          const asset: ScenarioAudioAsset = { name: file.name, dataUrl };
+          const next = {
+            ...previous,
+            [kind]: asset,
+          } as ScenarioEvacuationAudio;
+          return {
+            ...prev,
+            evacuationAudio: next,
+          };
+        });
+        setScenarioError(null);
+        setScenarioFeedback(
+          kind === 'automatic'
+            ? "Son d'évacuation automatique chargé."
+            : "Son d'évacuation manuelle chargé.",
+        );
+      } catch (error) {
+        console.error(error);
+        setScenarioError("Impossible de charger le fichier audio d'évacuation.");
+        setScenarioFeedback(null);
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [setDraftScenario, setScenarioError, setScenarioFeedback],
+  );
+
+  const handleScenarioEvacuationAudioClear = useCallback(
+    (kind: 'automatic' | 'manual') => {
+      let removed = false;
+      setDraftScenario((prev) => {
+        if (!prev.evacuationAudio?.[kind]) {
+          return prev;
+        }
+        removed = true;
+        const remaining = { ...prev.evacuationAudio } as ScenarioEvacuationAudio;
+        delete (remaining as Record<'automatic' | 'manual', ScenarioAudioAsset | undefined>)[kind];
+        const normalized = normalizeEvacuationAudio(remaining);
+        return {
+          ...prev,
+          evacuationAudio: normalized ?? undefined,
+        };
+      });
+      if (removed) {
+        setScenarioError(null);
+        setScenarioFeedback(
+          kind === 'automatic'
+            ? "Son d'évacuation automatique supprimé."
+            : "Son d'évacuation manuelle supprimé.",
+        );
+      }
+    },
+    [setDraftScenario, setScenarioError, setScenarioFeedback],
+  );
+
   const handleScenarioNameChange = (name: string) => {
     setDraftScenario((prev) => ({ ...prev, name }));
   };
@@ -1808,6 +1941,8 @@ export function App() {
           description: scenario.description,
           events: scenario.events,
           ...(scenario.topology ? { topology: scenario.topology } : {}),
+          ...(scenario.manualResettable ? { manualResettable: scenario.manualResettable } : {}),
+          ...(scenario.evacuationAudio ? { evacuationAudio: scenario.evacuationAudio } : {}),
         },
       };
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
@@ -3031,6 +3166,104 @@ export function App() {
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+              <div className="scenario-form__row scenario-form__row--single">
+                <div className="scenario-form__field">
+                  <span>Bandes son d'évacuation</span>
+                  <p className="scenario-audio__hint">
+                    Sélectionnez les sons diffusés lorsque l'évacuation démarre automatiquement ou manuellement.
+                  </p>
+                  <div className="scenario-audio">
+                    <div className="scenario-audio__item">
+                      <div className="scenario-audio__meta">
+                        <strong>Déclenchement automatique</strong>
+                        <span>Diffusé lors d'une évacuation programmée dans le scénario.</span>
+                      </div>
+                      <div className="scenario-audio__actions">
+                        {draftScenario.evacuationAudio?.automatic ? (
+                          <>
+                            <span className="scenario-audio__filename">
+                              {draftScenario.evacuationAudio.automatic.name}
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              onClick={() => handleScenarioEvacuationAudioSelect('automatic')}
+                            >
+                              Remplacer
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              onClick={() => handleScenarioEvacuationAudioClear('automatic')}
+                            >
+                              Retirer
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn--outline"
+                            onClick={() => handleScenarioEvacuationAudioSelect('automatic')}
+                          >
+                            Ajouter un son
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="scenario-audio__item">
+                      <div className="scenario-audio__meta">
+                        <strong>Déclenchement manuel</strong>
+                        <span>Utilisé quand l'apprenant active l'évacuation manuellement.</span>
+                      </div>
+                      <div className="scenario-audio__actions">
+                        {draftScenario.evacuationAudio?.manual ? (
+                          <>
+                            <span className="scenario-audio__filename">
+                              {draftScenario.evacuationAudio.manual.name}
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              onClick={() => handleScenarioEvacuationAudioSelect('manual')}
+                            >
+                              Remplacer
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              onClick={() => handleScenarioEvacuationAudioClear('manual')}
+                            >
+                              Retirer
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn--outline"
+                            onClick={() => handleScenarioEvacuationAudioSelect('manual')}
+                          >
+                            Ajouter un son
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    ref={scenarioAutomaticAudioInputRef}
+                    type="file"
+                    accept="audio/*"
+                    style={{ display: 'none' }}
+                    onChange={(event) => handleScenarioEvacuationAudioChange('automatic', event)}
+                  />
+                  <input
+                    ref={scenarioManualAudioInputRef}
+                    type="file"
+                    accept="audio/*"
+                    style={{ display: 'none' }}
+                    onChange={(event) => handleScenarioEvacuationAudioChange('manual', event)}
+                  />
                 </div>
               </div>
               {scenarioZoneOptions.length > 0 && (
