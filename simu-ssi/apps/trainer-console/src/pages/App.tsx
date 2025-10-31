@@ -1013,61 +1013,6 @@ export function App() {
             </div>
           </header>
 
-          <div className="status-grid">
-            <StatusTile
-              title="CMSI"
-              value={formatCmsiStatus(snapshot?.cmsi?.status)}
-              tone={deriveTone(snapshot)}
-              footer={snapshot?.cmsi?.manual ? 'Mode manuel engagé' : 'Mode automatique'}
-            />
-            <StatusTile
-              title="UGA"
-              value={snapshot?.ugaActive ? 'Diffusion' : 'Repos'}
-              tone={snapshot?.ugaActive ? 'critical' : 'neutral'}
-              footer={snapshot?.ugaActive ? 'Sonorisation en cours' : 'Pré-alerte en veille'}
-            />
-            <StatusTile
-              title="DAS"
-              value={snapshot?.dasApplied ? 'Appliqués' : 'Sécurisés'}
-              tone={snapshot?.dasApplied ? 'warning' : 'success'}
-              footer={snapshot?.dasApplied ? 'Isolements réalisés' : 'Conditions nominales'}
-            />
-            <StatusTile
-              title="Process Ack"
-              value={snapshot?.processAck?.isAcked ? 'Fourni' : 'Requis'}
-              tone={snapshot?.processAck?.isAcked ? 'success' : 'warning'}
-              footer={snapshot?.processAck?.isAcked ? 'Exploitation validée' : 'En attente opérateur'}
-            />
-            <StatusTile
-              title="Scénario"
-              value={scenarioStatus.scenario?.name ?? 'Aucun chargé'}
-              tone={scenarioIsRunning ? 'warning' : scenarioStatus.status === 'completed' ? 'success' : 'neutral'}
-              footer={`${scenarioStateLabel} · ${nextScenarioEvent}`}
-            />
-          </div>
-          <div className="app-shortcuts">
-            <span className="app-shortcuts__label">Raccourcis</span>
-            <div className="shortcut-line">
-              <span className="shortcut-line__keys">
-                <kbd>Ctrl</kbd>
-                <span>+</span>
-                <kbd>M</kbd>
-              </span>
-              <span className="shortcut-line__description">Déclenchement</span>
-            </div>
-            <div className="shortcut-line">
-              <span className="shortcut-line__keys">
-                <kbd>Ctrl</kbd>
-                <span>+</span>
-                <kbd>Shift</kbd>
-                <span>+</span>
-                <kbd>M</kbd>
-              </span>
-              <span className="shortcut-line__description">Arrêt diffusion</span>
-            </div>
-          </div>
-        </header>
-
         <section className="status-grid">
           <StatusTile
             title="CMSI"
