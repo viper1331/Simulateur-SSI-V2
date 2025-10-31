@@ -21,12 +21,27 @@ describe('SSI domain core rules', () => {
     }
   });
 
-  it('suspends evacuation when ack occurs before deadline', () => {
+  it('suspends evacuation and freezes the deadline when ack occurs before expiry', () => {
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
     domain.activateDm('ZF2');
     domain.acknowledgeProcess('trainer');
+
+    expect(domain.snapshot.cmsi.status).toBe('EVAC_SUSPENDED');
+    if (domain.snapshot.cmsi.status === 'EVAC_SUSPENDED') {
+      expect(domain.snapshot.cmsi.remainingMs).toBe(1000);
+    }
+
     jest.advanceTimersByTime(1000);
     expect(domain.snapshot.cmsi.status).toBe('EVAC_SUSPENDED');
+  });
+
+  it('allows system reset after acknowledgement once devices are restored', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
+    domain.activateDm('ZF4');
+    domain.acknowledgeProcess('trainer');
+    domain.resetDm('ZF4');
+    const resetResult = domain.trySystemReset();
+    expect(resetResult).toEqual({ ok: true });
   });
 
   it('allows manual evacuation start and stop', () => {

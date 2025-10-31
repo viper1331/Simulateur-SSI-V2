@@ -2,9 +2,9 @@ import EventEmitter from 'eventemitter3';
 
 export type CmsiState =
   | { status: 'IDLE' }
-  | { status: 'EVAC_PENDING'; zoneId: string; deadline: number; suspendFlag: boolean }
+  | { status: 'EVAC_PENDING'; zoneId: string; deadline: number }
   | { status: 'EVAC_ACTIVE'; manual: boolean; startedAt: number; zoneId?: string }
-  | { status: 'EVAC_SUSPENDED'; zoneId: string; deadline: number }
+  | { status: 'EVAC_SUSPENDED'; zoneId: string; deadline: number; remainingMs: number }
   | { status: 'SAFE_HOLD'; enteredAt: number };
 
 export interface DomainConfig {
@@ -136,7 +136,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
   const scheduleDeadline = (zoneId: string, delay: number) => {
     clearTimer();
     const deadline = Date.now() + delay;
-    cmsi = { status: 'EVAC_PENDING', zoneId, deadline, suspendFlag: false };
+    cmsi = { status: 'EVAC_PENDING', zoneId, deadline };
     log({
       ts: Date.now(),
       source: 'CMSI',
@@ -150,18 +150,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       if (cmsi.status !== 'EVAC_PENDING' || cmsi.zoneId !== zoneId) {
         return;
       }
-      if (cmsi.suspendFlag) {
-        cmsi = { status: 'EVAC_SUSPENDED', zoneId, deadline };
-        log({
-          ts: Date.now(),
-          source: 'CMSI',
-          message: 'Evacuation suspended after acknowledgement',
-          details: { zoneId },
-        });
-        emitSnapshot();
-      } else {
-        enterEvacActive({ manual: false, zoneId });
-      }
+      enterEvacActive({ manual: false, zoneId });
     }, delay);
   };
 
@@ -317,7 +306,15 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         details: { ackedBy },
       });
       if (cmsi.status === 'EVAC_PENDING') {
-        cmsi = { ...cmsi, suspendFlag: true };
+        const remainingMs = Math.max(0, cmsi.deadline - now);
+        clearTimer();
+        cmsi = { status: 'EVAC_SUSPENDED', zoneId: cmsi.zoneId, deadline: cmsi.deadline, remainingMs };
+        log({
+          ts: now,
+          source: 'CMSI',
+          message: 'Evacuation suspended after acknowledgement',
+          details: { zoneId: cmsi.zoneId, remainingMs },
+        });
         emitSnapshot();
       }
     },
