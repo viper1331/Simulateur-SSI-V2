@@ -131,6 +131,35 @@ interface ScenarioAdaptation {
   description?: string;
 }
 
+type ManualResetConstraints = {
+  dmZones: Set<string>;
+  daiZones: Set<string>;
+};
+
+function isManualResetAllowed(
+  constraints: ManualResetConstraints | null,
+  kind: 'DM' | 'DAI',
+  zoneId: string,
+): boolean {
+  if (!constraints) {
+    return true;
+  }
+  const normalizedZone = zoneId.trim().toUpperCase();
+  if (kind === 'DM') {
+    if (constraints.dmZones.size === 0) {
+      return false;
+    }
+    return constraints.dmZones.has(normalizedZone);
+  }
+  if (kind === 'DAI') {
+    if (constraints.daiZones.size === 0) {
+      return false;
+    }
+    return constraints.daiZones.has(normalizedZone);
+  }
+  return true;
+}
+
 function formatScenarioOffset(offset: number): string {
   if (!Number.isFinite(offset)) {
     return '';
@@ -348,15 +377,28 @@ function isDeviceActive(device: SiteDevice, snapshot: Snapshot | null): boolean 
   }
 }
 
-function isDeviceActionable(device: SiteDevice, snapshot: Snapshot | null, accessLevel: number): boolean {
+function isDeviceActionable(
+  device: SiteDevice,
+  snapshot: Snapshot | null,
+  accessLevel: number,
+  manualConstraints: ManualResetConstraints | null,
+): boolean {
   if (accessLevel < 2) {
     return false;
   }
   if (device.kind === 'DM' && device.zoneId) {
-    return Boolean(snapshot?.dmLatched?.[device.zoneId]);
+    const isActive = Boolean(snapshot?.dmLatched?.[device.zoneId]);
+    if (!isActive) {
+      return false;
+    }
+    return isManualResetAllowed(manualConstraints, 'DM', device.zoneId);
   }
   if (device.kind === 'DAI' && device.zoneId) {
-    return Boolean(snapshot?.daiActivated?.[device.zoneId]);
+    const isActive = Boolean(snapshot?.daiActivated?.[device.zoneId]);
+    if (!isActive) {
+      return false;
+    }
+    return isManualResetAllowed(manualConstraints, 'DAI', device.zoneId);
   }
   return false;
 }
@@ -395,6 +437,30 @@ export function TraineeApp() {
           }
         : scenarioStatus,
     [scenarioStatus],
+  );
+
+  const manualResetConstraints = useMemo<ManualResetConstraints | null>(() => {
+    const config = scenarioUiStatus.scenario?.manualResettable;
+    if (!config) {
+      return null;
+    }
+    const normalize = (zone: string) => zone.trim().toUpperCase();
+    const dmZones = new Set(
+      (config.dmZones ?? [])
+        .map(normalize)
+        .filter((zone) => zone.length > 0),
+    );
+    const daiZones = new Set(
+      (config.daiZones ?? [])
+        .map(normalize)
+        .filter((zone) => zone.length > 0),
+    );
+    return { dmZones, daiZones };
+  }, [scenarioUiStatus.scenario?.manualResettable]);
+
+  const canResetZone = useCallback(
+    (kind: 'DM' | 'DAI', zoneId: string) => isManualResetAllowed(manualResetConstraints, kind, zoneId),
+    [manualResetConstraints],
   );
 
   useEffect(() => {
@@ -551,17 +617,19 @@ export function TraineeApp() {
   const handleResetDm = useCallback(
     (zoneId: string) => {
       if (accessLevel < 2) return;
+      if (!canResetZone('DM', zoneId)) return;
       sdk.resetManualCallPoint(zoneId).catch(console.error);
     },
-    [accessLevel, sdk],
+    [accessLevel, canResetZone, sdk],
   );
 
   const handleResetDai = useCallback(
     (zoneId: string) => {
       if (accessLevel < 2) return;
+      if (!canResetZone('DAI', zoneId)) return;
       sdk.resetAutomaticDetector(zoneId).catch(console.error);
     },
-    [accessLevel, sdk],
+    [accessLevel, canResetZone, sdk],
   );
 
   const handleManualEvacToggle = useCallback(() => {
@@ -576,18 +644,18 @@ export function TraineeApp() {
   const handlePlanDeviceClick = useCallback(
     (device: SiteDevice) => {
       if (device.kind === 'DM' && device.zoneId) {
-        if (snapshot?.dmLatched?.[device.zoneId]) {
+        if (snapshot?.dmLatched?.[device.zoneId] && canResetZone('DM', device.zoneId)) {
           handleResetDm(device.zoneId);
         }
         return;
       }
       if (device.kind === 'DAI' && device.zoneId) {
-        if (snapshot?.daiActivated?.[device.zoneId]) {
+        if (snapshot?.daiActivated?.[device.zoneId] && canResetZone('DAI', device.zoneId)) {
           handleResetDai(device.zoneId);
         }
       }
     },
-    [handleResetDai, handleResetDm, snapshot],
+    [canResetZone, handleResetDai, handleResetDm, snapshot],
   );
 
   const handleSilenceAlarm = useCallback(() => {
@@ -833,6 +901,8 @@ export function TraineeApp() {
     scenarioUiStatus.scenario && (scenarioDescription || scenarioAdaptation.steps.length > 0),
   );
 
+  const resetDmZf1Allowed = canResetZone('DM', 'ZF1');
+
   const controlButtons: ControlButtonItem[] = [
     {
       id: 'silence',
@@ -863,8 +933,13 @@ export function TraineeApp() {
       label: 'Réarmement DM ZF1',
       tone: 'green',
       onClick: () => handleResetDm('ZF1'),
-      disabled: accessLevel < 2,
-      title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
+      disabled: accessLevel < 2 || !resetDmZf1Allowed,
+      title:
+        accessLevel < 2
+          ? 'Code niveau 2 requis'
+          : !resetDmZf1Allowed
+          ? 'Réarmement manuel non autorisé par le scénario'
+          : undefined,
     },
     {
       id: 'manual-evac-toggle',
@@ -1215,7 +1290,12 @@ export function TraineeApp() {
                   const deviceLabel = device.label?.trim().length ? device.label.trim() : device.id;
                   const zoneLabel = device.zoneId ? ` (${device.zoneId})` : '';
                   const active = isDeviceActive(device, snapshot);
-                  const actionable = isDeviceActionable(device, snapshot, accessLevel);
+                  const actionable = isDeviceActionable(
+                    device,
+                    snapshot,
+                    accessLevel,
+                    manualResetConstraints,
+                  );
                   const className = [
                     'floor-plan__marker',
                     `floor-plan__marker--${device.kind.toLowerCase()}`,

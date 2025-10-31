@@ -20,6 +20,13 @@ interface ActiveScenarioContext {
   timeouts: TimerHandle[];
   currentEventIndex: number;
   awaitingSystemReset: boolean;
+  manualReset: ManualResetContext;
+}
+
+interface ManualResetContext {
+  mode: 'all' | 'custom';
+  dmZones: Set<string>;
+  daiZones: Set<string>;
 }
 
 export class ScenarioRunner {
@@ -69,12 +76,32 @@ export class ScenarioRunner {
       scenarioId: scenario.id,
       eventCount: orderedEvents.length,
     });
+    const normalizeZoneList = (zones?: string[]) =>
+      new Set(
+        (zones ?? [])
+          .map((zone) => zone.trim().toUpperCase())
+          .filter((zone) => zone.length > 0),
+      );
+
+    const manualReset: ManualResetContext = scenario.manualResettable
+      ? {
+          mode: 'custom',
+          dmZones: normalizeZoneList(scenario.manualResettable.dmZones),
+          daiZones: normalizeZoneList(scenario.manualResettable.daiZones),
+        }
+      : {
+          mode: 'all',
+          dmZones: new Set<string>(),
+          daiZones: new Set<string>(),
+        };
+
     this.context = {
       scenario: normalizedScenario,
       startedAt,
       timeouts: [],
       currentEventIndex: -1,
       awaitingSystemReset: false,
+      manualReset,
     };
 
     this.updateSnapshot({
@@ -122,6 +149,31 @@ export class ScenarioRunner {
       nextEvent: null,
       awaitingSystemReset: false,
     });
+  }
+
+  canManuallyReset(kind: 'DM' | 'DAI', zoneId: string): boolean {
+    const context = this.context;
+    if (!context) {
+      return true;
+    }
+    const { manualReset } = context;
+    if (manualReset.mode === 'all') {
+      return true;
+    }
+    const normalizedZone = zoneId.trim().toUpperCase();
+    if (kind === 'DM') {
+      if (manualReset.dmZones.size === 0) {
+        return false;
+      }
+      return manualReset.dmZones.has(normalizedZone);
+    }
+    if (kind === 'DAI') {
+      if (manualReset.daiZones.size === 0) {
+        return false;
+      }
+      return manualReset.daiZones.has(normalizedZone);
+    }
+    return true;
   }
 
   private async executeEvent(index: number) {

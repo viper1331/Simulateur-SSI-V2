@@ -14,6 +14,7 @@ import {
   type UserSummary,
   type ScenarioDefinition,
   type ScenarioEvent,
+  type ScenarioManualResetSelection,
   type ScenarioPayload,
   scenarioDefinitionSchema,
   scenarioPayloadSchema,
@@ -56,6 +57,8 @@ interface ScenarioDraft {
   description?: string;
   topology: SiteTopology | null;
   events: ScenarioEventDraft[];
+  manualResetMode: 'all' | 'custom';
+  manualResettable: ScenarioManualResetSelection;
 }
 
 const CMSI_STATUS_LABELS: Record<string, string> = {
@@ -328,8 +331,37 @@ function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): bo
   }
 }
 
+function createEmptyManualResetSelection(): ScenarioManualResetSelection {
+  return { dmZones: [], daiZones: [] };
+}
+
+function normalizeManualResetSelection(
+  selection?: ScenarioManualResetSelection | null,
+): ScenarioManualResetSelection {
+  const normalizeList = (zones?: string[]) =>
+    Array.from(
+      new Set(
+        (zones ?? [])
+          .map((zone) => zone.trim().toUpperCase())
+          .filter((zone) => zone.length > 0),
+      ),
+    );
+  const source = selection ?? createEmptyManualResetSelection();
+  return {
+    dmZones: normalizeList(source.dmZones),
+    daiZones: normalizeList(source.daiZones),
+  };
+}
+
 function createEmptyScenarioDraft(): ScenarioDraft {
-  return { name: '', description: '', topology: null, events: [] };
+  return {
+    name: '',
+    description: '',
+    topology: null,
+    events: [],
+    manualResetMode: 'all',
+    manualResettable: createEmptyManualResetSelection(),
+  };
 }
 
 function ensureDraftEvent(event: ScenarioEvent): ScenarioEventDraft {
@@ -447,6 +479,9 @@ function draftToPayload(draft: ScenarioDraft): ScenarioPayload {
     description: draft.description?.trim() ? draft.description.trim() : undefined,
     topology: draft.topology ?? undefined,
     events: draft.events.map(normalizeEventForPayload),
+    ...(draft.manualResetMode === 'custom'
+      ? { manualResettable: normalizeManualResetSelection(draft.manualResettable) }
+      : {}),
   };
 }
 
@@ -457,6 +492,8 @@ function scenarioDefinitionToDraft(definition: ScenarioDefinition): ScenarioDraf
     description: definition.description,
     topology: definition.topology ? cloneTopology(definition.topology) : null,
     events: definition.events.map(ensureDraftEvent),
+    manualResetMode: definition.manualResettable ? 'custom' : 'all',
+    manualResettable: normalizeManualResetSelection(definition.manualResettable),
   };
 }
 
@@ -1622,6 +1659,36 @@ export function App() {
     updateDraftEvent(eventId, (event) => ({ ...event, label }) as ScenarioEventDraft);
   };
 
+  const handleScenarioManualResetModeChange = (mode: 'all' | 'custom') => {
+    setDraftScenario((prev) => ({
+      ...prev,
+      manualResetMode: mode,
+      manualResettable: normalizeManualResetSelection(prev.manualResettable),
+    }));
+  };
+
+  const handleScenarioManualResetToggle = (kind: 'DM' | 'DAI', zoneId: string) => {
+    setDraftScenario((prev) => {
+      const normalized = zoneId.toUpperCase();
+      const selection = normalizeManualResetSelection(prev.manualResettable);
+      const currentList = kind === 'DM' ? selection.dmZones : selection.daiZones;
+      const hasZone = currentList.includes(normalized);
+      const nextList = hasZone
+        ? currentList.filter((zone) => zone !== normalized)
+        : [...currentList, normalized];
+      nextList.sort((a, b) => a.localeCompare(b));
+      const nextSelection =
+        kind === 'DM'
+          ? { ...selection, dmZones: nextList }
+          : { ...selection, daiZones: nextList };
+      return {
+        ...prev,
+        manualResetMode: prev.manualResetMode === 'custom' ? prev.manualResetMode : 'custom',
+        manualResettable: nextSelection,
+      };
+    });
+  };
+
   const handleScenarioNameChange = (name: string) => {
     setDraftScenario((prev) => ({ ...prev, name }));
   };
@@ -1876,6 +1943,37 @@ export function App() {
         kind: zone.kind,
       }));
   }, [scenarioTopology, topology]);
+  const scenarioZoneLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const option of scenarioZoneOptions) {
+      map.set(option.value, option.label);
+    }
+    return map;
+  }, [scenarioZoneOptions]);
+  const manualResetOptions = useMemo(() => {
+    const sourceTopology = scenarioTopology ?? topology;
+    if (!sourceTopology) {
+      return {
+        dm: [] as Array<{ value: string; label: string }>,
+        dai: [] as Array<{ value: string; label: string }>,
+      };
+    }
+    const buildOptions = (kind: 'DM' | 'DAI') => {
+      const zones = new Set<string>();
+      for (const device of sourceTopology.devices) {
+        if (device.kind === kind && device.zoneId) {
+          zones.add(device.zoneId.toUpperCase());
+        }
+      }
+      return Array.from(zones)
+        .sort((a, b) => a.localeCompare(b))
+        .map((zoneId) => ({
+          value: zoneId,
+          label: scenarioZoneLabelMap.get(zoneId) ?? zoneId,
+        }));
+    };
+    return { dm: buildOptions('DM'), dai: buildOptions('DAI') };
+  }, [scenarioTopology, topology, scenarioZoneLabelMap]);
   const defaultScenarioZoneId = scenarioZoneOptions[0]?.value ?? 'ZF1';
   const sortedDraftEvents = useMemo(
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
@@ -2843,13 +2941,86 @@ export function App() {
                         )}
                       </div>
                     </div>
+                </div>
+              </div>
+              <div className="scenario-form__row scenario-form__row--single">
+                <div className="scenario-form__field">
+                  <span>Réarmement manuel autorisé</span>
+                  <div className="scenario-form__manual-reset">
+                    <div className="scenario-manual-reset__modes">
+                      <label className="scenario-manual-reset__mode">
+                        <input
+                          type="radio"
+                          name="scenario-manual-reset-mode"
+                          value="all"
+                          checked={draftScenario.manualResetMode === 'all'}
+                          onChange={() => handleScenarioManualResetModeChange('all')}
+                        />
+                        <span>Tous les dispositifs déclenchés</span>
+                      </label>
+                      <label className="scenario-manual-reset__mode">
+                        <input
+                          type="radio"
+                          name="scenario-manual-reset-mode"
+                          value="custom"
+                          checked={draftScenario.manualResetMode === 'custom'}
+                          onChange={() => handleScenarioManualResetModeChange('custom')}
+                        />
+                        <span>Sélection personnalisée</span>
+                      </label>
+                    </div>
+                    {draftScenario.manualResetMode === 'custom' && (
+                      <div className="scenario-manual-reset__lists">
+                        <div className="scenario-manual-reset__group">
+                          <span className="scenario-manual-reset__group-title">Déclencheurs manuels</span>
+                          {manualResetOptions.dm.length === 0 ? (
+                            <p className="scenario-manual-reset__empty">Aucun DM cartographié.</p>
+                          ) : (
+                            manualResetOptions.dm.map((option) => (
+                              <label
+                                key={`manual-reset-dm-${option.value}`}
+                                className="scenario-manual-reset__option"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={draftScenario.manualResettable.dmZones.includes(option.value)}
+                                  onChange={() => handleScenarioManualResetToggle('DM', option.value)}
+                                />
+                                <span>{option.label}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                        <div className="scenario-manual-reset__group">
+                          <span className="scenario-manual-reset__group-title">Détecteurs automatiques</span>
+                          {manualResetOptions.dai.length === 0 ? (
+                            <p className="scenario-manual-reset__empty">Aucun DAI cartographié.</p>
+                          ) : (
+                            manualResetOptions.dai.map((option) => (
+                              <label
+                                key={`manual-reset-dai-${option.value}`}
+                                className="scenario-manual-reset__option"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={draftScenario.manualResettable.daiZones.includes(option.value)}
+                                  onChange={() => handleScenarioManualResetToggle('DAI', option.value)}
+                                />
+                                <span>{option.label}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-                {scenarioZoneOptions.length > 0 && (
-                  <datalist id={SCENARIO_ZONE_DATALIST_ID}>
-                    {scenarioZoneOptions.map((option) => (
-                      <option key={option.value} value={option.value} label={option.label} />
-                    ))}
+              </div>
+              {scenarioZoneOptions.length > 0 && (
+                <datalist id={SCENARIO_ZONE_DATALIST_ID}>
+                  {scenarioZoneOptions.map((option) => (
+                    <option key={option.value} value={option.value} label={option.label} />
+                  ))}
                   </datalist>
                 )}
                 <div className="scenario-events">
