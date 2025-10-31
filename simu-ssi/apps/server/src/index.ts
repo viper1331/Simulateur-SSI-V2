@@ -17,11 +17,11 @@ async function bootstrap() {
   const { server } = createHttpServer(domainContext, sessionManager);
   const port = process.env.PORT ? Number(process.env.PORT) : 4500;
   (server as http.Server).listen(port, () => {
-    log.info('Server listening', { port });
+    log.info("Serveur en écoute", { port });
   });
 }
 
 bootstrap().catch((err) => {
-  log.error('Server failed to start', { error: err instanceof Error ? err : new Error(String(err)) });
+  log.error("Échec du démarrage du serveur", { error: err instanceof Error ? err : new Error(String(err)) });
   prisma.$disconnect().finally(() => process.exit(1));
 });

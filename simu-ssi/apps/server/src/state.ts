@@ -22,7 +22,7 @@ export async function createDomainContext(options: DomainContextOptions = {}): P
     evacOnDai: siteConfig.evacOnDAI,
   });
 
-  log.info('Domain context initialized', {
+  log.info("Contexte de domaine initialisé", {
     evacOnDmDelayMs: siteConfig.evacOnDMDelayMs,
     processAckRequired: siteConfig.processAckRequired,
     evacOnDai: siteConfig.evacOnDAI,
@@ -37,12 +37,12 @@ export async function createDomainContext(options: DomainContextOptions = {}): P
           sessionId: options.getActiveSessionId ? options.getActiveSessionId() ?? undefined : undefined,
         },
       });
-      log.debug('Domain event persisted', {
+      log.debug("Événement de domaine enregistré", {
         source: event.source,
         hasDetails: Boolean(event.details),
       });
     } catch (error) {
-      log.error('Failed to persist domain event', {
+      log.error("Échec de l'enregistrement de l'événement de domaine", {
         error: toError(error),
         source: event.source,
       });
@@ -59,7 +59,7 @@ export async function createDomainContext(options: DomainContextOptions = {}): P
         processAckRequired: config.processAckRequired,
         evacOnDai: config.evacOnDAI,
       });
-      log.info('Domain configuration refreshed', {
+      log.info("Configuration du domaine rafraîchie", {
         evacOnDmDelayMs: config.evacOnDMDelayMs,
         processAckRequired: config.processAckRequired,
         evacOnDai: config.evacOnDAI,

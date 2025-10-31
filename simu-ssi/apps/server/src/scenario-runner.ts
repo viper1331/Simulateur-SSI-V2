@@ -33,7 +33,7 @@ export class ScenarioRunner {
     if (!this.context.awaitingSystemReset) {
       return;
     }
-    this.log.debug('Domain event received while awaiting reset', {
+    this.log.debug("Événement de domaine reçu en attente de réinitialisation", {
       source: event.source,
       message: event.message,
     });
@@ -64,7 +64,7 @@ export class ScenarioRunner {
     const startedAt = Date.now();
     this.domain.emitter.off('events.append', this.handleDomainEvent);
     this.domain.emitter.on('events.append', this.handleDomainEvent);
-    this.log.info('Scenario run started', {
+    this.log.info("Exécution de scénario démarrée", {
       scenarioId: scenario.id,
       eventCount: orderedEvents.length,
     });
@@ -97,7 +97,7 @@ export class ScenarioRunner {
   stop(status: 'stopped' | 'idle' | 'completed' = 'stopped') {
     this.domain.emitter.off('events.append', this.handleDomainEvent);
     if (!this.context) {
-      this.log.debug('Scenario stop requested with no active context', { status });
+      this.log.debug("Arrêt de scénario demandé sans contexte actif", { status });
       if (status === 'idle') {
         this.updateSnapshot({ status: 'idle' });
       }
@@ -108,7 +108,7 @@ export class ScenarioRunner {
     const scenario = this.context.scenario;
     const startedAt = this.context.startedAt;
     this.context = undefined;
-    this.log.info('Scenario stopped', {
+    this.log.info("Scénario arrêté", {
       scenarioId: scenario.id,
       status,
     });
@@ -129,26 +129,26 @@ export class ScenarioRunner {
     }
     const { scenario } = this.context;
     if (!scenario.events[index]) {
-      this.log.warn('Attempted to execute missing scenario event', { index });
+      this.log.warn("Tentative d'exécution d'un événement de scénario manquant", { index });
       return;
     }
     const event = scenario.events[index];
 
     if (event.type === 'SYSTEM_RESET') {
       this.context.awaitingSystemReset = true;
-      this.log.info('Awaiting system reset after event', {
+      this.log.info("En attente de réinitialisation du système après l'événement", {
         index,
         eventType: event.type,
       });
     } else {
       try {
         this.dispatchEvent(event);
-        this.log.debug('Scenario event dispatched', {
+        this.log.debug("Événement de scénario déclenché", {
           eventType: event.type,
           index,
         });
       } catch (error) {
-        this.log.error('Scenario event execution failed', { error: toError(error), eventType: event.type });
+        this.log.error("Échec de l'exécution de l'événement de scénario", { error: toError(error), eventType: event.type });
       }
     }
 
@@ -160,7 +160,7 @@ export class ScenarioRunner {
       this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
       this.context.timeouts = [];
       if (!awaitingReset) {
-        this.log.info('Scenario events completed, awaiting manual stop', {
+        this.log.info("Événements du scénario terminés, attente de l'arrêt manuel", {
           scenarioId: scenario.id,
         });
       }
