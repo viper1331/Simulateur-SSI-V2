@@ -24,6 +24,19 @@ const manualEvacuationSchema = z.object({
   reason: z.string().optional(),
 });
 
+const accessCodeUpdateSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(4)
+    .max(8)
+    .regex(/^[0-9]+$/, 'CODE_DIGITS_ONLY'),
+});
+
+const accessCodeVerifySchema = z.object({
+  code: z.string().max(32),
+});
+
 export function createHttpServer(domainContext: DomainContext): {
   app: Express;
   server: HttpServer;
@@ -61,6 +74,75 @@ export function createHttpServer(domainContext: DomainContext): {
     });
   });
 
+  app.get('/api/access/codes', async (_req, res) => {
+    const rows = await prisma.$queryRaw<Array<{ level: number; code: string; updatedAt: string }>>`
+      SELECT level, code, updatedAt FROM "AccessCode" ORDER BY level ASC
+    `;
+    const codes = rows.map((row) => ({
+      level: Number(row.level),
+      code: row.code,
+      updatedAt: new Date(row.updatedAt).toISOString(),
+    }));
+    res.json({ codes });
+  });
+
+  app.put('/api/access/codes/:level', async (req, res) => {
+    const level = Number(req.params.level);
+    if (!Number.isFinite(level) || level < 1 || level > 3) {
+      return res.status(400).json({ error: 'INVALID_LEVEL' });
+    }
+    const parsed = accessCodeUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const code = parsed.data.code.trim();
+    const duplicates = await prisma.$queryRaw<Array<{ level: number }>>`
+      SELECT level FROM "AccessCode" WHERE code = ${code} AND level != ${level} LIMIT 1
+    `;
+    if (duplicates.length > 0) {
+      return res.status(409).json({ error: 'CODE_ALREADY_IN_USE' });
+    }
+    await prisma.$executeRaw`
+      INSERT INTO "AccessCode" ("level", "code", "updatedAt") VALUES (${level}, ${code}, CURRENT_TIMESTAMP)
+      ON CONFLICT("level") DO UPDATE SET "code" = excluded."code", "updatedAt" = CURRENT_TIMESTAMP
+    `;
+    const [record] = await prisma.$queryRaw<Array<{ level: number; code: string; updatedAt: string }>>`
+      SELECT level, code, updatedAt FROM "AccessCode" WHERE level = ${level}
+    `;
+    if (!record) {
+      return res.status(500).json({ error: 'ACCESS_CODE_NOT_FOUND' });
+    }
+    res.json({
+      code: {
+        level: Number(record.level),
+        code: record.code,
+        updatedAt: new Date(record.updatedAt).toISOString(),
+      },
+    });
+  });
+
+  app.post('/api/access/verify', async (req, res) => {
+    const parsed = accessCodeVerifySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const input = parsed.data.code.trim();
+    if (input.length === 0) {
+      return res.json({ level: 1, allowed: true, label: 'Accès niveau 1 actif — arrêt signal sonore disponible.' });
+    }
+    const rows = await prisma.$queryRaw<Array<{ level: number }>>`
+      SELECT level FROM "AccessCode" WHERE code = ${input} LIMIT 1
+    `;
+    if (rows.length === 0) {
+      return res.json({ level: null, allowed: false, label: 'Code invalide — niveau courant conservé.' });
+    }
+    const level = Number(rows[0].level);
+    if (level >= 3) {
+      return res.json({ level, allowed: false, label: 'Niveau 3 réservé au technicien de maintenance.' });
+    }
+    return res.json({ level, allowed: true, label: `Accès niveau ${level} accordé — commandes avancées disponibles.` });
+  });
+
   app.post('/api/process/ack', async (req, res) => {
     const ackedBy = z.string().min(1).parse(req.body?.ackedBy ?? 'trainer');
     await prisma.processAck.update({
@@ -78,6 +160,20 @@ export function createHttpServer(domainContext: DomainContext): {
     });
     domainContext.domain.clearProcessAck();
     res.status(204).send();
+  });
+
+  app.post('/api/uga/silence', async (_req, res) => {
+    const wasActive = domainContext.snapshot().ugaActive;
+    domainContext.domain.silenceAudibleAlarm();
+    if (wasActive) {
+      await prisma.eventLog.create({
+        data: {
+          source: 'TRAINEE',
+          payloadJson: JSON.stringify({ action: 'uga-silence' }),
+        },
+      });
+    }
+    res.status(202).json({ status: 'uga-silenced' });
   });
 
   app.post('/api/sdi/dm/:zone/activate', async (req, res) => {

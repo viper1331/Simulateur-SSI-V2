@@ -15,6 +15,12 @@ model SiteConfig {
   updatedAt          DateTime @updatedAt
 }
 
+model AccessCode {
+  level     Int      @id
+  code      String   @unique
+  updatedAt DateTime @updatedAt
+}
+
 model ProcessAck {
   id        Int      @id @default(1)
   isAcked   Boolean  @default(false)
