@@ -140,6 +140,30 @@ type ManualResetConstraints = {
   daiZones: Set<string>;
 };
 
+type ScenarioEventTone = 'alarm' | 'info' | 'success' | 'warning';
+
+interface TriggeredScenarioEventCard {
+  id: string;
+  label: string;
+  zoneDisplay: string;
+  offsetLabel: string;
+  tone: ScenarioEventTone;
+}
+
+function getScenarioEventTone(event: ScenarioEvent): ScenarioEventTone {
+  switch (event.type) {
+    case 'DM_TRIGGER':
+    case 'DAI_TRIGGER':
+      return 'alarm';
+    case 'MANUAL_EVAC_START':
+      return 'warning';
+    case 'SYSTEM_RESET':
+      return 'success';
+    default:
+      return 'info';
+  }
+}
+
 function isManualResetAllowed(
   constraints: ManualResetConstraints | null,
   kind: 'DM' | 'DAI',
@@ -785,6 +809,53 @@ export function TraineeApp() {
   );
   const planName = topology?.plan?.name?.trim() ?? null;
   const planImage = topology?.plan?.image ?? null;
+  const zoneDisplayMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const addZones = (zones?: { id: string; label: string }[]) => {
+      zones?.forEach((zone) => {
+        const normalizedLabel = zone.label.trim();
+        map.set(zone.id, normalizedLabel.length > 0 ? normalizedLabel : zone.id);
+      });
+    };
+    if (topology) {
+      addZones(topology.zones);
+    }
+    if (scenarioUiStatus.scenario?.topology) {
+      addZones(scenarioUiStatus.scenario.topology.zones);
+    }
+    return map;
+  }, [scenarioUiStatus.scenario?.topology, topology]);
+  const triggeredScenarioEvents = useMemo<TriggeredScenarioEventCard[]>(() => {
+    const scenario = scenarioUiStatus.scenario;
+    if (!scenario) {
+      return [];
+    }
+    const orderedEvents = [...scenario.events].sort((a, b) => a.offset - b.offset);
+    const currentIndex = scenarioUiStatus.currentEventIndex ?? -1;
+    if (currentIndex < 0) {
+      return [];
+    }
+    const lastIndex = Math.min(currentIndex, orderedEvents.length - 1);
+    if (lastIndex < 0) {
+      return [];
+    }
+    return orderedEvents.slice(0, lastIndex + 1).map((event, index) => {
+      const zoneId = 'zoneId' in event ? event.zoneId : null;
+      const zoneName = zoneId ? zoneDisplayMap.get(zoneId) ?? zoneId : null;
+      const zoneDisplay = zoneId
+        ? zoneName && zoneName !== zoneId
+          ? `${zoneId} · ${zoneName}`
+          : zoneId
+        : 'Action globale';
+      return {
+        id: event.id ?? `${index}-${event.type}-${zoneId ?? 'none'}-${event.offset}`,
+        label: describeScenarioStep(event),
+        zoneDisplay,
+        offsetLabel: formatScenarioOffset(event.offset),
+        tone: getScenarioEventTone(event),
+      };
+    });
+  }, [scenarioUiStatus, zoneDisplayMap]);
 
   const handleTraineeSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     setSelectedTraineeId(event.target.value);
@@ -1390,6 +1461,24 @@ export function TraineeApp() {
                   );
                 })}
               </div>
+            </div>
+          )}
+          {triggeredScenarioEvents.length > 0 && (
+            <div className="scenario-event-feed" aria-live="polite">
+              {triggeredScenarioEvents.map((event) => (
+                <article
+                  key={event.id}
+                  className={`scenario-event-card scenario-event-card--${event.tone}`}
+                >
+                  <div className="scenario-event-card__meta">
+                    <span className="scenario-event-card__zone">Zone : {event.zoneDisplay}</span>
+                    {event.offsetLabel && (
+                      <span className="scenario-event-card__badge">{event.offsetLabel}</span>
+                    )}
+                  </div>
+                  <p className="scenario-event-card__label">{event.label}</p>
+                </article>
+              ))}
             </div>
           )}
         </section>
