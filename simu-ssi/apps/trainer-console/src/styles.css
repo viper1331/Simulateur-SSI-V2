@@ -1289,6 +1289,7 @@ kbd {
   display: grid;
   gap: 20px;
   margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 @media (min-width: 1100px) {
@@ -1335,10 +1336,12 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  row-gap: 8px;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(248, 250, 252, 0.85);
   border: 1px solid rgba(203, 213, 225, 0.6);
+  flex-wrap: wrap;
 }
 
 .layout-list__item--hidden {
@@ -1377,6 +1380,23 @@ kbd {
 .layout-list__actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .layout-list__item {
+    align-items: flex-start;
+  }
+
+  .layout-list__info {
+    width: 100%;
+  }
+
+  .layout-list__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .layout-list__button {
