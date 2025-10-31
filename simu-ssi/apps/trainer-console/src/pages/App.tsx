@@ -237,7 +237,7 @@ function ensureDraftEvent(event: ScenarioEvent): ScenarioEventDraft {
   return { ...event, id } as ScenarioEventDraft;
 }
 
-function createDraftEvent(type: ScenarioEvent['type']): ScenarioEventDraft {
+function createDraftEvent(type: ScenarioEvent['type'], defaultZoneId?: string): ScenarioEventDraft {
   const id = crypto.randomUUID();
   const base = { id, offset: 0, label: '' as string | undefined };
   switch (type) {
@@ -245,7 +245,7 @@ function createDraftEvent(type: ScenarioEvent['type']): ScenarioEventDraft {
     case 'DM_RESET':
     case 'DAI_TRIGGER':
     case 'DAI_RESET':
-      return { ...base, type, zoneId: 'ZF1' } as ScenarioEventDraft;
+      return { ...base, type, zoneId: (defaultZoneId ?? 'ZF1').toUpperCase() } as ScenarioEventDraft;
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP':
       return { ...base, type, reason: '' } as ScenarioEventDraft;
@@ -258,7 +258,11 @@ function createDraftEvent(type: ScenarioEvent['type']): ScenarioEventDraft {
   }
 }
 
-function adaptEventForType(event: ScenarioEventDraft, type: ScenarioEvent['type']): ScenarioEventDraft {
+function adaptEventForType(
+  event: ScenarioEventDraft,
+  type: ScenarioEvent['type'],
+  defaultZoneId?: string,
+): ScenarioEventDraft {
   const base = {
     id: event.id,
     offset: event.offset,
@@ -270,7 +274,8 @@ function adaptEventForType(event: ScenarioEventDraft, type: ScenarioEvent['type'
     case 'DAI_TRIGGER':
     case 'DAI_RESET': {
       const zone = 'zoneId' in event ? event.zoneId : undefined;
-      return { ...base, type, zoneId: zone ?? 'ZF1' } as ScenarioEventDraft;
+      const fallback = (defaultZoneId ?? 'ZF1').toUpperCase();
+      return { ...base, type, zoneId: (zone ?? fallback).toUpperCase() } as ScenarioEventDraft;
     }
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP': {
@@ -364,6 +369,8 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
   { value: 'PROCESS_CLEAR', label: "Effacer l'acquit" },
   { value: 'SYSTEM_RESET', label: 'Reset système' },
 ];
+
+const SCENARIO_ZONE_DATALIST_ID = 'scenario-zone-options';
 
 export function App() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
@@ -755,7 +762,7 @@ export function App() {
   const handleScenarioAddEvent = () => {
     setDraftScenario((prev) => ({
       ...prev,
-      events: [...prev.events, createDraftEvent('DM_TRIGGER')],
+      events: [...prev.events, createDraftEvent('DM_TRIGGER', defaultScenarioZoneId)],
     }));
   };
 
@@ -767,7 +774,9 @@ export function App() {
   };
 
   const handleScenarioEventTypeChange = (eventId: string, type: ScenarioEvent['type']) => {
-    updateDraftEvent(eventId, (event) => adaptEventForType({ ...event, type } as ScenarioEventDraft, type));
+    updateDraftEvent(eventId, (event) =>
+      adaptEventForType({ ...event, type } as ScenarioEventDraft, type, defaultScenarioZoneId),
+    );
   };
 
   const handleScenarioEventOffsetChange = (eventId: string, value: number) => {
@@ -901,6 +910,19 @@ export function App() {
   }, [topology]);
   const unassignedDevices = devicesByZone.get(UNASSIGNED_ZONE_KEY) ?? [];
   const hasTopologyData = Boolean(topology && (topology.zones.length > 0 || topology.devices.length > 0));
+  const scenarioZoneOptions = useMemo(() => {
+    if (!topology) {
+      return [] as Array<{ value: string; label: string; kind?: string }>;
+    }
+    return [...topology.zones]
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((zone) => ({
+        value: zone.id.toUpperCase(),
+        label: `${zone.label} (${zone.id.toUpperCase()})`,
+        kind: zone.kind,
+      }));
+  }, [topology]);
+  const defaultScenarioZoneId = scenarioZoneOptions[0]?.value ?? 'ZF1';
   const sortedDraftEvents = useMemo(
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
     [draftScenario.events],
@@ -1635,6 +1657,13 @@ export function App() {
                     />
                   </label>
                 </div>
+                {scenarioZoneOptions.length > 0 && (
+                  <datalist id={SCENARIO_ZONE_DATALIST_ID}>
+                    {scenarioZoneOptions.map((option) => (
+                      <option key={option.value} value={option.value} label={option.label} />
+                    ))}
+                  </datalist>
+                )}
                 <div className="scenario-events">
                   <div className="scenario-events__header">
                     <h4>Évènements programmés</h4>
@@ -1654,6 +1683,12 @@ export function App() {
                       eventDraft.type === 'DAI_RESET';
                     const reasonEvent = eventDraft.type === 'MANUAL_EVAC_START' || eventDraft.type === 'MANUAL_EVAC_STOP';
                     const ackEvent = eventDraft.type === 'PROCESS_ACK';
+                    const zoneId =
+                      'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
+                    const zoneMetadata =
+                      zoneId && scenarioZoneOptions.length > 0
+                        ? scenarioZoneOptions.find((option) => option.value === zoneId)
+                        : undefined;
                     return (
                       <div key={eventDraft.id} className="scenario-event-row">
                         <div className="scenario-event-row__header">
@@ -1710,10 +1745,18 @@ export function App() {
                             <label className="scenario-event-field scenario-event-field--zone">
                               <span>Zone</span>
                               <input
-                                value={(eventDraft as { zoneId: string }).zoneId}
+                                value={zoneId}
+                                list={scenarioZoneOptions.length > 0 ? SCENARIO_ZONE_DATALIST_ID : undefined}
                                 onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
-                                placeholder="ZF1"
+                                placeholder={scenarioZoneOptions.length > 0 ? 'Sélectionner une zone' : 'ZF1'}
                               />
+                              {scenarioZoneOptions.length > 0 && (
+                                <span className="scenario-event-field__hint">
+                                  {zoneMetadata
+                                    ? `${zoneMetadata.label} · ${formatZoneKind(zoneMetadata.kind)}`
+                                    : 'Saisissez ou choisissez une zone importée'}
+                                </span>
+                              )}
                             </label>
                           )}
                           {reasonEvent && (

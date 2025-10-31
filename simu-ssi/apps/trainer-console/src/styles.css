@@ -1565,6 +1565,11 @@ kbd {
   width: 100%;
 }
 
+.scenario-event-field__hint {
+  font-size: 0.75rem;
+  color: rgba(30, 41, 59, 0.6);
+}
+
 .scenario-event-field input,
 .scenario-event-field select {
   padding: 10px 12px;
