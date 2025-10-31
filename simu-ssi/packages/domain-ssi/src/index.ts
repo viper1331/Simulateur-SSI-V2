@@ -140,7 +140,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     log({
       ts: Date.now(),
       source: 'CMSI',
-      message: 'Evacuation pending',
+      message: 'Évacuation imminente',
       details: { zoneId, deadline, event: 'EVAC_PENDING' },
     });
     emitSnapshot();
@@ -164,7 +164,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     log({
       ts: Date.now(),
       source: manual ? 'MANUAL' : 'CMSI',
-      message: manual ? 'Manual evacuation started' : 'Automatic evacuation active',
+      message: manual ? 'Évacuation manuelle déclenchée' : 'Évacuation automatique en cours',
       details: { manual, zoneId, event: manual ? 'MANUAL_EVAC_STARTED' : 'AUTOMATIC_EVAC_STARTED' },
     });
     emitSnapshot();
@@ -181,7 +181,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     log({
       ts: Date.now(),
       source: 'CMSI',
-      message: 'System in safe hold awaiting reset',
+      message: 'Système en maintien de sécurité en attente de réarmement',
       details: { event: 'SAFE_HOLD' },
     });
     emitSnapshot();
@@ -200,7 +200,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     dasApplied = false;
     processAck = { isAcked: false };
     daiActivated.clear();
-    log({ ts: Date.now(), source: 'CMSI', message: 'System reset to idle', details: { event: 'SYSTEM_RESET' } });
+    log({ ts: Date.now(), source: 'CMSI', message: 'Système réinitialisé à l\'état de veille', details: { event: 'SYSTEM_RESET' } });
     emitSnapshot();
     return { ok: true as const };
   };
@@ -237,7 +237,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       log({
         ts: now,
         source: 'SDI_DM',
-        message: 'Manual call point latched',
+        message: 'Déclencheur manuel maintenu',
         details: { zoneId, event: 'DM_LATCHED' },
       });
       scheduleDeadline(zoneId, config.evacOnDmDelayMs);
@@ -254,7 +254,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       log({
         ts: now,
         source: 'SDI_DAI',
-        message: 'Automatic detector triggered',
+        message: 'Détecteur automatique déclenché',
         details: { zoneId, event: 'DAI_TRIGGERED' },
       });
       if (config.evacOnDai) {
@@ -276,7 +276,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         lastResetAt: now,
       });
       dmLatched.delete(zoneId);
-      log({ ts: now, source: 'SDI_DM', message: 'Manual call point reset', details: { zoneId, event: 'DM_RESET' } });
+      log({ ts: now, source: 'SDI_DM', message: 'Déclencheur manuel réarmé', details: { zoneId, event: 'DM_RESET' } });
       emitSnapshot();
     },
     resetDai(zoneId) {
@@ -291,7 +291,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         lastResetAt: now,
       });
       daiActivated.delete(zoneId);
-      log({ ts: now, source: 'SDI_DAI', message: 'Automatic detector reset', details: { zoneId, event: 'DAI_RESET' } });
+      log({ ts: now, source: 'SDI_DAI', message: 'Détecteur automatique réarmé', details: { zoneId, event: 'DAI_RESET' } });
       if (daiActivated.size === 0) {
         localAudibleActive = false;
       }
@@ -303,7 +303,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       log({
         ts: now,
         source: 'TRAINER',
-        message: 'Process acknowledgement received',
+        message: 'Accusé de réception reçu',
         details: { ackedBy, event: 'PROCESS_ACK' },
       });
       if (cmsi.status === 'EVAC_PENDING') {
@@ -313,7 +313,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         log({
           ts: now,
           source: 'CMSI',
-          message: 'Evacuation suspended after acknowledgement',
+          message: 'Évacuation suspendue après accusé de réception',
           details: { zoneId: cmsi.zoneId, remainingMs, event: 'EVAC_SUSPENDED' },
         });
         emitSnapshot();
@@ -322,7 +322,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     clearProcessAck() {
       const now = Date.now();
       processAck = { isAcked: false, clearedAt: now };
-      log({ ts: now, source: 'TRAINER', message: 'Process acknowledgement cleared', details: { event: 'PROCESS_ACK_CLEARED' } });
+      log({ ts: now, source: 'TRAINER', message: 'Accusé de réception annulé', details: { event: 'PROCESS_ACK_CLEARED' } });
       emitSnapshot();
     },
     silenceAudibleAlarm() {
@@ -332,7 +332,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       const now = Date.now();
       ugaActive = false;
       localAudibleActive = false;
-      log({ ts: now, source: 'TRAINEE', message: 'Audible alarm silenced', details: { event: 'AUDIBLE_SILENCED' } });
+      log({ ts: now, source: 'TRAINEE', message: 'Signal sonore coupé', details: { event: 'AUDIBLE_SILENCED' } });
       emitSnapshot();
     },
     startManualEvacuation(reason) {
@@ -349,7 +349,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       log({
         ts: now,
         source: 'MANUAL',
-        message: 'Manual evacuation stopped',
+        message: 'Évacuation manuelle arrêtée',
         details: { reason, event: 'MANUAL_EVAC_STOPPED' },
       });
       emitSnapshot();
