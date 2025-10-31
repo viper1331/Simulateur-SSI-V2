@@ -108,11 +108,27 @@ const NAVIGATION_SECTIONS = [
 
 type SectionId = (typeof NAVIGATION_SECTIONS)[number]['id'];
 
+const BOARD_BASELINE = DEFAULT_TRAINEE_LAYOUT.boardModuleOrder;
+const CONTROL_BASELINE = DEFAULT_TRAINEE_LAYOUT.controlButtonOrder;
+const PANEL_BASELINE = DEFAULT_TRAINEE_LAYOUT.sidePanelOrder;
+
+function sortByBaseline(ids: string[], baseline: string[]): string[] {
+  const index = new Map(baseline.map((id, orderIndex) => [id, orderIndex]));
+  return Array.from(new Set(ids)).sort((a, b) => {
+    const aIndex = index.get(a) ?? baseline.length;
+    const bIndex = index.get(b) ?? baseline.length;
+    return aIndex - bIndex;
+  });
+}
+
 function cloneLayout(layout: TraineeLayoutConfig): TraineeLayoutConfig {
   return {
     boardModuleOrder: [...layout.boardModuleOrder],
+    boardModuleHidden: sortByBaseline(layout.boardModuleHidden ?? [], BOARD_BASELINE),
     controlButtonOrder: [...layout.controlButtonOrder],
+    controlButtonHidden: sortByBaseline(layout.controlButtonHidden ?? [], CONTROL_BASELINE),
     sidePanelOrder: [...layout.sidePanelOrder],
+    sidePanelHidden: sortByBaseline(layout.sidePanelHidden ?? [], PANEL_BASELINE),
   };
 }
 
@@ -649,6 +665,9 @@ export function App() {
         const board = [...prev.boardModuleOrder];
         const controls = [...prev.controlButtonOrder];
         const panels = [...prev.sidePanelOrder];
+        const boardHidden = sortByBaseline(prev.boardModuleHidden ?? [], BOARD_BASELINE);
+        const controlHidden = sortByBaseline(prev.controlButtonHidden ?? [], CONTROL_BASELINE);
+        const panelHidden = sortByBaseline(prev.sidePanelHidden ?? [], PANEL_BASELINE);
         const target = section === 'board' ? board : section === 'controls' ? controls : panels;
         const index = target.indexOf(id);
         const newIndex = index + direction;
@@ -659,13 +678,40 @@ export function App() {
         target.splice(newIndex, 0, id);
         return {
           boardModuleOrder: board,
+          boardModuleHidden: boardHidden,
           controlButtonOrder: controls,
+          controlButtonHidden: controlHidden,
           sidePanelOrder: panels,
+          sidePanelHidden: panelHidden,
         };
       });
     },
     [],
   );
+
+  const handleLayoutToggleVisibility = useCallback((section: 'board' | 'controls' | 'panels', id: string) => {
+    setLayoutFeedback(null);
+    setLayoutError(null);
+    setLayoutDraft((prev) => {
+      const boardHidden = new Set(prev.boardModuleHidden ?? []);
+      const controlHidden = new Set(prev.controlButtonHidden ?? []);
+      const panelHidden = new Set(prev.sidePanelHidden ?? []);
+      const target = section === 'board' ? boardHidden : section === 'controls' ? controlHidden : panelHidden;
+      if (target.has(id)) {
+        target.delete(id);
+      } else {
+        target.add(id);
+      }
+      return {
+        boardModuleOrder: [...prev.boardModuleOrder],
+        boardModuleHidden: sortByBaseline(Array.from(boardHidden), BOARD_BASELINE),
+        controlButtonOrder: [...prev.controlButtonOrder],
+        controlButtonHidden: sortByBaseline(Array.from(controlHidden), CONTROL_BASELINE),
+        sidePanelOrder: [...prev.sidePanelOrder],
+        sidePanelHidden: sortByBaseline(Array.from(panelHidden), PANEL_BASELINE),
+      };
+    });
+  }, []);
 
   const handleLayoutRestoreSaved = useCallback(() => {
     setLayoutFeedback(null);
@@ -1391,87 +1437,150 @@ export function App() {
                     <h3 className="layout-section__title">Synoptique CMSI</h3>
                     <p className="layout-section__subtitle">Ordre des cartes lumineuses.</p>
                     <ul className="layout-list">
-                      {layoutDraft.boardModuleOrder.map((id, index) => (
-                        <li key={id} className="layout-list__item">
-                          <span className="layout-list__label">{BOARD_TILE_LABELS[id] ?? id}</span>
-                          <div className="layout-list__actions">
-                            <button
-                              type="button"
-                              className="layout-list__button"
-                              onClick={() => handleLayoutMove('board', id, -1)}
-                              disabled={index === 0 || layoutSaving}
-                            >
-                              Monter
-                            </button>
-                            <button
-                              type="button"
-                              className="layout-list__button"
-                              onClick={() => handleLayoutMove('board', id, 1)}
-                              disabled={index === layoutDraft.boardModuleOrder.length - 1 || layoutSaving}
-                            >
-                              Descendre
-                            </button>
-                          </div>
-                        </li>
-                      ))}
+                      {layoutDraft.boardModuleOrder.map((id, index) => {
+                        const isHidden = layoutDraft.boardModuleHidden?.includes(id) ?? false;
+                        const itemClasses = ['layout-list__item'];
+                        if (isHidden) {
+                          itemClasses.push('layout-list__item--hidden');
+                        }
+                        return (
+                          <li
+                            key={id}
+                            className={itemClasses.join(' ')}
+                          >
+                            <div className="layout-list__info">
+                              <span className="layout-list__label">{BOARD_TILE_LABELS[id] ?? id}</span>
+                              {isHidden && <span className="layout-list__badge">Masquée</span>}
+                            </div>
+                            <div className="layout-list__actions">
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('board', id, -1)}
+                                disabled={index === 0 || layoutSaving}
+                              >
+                                Monter
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('board', id, 1)}
+                                disabled={index === layoutDraft.boardModuleOrder.length - 1 || layoutSaving}
+                              >
+                                Descendre
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button layout-list__button--toggle"
+                                onClick={() => handleLayoutToggleVisibility('board', id)}
+                                disabled={layoutSaving}
+                              >
+                                {isHidden ? 'Afficher' : 'Masquer'}
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                   <div className="layout-section">
                     <h3 className="layout-section__title">Bandeau de commandes</h3>
                     <p className="layout-section__subtitle">Séquence des actions disponibles.</p>
                     <ul className="layout-list">
-                      {layoutDraft.controlButtonOrder.map((id, index) => (
-                        <li key={id} className="layout-list__item">
-                          <span className="layout-list__label">{CONTROL_BUTTON_LABELS[id] ?? id}</span>
-                          <div className="layout-list__actions">
-                            <button
-                              type="button"
-                              className="layout-list__button"
-                              onClick={() => handleLayoutMove('controls', id, -1)}
-                              disabled={index === 0 || layoutSaving}
-                            >
-                              Monter
-                            </button>
-                            <button
-                              type="button"
-                              className="layout-list__button"
-                              onClick={() => handleLayoutMove('controls', id, 1)}
-                              disabled={index === layoutDraft.controlButtonOrder.length - 1 || layoutSaving}
-                            >
-                              Descendre
-                            </button>
-                          </div>
-                        </li>
-                      ))}
+                      {layoutDraft.controlButtonOrder.map((id, index) => {
+                        const isHidden = layoutDraft.controlButtonHidden?.includes(id) ?? false;
+                        const itemClasses = ['layout-list__item'];
+                        if (isHidden) {
+                          itemClasses.push('layout-list__item--hidden');
+                        }
+                        return (
+                          <li
+                            key={id}
+                            className={itemClasses.join(' ')}
+                          >
+                            <div className="layout-list__info">
+                              <span className="layout-list__label">{CONTROL_BUTTON_LABELS[id] ?? id}</span>
+                              {isHidden && <span className="layout-list__badge">Masquée</span>}
+                            </div>
+                            <div className="layout-list__actions">
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('controls', id, -1)}
+                                disabled={index === 0 || layoutSaving}
+                              >
+                                Monter
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('controls', id, 1)}
+                                disabled={index === layoutDraft.controlButtonOrder.length - 1 || layoutSaving}
+                              >
+                                Descendre
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button layout-list__button--toggle"
+                                onClick={() => handleLayoutToggleVisibility('controls', id)}
+                                disabled={layoutSaving}
+                              >
+                                {isHidden ? 'Afficher' : 'Masquer'}
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                   <div className="layout-section">
                     <h3 className="layout-section__title">Panneaux latéraux</h3>
                     <p className="layout-section__subtitle">Priorité des informations affichées.</p>
                     <ul className="layout-list">
-                      {layoutDraft.sidePanelOrder.map((id, index) => (
-                        <li key={id} className="layout-list__item">
-                          <span className="layout-list__label">{SIDE_PANEL_LABELS[id] ?? id}</span>
-                          <div className="layout-list__actions">
-                            <button
-                              type="button"
-                              className="layout-list__button"
-                              onClick={() => handleLayoutMove('panels', id, -1)}
-                              disabled={index === 0 || layoutSaving}
-                            >
-                              Monter
-                            </button>
-                            <button
-                              type="button"
-                              className="layout-list__button"
-                              onClick={() => handleLayoutMove('panels', id, 1)}
-                              disabled={index === layoutDraft.sidePanelOrder.length - 1 || layoutSaving}
-                            >
-                              Descendre
-                            </button>
-                          </div>
-                        </li>
-                      ))}
+                      {layoutDraft.sidePanelOrder.map((id, index) => {
+                        const isHidden = layoutDraft.sidePanelHidden?.includes(id) ?? false;
+                        const itemClasses = ['layout-list__item'];
+                        if (isHidden) {
+                          itemClasses.push('layout-list__item--hidden');
+                        }
+                        return (
+                          <li
+                            key={id}
+                            className={itemClasses.join(' ')}
+                          >
+                            <div className="layout-list__info">
+                              <span className="layout-list__label">{SIDE_PANEL_LABELS[id] ?? id}</span>
+                              {isHidden && <span className="layout-list__badge">Masquée</span>}
+                            </div>
+                            <div className="layout-list__actions">
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('panels', id, -1)}
+                                disabled={index === 0 || layoutSaving}
+                              >
+                                Monter
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button"
+                                onClick={() => handleLayoutMove('panels', id, 1)}
+                                disabled={index === layoutDraft.sidePanelOrder.length - 1 || layoutSaving}
+                              >
+                                Descendre
+                              </button>
+                              <button
+                                type="button"
+                                className="layout-list__button layout-list__button--toggle"
+                                onClick={() => handleLayoutToggleVisibility('panels', id)}
+                                disabled={layoutSaving}
+                              >
+                                {isHidden ? 'Afficher' : 'Masquer'}
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 </div>
