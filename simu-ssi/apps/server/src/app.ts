@@ -219,7 +219,8 @@ export function createHttpServer(domainContext: DomainContext): {
   });
 
   app.post('/api/uga/silence', async (_req, res) => {
-    const wasActive = domainContext.snapshot().ugaActive;
+    const snapshot = domainContext.snapshot();
+    const wasActive = snapshot.ugaActive || snapshot.localAudibleActive;
     domainContext.domain.silenceAudibleAlarm();
     if (wasActive) {
       await prisma.eventLog.create({
@@ -229,7 +230,7 @@ export function createHttpServer(domainContext: DomainContext): {
         },
       });
     }
-    res.status(202).json({ status: 'uga-silenced' });
+    res.status(202).json({ status: 'audible-silenced' });
   });
 
   app.post('/api/sdi/dm/:zone/activate', async (req, res) => {

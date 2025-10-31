@@ -20,6 +20,7 @@ interface CmsiStateData {
 interface Snapshot {
   cmsi: CmsiStateData;
   ugaActive: boolean;
+  localAudibleActive: boolean;
   dasApplied: boolean;
   manualEvacuation: boolean;
   processAck: { isAcked: boolean };
@@ -286,6 +287,9 @@ export function TraineeApp() {
     ? Math.max(0, Math.floor((snapshot.cmsi.deadline - now) / 1000))
     : null;
 
+  const anyAudible = Boolean(snapshot?.ugaActive || snapshot?.localAudibleActive);
+  const localAudibleOnly = Boolean(snapshot?.localAudibleActive && !snapshot?.ugaActive);
+
   const boardModules: BoardModule[] = useMemo(() => {
     const daiCount = Object.keys(snapshot?.daiActivated ?? {}).length;
     const dmModules: BoardModule[] = Array.from({ length: 8 }, (_, index) => {
@@ -311,9 +315,13 @@ export function TraineeApp() {
       {
         id: 'uga',
         label: 'UGA',
-        description: 'Alarme générale sonore',
-        tone: 'alarm',
-        active: Boolean(snapshot?.ugaActive),
+        description: snapshot?.ugaActive
+          ? 'Alarme générale sonore'
+          : localAudibleOnly
+          ? 'Signal sonore local CMSI'
+          : 'Alarme générale sonore',
+        tone: snapshot?.ugaActive ? 'alarm' : localAudibleOnly ? 'warning' : 'info',
+        active: anyAudible,
       },
       {
         id: 'das',
@@ -333,13 +341,15 @@ export function TraineeApp() {
         id: 'dai',
         label: 'DAI',
         description:
-          daiCount > 0 ? `${daiCount} détection(s) en cours` : 'Détection automatique incendie',
+          daiCount > 0
+            ? `${daiCount} alarme(s) feu non soumise(s) à l'évacuation`
+            : 'Détection automatique incendie',
         tone: daiCount > 0 ? 'warning' : 'info',
         active: daiCount > 0,
       },
       ...dmModules,
     ];
-  }, [snapshot]);
+  }, [snapshot, anyAudible, localAudibleOnly]);
 
   const orderedBoardModules = useMemo(
     () => orderItems(boardModules, layout.boardModuleOrder),
@@ -357,8 +367,8 @@ export function TraineeApp() {
       label: 'Arrêt signal sonore',
       tone: 'red',
       onClick: handleSilenceAlarm,
-      disabled: !snapshot?.ugaActive,
-      title: !snapshot?.ugaActive ? 'Aucune alarme sonore en cours' : undefined,
+      disabled: !anyAudible,
+      title: !anyAudible ? 'Aucun signal sonore en cours' : undefined,
     },
     {
       id: 'ack',
@@ -427,8 +437,14 @@ export function TraineeApp() {
               <span className="detail-value">{snapshot?.cmsi.suspendFlag ? 'Active' : 'Inactive'}</span>
             </li>
             <li>
-              <span className="detail-label">UGA</span>
-              <span className="detail-value">{snapshot?.ugaActive ? 'Active' : 'Arrêtée'}</span>
+              <span className="detail-label">Signal sonore</span>
+              <span className="detail-value">
+                {snapshot?.ugaActive
+                  ? 'Alarme générale'
+                  : snapshot?.localAudibleActive
+                  ? 'Signal local CMSI'
+                  : 'Arrêté'}
+              </span>
             </li>
             <li>
               <span className="detail-label">DAS</span>

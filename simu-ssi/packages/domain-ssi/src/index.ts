@@ -37,6 +37,7 @@ export interface AutomaticDetectorState {
 export interface DomainSnapshot {
   cmsi: CmsiState;
   ugaActive: boolean;
+  localAudibleActive: boolean;
   dasApplied: boolean;
   manualEvacuation: boolean;
   manualEvacuationReason?: string;
@@ -93,6 +94,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
   const daiActivated = new Map<string, AutomaticDetectorState>();
   let cmsi: CmsiState = { status: 'IDLE' };
   let ugaActive = false;
+  let localAudibleActive = false;
   let dasApplied = false;
   let manualEvacuation = false;
   let manualEvacuationReason: string | undefined;
@@ -105,6 +107,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     const snapshot: DomainSnapshot = {
       cmsi,
       ugaActive,
+      localAudibleActive,
       dasApplied,
       manualEvacuation,
       manualEvacuationReason,
@@ -167,6 +170,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     cmsi = { status: 'EVAC_ACTIVE', manual, startedAt: Date.now(), zoneId };
     manualEvacuation = manual;
     ugaActive = true;
+    localAudibleActive = true;
     dasApplied = true;
     log({
       ts: Date.now(),
@@ -183,6 +187,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     manualEvacuation = false;
     manualEvacuationReason = undefined;
     ugaActive = false;
+    localAudibleActive = false;
     dasApplied = false;
     log({
       ts: Date.now(),
@@ -201,6 +206,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     manualEvacuation = false;
     manualEvacuationReason = undefined;
     ugaActive = false;
+    localAudibleActive = false;
     dasApplied = false;
     processAck = { isAcked: false };
     daiActivated.clear();
@@ -216,6 +222,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         cmsi,
         ugaActive,
         dasApplied,
+        localAudibleActive,
         manualEvacuation,
         manualEvacuationReason,
         processAck,
@@ -260,9 +267,11 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         message: 'Automatic detector triggered',
         details: { zoneId },
       });
-      emitSnapshot();
       if (config.evacOnDai) {
         enterEvacActive({ manual: false, zoneId });
+      } else {
+        localAudibleActive = true;
+        emitSnapshot();
       }
     },
     resetDm(zoneId) {
@@ -293,6 +302,9 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       });
       daiActivated.delete(zoneId);
       log({ ts: now, source: 'SDI_DAI', message: 'Automatic detector reset', details: { zoneId } });
+      if (daiActivated.size === 0) {
+        localAudibleActive = false;
+      }
       emitSnapshot();
     },
     acknowledgeProcess(ackedBy) {
@@ -316,11 +328,12 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       emitSnapshot();
     },
     silenceAudibleAlarm() {
-      if (!ugaActive) {
+      if (!ugaActive && !localAudibleActive) {
         return;
       }
       const now = Date.now();
       ugaActive = false;
+      localAudibleActive = false;
       log({ ts: now, source: 'TRAINEE', message: 'Audible alarm silenced' });
       emitSnapshot();
     },

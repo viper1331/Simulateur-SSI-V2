@@ -63,4 +63,23 @@ describe('SSI domain core rules', () => {
     const okReset = domain.trySystemReset();
     expect(okReset).toEqual({ ok: true });
   });
+
+  it('activates a local audible signal on DAI pre-alarm that can be silenced', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: false, evacOnDai: false });
+    domain.activateDai('ZF1');
+    expect(domain.snapshot.localAudibleActive).toBe(true);
+    domain.silenceAudibleAlarm();
+    expect(domain.snapshot.localAudibleActive).toBe(false);
+  });
+
+  it('clears the local audible signal once all DAI are reset', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: false, evacOnDai: false });
+    domain.activateDai('ZF3');
+    domain.silenceAudibleAlarm();
+    expect(domain.snapshot.localAudibleActive).toBe(false);
+    domain.activateDai('ZF3');
+    expect(domain.snapshot.localAudibleActive).toBe(true);
+    domain.resetDai('ZF3');
+    expect(domain.snapshot.localAudibleActive).toBe(false);
+  });
 });
