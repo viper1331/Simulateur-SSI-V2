@@ -1790,6 +1790,65 @@ kbd {
   background: rgba(226, 232, 240, 0.35);
 }
 
+.scenario-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.3);
+  background: rgba(226, 232, 240, 0.25);
+}
+
+.scenario-audio__hint {
+  margin: 4px 0 16px;
+  font-size: 0.85rem;
+  color: rgba(30, 41, 59, 0.65);
+}
+
+.scenario-audio__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 720px) {
+  .scenario-audio__item {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.scenario-audio__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: rgba(30, 41, 59, 0.7);
+}
+
+.scenario-audio__meta strong {
+  font-weight: 600;
+  color: rgba(30, 41, 59, 0.9);
+}
+
+.scenario-audio__meta span {
+  font-size: 0.85rem;
+}
+
+.scenario-audio__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.scenario-audio__filename {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(30, 41, 59, 0.85);
+}
+
 .scenario-manual-reset__modes {
   display: flex;
   flex-wrap: wrap;
