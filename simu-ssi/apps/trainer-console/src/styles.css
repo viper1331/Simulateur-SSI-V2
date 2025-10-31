@@ -1742,9 +1742,17 @@ kbd {
   gap: 16px;
 }
 
+.scenario-form__row--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 @media (min-width: 720px) {
   .scenario-form__row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scenario-form__row--single {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1760,6 +1768,34 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.scenario-form__topology {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  background: rgba(226, 232, 240, 0.4);
+}
+
+.scenario-form__topology-summary {
+  margin: 0;
+  font-weight: 600;
+  color: rgba(30, 41, 59, 0.85);
+}
+
+.scenario-form__topology-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(30, 41, 59, 0.65);
+}
+
+.scenario-form__topology-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .scenario-events__header {

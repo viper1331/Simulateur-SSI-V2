@@ -808,11 +808,16 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       ...event,
       id: event.id ?? randomUUID(),
     }));
+    const serializedPayload = {
+      description: parsed.data.description,
+      events: eventsWithIds,
+      ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
+    };
     const record = await prisma.scenario.create({
       data: {
         id: randomUUID(),
         name: parsed.data.name,
-        json: JSON.stringify({ description: parsed.data.description, events: eventsWithIds }),
+        json: JSON.stringify(serializedPayload),
       },
     });
     const scenario = scenarioDefinitionSchema.parse({
@@ -820,6 +825,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       name: record.name,
       description: parsed.data.description,
       events: eventsWithIds,
+      ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
     });
     log.info("Scénario créé", { scenarioId: scenario.id });
     res.status(201).json({ scenario });
@@ -834,11 +840,16 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       ...event,
       id: event.id ?? randomUUID(),
     }));
+    const serializedPayload = {
+      description: parsed.data.description,
+      events: eventsWithIds,
+      ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
+    };
     const record = await prisma.scenario.update({
       where: { id: req.params.id },
       data: {
         name: parsed.data.name,
-        json: JSON.stringify({ description: parsed.data.description, events: eventsWithIds }),
+        json: JSON.stringify(serializedPayload),
       },
     });
     const scenario = scenarioDefinitionSchema.parse({
@@ -846,6 +857,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       name: record.name,
       description: parsed.data.description,
       events: eventsWithIds,
+      ...(parsed.data.topology ? { topology: parsed.data.topology } : {}),
     });
     log.info("Scénario mis à jour", { scenarioId: scenario.id });
     res.json({ scenario });
@@ -1071,7 +1083,7 @@ async function ensureManualZone(zoneId: string): Promise<number> {
 }
 
 function serializeScenarioRecord(record: { id: string; name: string; json: string }): ScenarioDefinition {
-  let payload: { description?: string; events: unknown };
+  let payload: { description?: string; events: unknown; topology?: unknown };
   try {
     payload = JSON.parse(record.json);
   } catch (error) {
@@ -1082,5 +1094,6 @@ function serializeScenarioRecord(record: { id: string; name: string; json: strin
     name: record.name,
     description: payload.description,
     events: Array.isArray(payload.events) ? payload.events : [],
+    topology: payload && typeof payload === 'object' && payload.topology != null ? payload.topology : undefined,
   });
 }

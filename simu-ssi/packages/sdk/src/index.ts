@@ -34,6 +34,8 @@ const topologySchema = z.object({
   devices: z.array(siteDeviceSchema),
 });
 
+const scenarioTopologySchema = topologySchema.optional();
+
 const scenarioEventBaseSchema = z.object({
   id: z.string().uuid().optional(),
   label: z.string().optional(),
@@ -61,12 +63,14 @@ export const scenarioDefinitionSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   events: z.array(scenarioEventSchema),
+  topology: scenarioTopologySchema,
 });
 
 export const scenarioPayloadSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   events: z.array(scenarioEventSchema).min(1),
+  topology: scenarioTopologySchema,
 });
 
 export const scenarioRunnerSnapshotSchema = z.object({
