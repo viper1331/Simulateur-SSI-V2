@@ -28,6 +28,7 @@ interface CmsiStateData {
 interface DomainSnapshot {
   cmsi: CmsiStateData;
   ugaActive: boolean;
+  localAudibleActive: boolean;
   dasApplied: boolean;
   manualEvacuation: boolean;
   manualEvacuationReason?: string;
@@ -824,6 +825,11 @@ export function App() {
   const scenarioStateLabel = translateScenarioStatus(scenarioStatus.status);
   const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
   const scenarioIsRunning = scenarioStatus.status === 'running';
+  const audibleState = snapshot?.ugaActive
+    ? { value: 'Diffusion', tone: 'critical' as const, footer: 'Alarme générale en cours' }
+    : snapshot?.localAudibleActive
+    ? { value: 'Signal local', tone: 'warning' as const, footer: 'Préalarme sonore active au CMSI' }
+    : { value: 'Repos', tone: 'neutral' as const, footer: 'Pré-alerte en veille' };
   const accessCodeMap = useMemo(() => {
     const map = new Map<number, AccessCode>();
     accessCodes.forEach((entry) => map.set(entry.level, entry));
@@ -896,9 +902,9 @@ export function App() {
           />
           <StatusTile
             title="UGA"
-            value={snapshot?.ugaActive ? 'Diffusion' : 'Repos'}
-            tone={snapshot?.ugaActive ? 'critical' : 'neutral'}
-            footer={snapshot?.ugaActive ? 'Sonorisation en cours' : 'Pré-alerte en veille'}
+            value={audibleState.value}
+            tone={audibleState.tone}
+            footer={audibleState.footer}
           />
           <StatusTile
             title="DAS"
