@@ -84,6 +84,7 @@ function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): stri
 
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
@@ -99,12 +100,24 @@ export function TraineeApp() {
     sdk.getActiveScenario().then(setScenarioStatus).catch(console.error);
   }, [sdk]);
 
+  useEffect(() => {
+    if (!snapshot?.cmsi.deadline) {
+      return;
+    }
+
+    const tick = () => setNow(Date.now());
+    tick();
+
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [snapshot?.cmsi.deadline]);
+
   const handleAck = () => sdk.acknowledgeProcess('trainee').catch(console.error);
   const handleResetRequest = () => sdk.resetSystem().catch(console.error);
   const handleResetDm = (zoneId: string) => sdk.resetManualCallPoint(zoneId).catch(console.error);
 
   const remainingDeadline = snapshot?.cmsi.deadline
-    ? Math.max(0, Math.floor((snapshot.cmsi.deadline - Date.now()) / 1000))
+    ? Math.max(0, Math.floor((snapshot.cmsi.deadline - now) / 1000))
     : null;
 
   const boardModules: BoardModule[] = useMemo(() => {
