@@ -1,5 +1,8 @@
 import type { ImprovementArea } from './session-manager';
 import { prisma } from './prisma';
+import { createLogger, toError } from './logger';
+
+const log = createLogger('ImprovementGenerator');
 
 interface NormalizedEvent {
   source: string;
@@ -15,18 +18,20 @@ function parsePayload(json: string | null): Record<string, unknown> | null {
     const value = JSON.parse(json);
     return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
   } catch (error) {
-    console.error('Failed to parse event payload JSON', error);
+    log.error('Failed to parse event payload JSON', { error: toError(error) });
     return null;
   }
 }
 
 export async function generateImprovementAreasForSession(sessionId: string): Promise<ImprovementArea[]> {
+  log.debug('Generating improvement areas for session', { sessionId });
   const events = await prisma.eventLog.findMany({
     where: { sessionId },
     orderBy: { ts: 'asc' },
   });
 
   if (events.length === 0) {
+    log.info('No events found for session, skipping improvements', { sessionId });
     return [];
   }
 
@@ -160,6 +165,11 @@ export async function generateImprovementAreasForSession(sessionId: string): Pro
         "Le système n'a pas été réarmé en fin de scénario. Vérifiez que tous les équipements sont rétablis puis effectuez la remise à zéro du SSI.",
     });
   }
+
+  log.info('Improvement areas generated', {
+    sessionId,
+    improvementCount: improvements.length,
+  });
 
   return improvements.slice(0, 5);
 }
