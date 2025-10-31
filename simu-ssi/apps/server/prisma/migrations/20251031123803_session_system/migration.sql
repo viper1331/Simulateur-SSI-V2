@@ -4,6 +4,13 @@
   - Added the required column `name` to the `Session` table without a default value. This is not possible if the table is not empty.
 
 */
+-- Ensure AccessCode table exists for the redefinition below
+CREATE TABLE IF NOT EXISTS "AccessCode" (
+    "level" INTEGER NOT NULL PRIMARY KEY,
+    "code" TEXT NOT NULL,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -20,7 +27,7 @@ PRAGMA foreign_keys=OFF;
 CREATE TABLE "new_AccessCode" (
     "level" INTEGER NOT NULL PRIMARY KEY,
     "code" TEXT NOT NULL,
-    "updatedAt" DATETIME NOT NULL
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 INSERT INTO "new_AccessCode" ("code", "level", "updatedAt") SELECT "code", "level", "updatedAt" FROM "AccessCode";
 DROP TABLE "AccessCode";
