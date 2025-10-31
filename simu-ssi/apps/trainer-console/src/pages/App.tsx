@@ -52,6 +52,7 @@ interface ScenarioDraft {
   id?: string;
   name: string;
   description?: string;
+  topology: SiteTopology | null;
   events: ScenarioEventDraft[];
 }
 
@@ -140,6 +141,10 @@ function cloneLayout(layout: TraineeLayoutConfig): TraineeLayoutConfig {
     sidePanelOrder: [...layout.sidePanelOrder],
     sidePanelHidden: sortByBaseline(layout.sidePanelHidden ?? [], PANEL_BASELINE),
   };
+}
+
+function cloneTopology(topology: SiteTopology): SiteTopology {
+  return JSON.parse(JSON.stringify(topology)) as SiteTopology;
 }
 
 function formatCmsiStatus(status?: string) {
@@ -322,7 +327,7 @@ function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): bo
 }
 
 function createEmptyScenarioDraft(): ScenarioDraft {
-  return { name: '', description: '', events: [] };
+  return { name: '', description: '', topology: null, events: [] };
 }
 
 function ensureDraftEvent(event: ScenarioEvent): ScenarioEventDraft {
@@ -438,6 +443,7 @@ function draftToPayload(draft: ScenarioDraft): ScenarioPayload {
   return {
     name: draft.name.trim(),
     description: draft.description?.trim() ? draft.description.trim() : undefined,
+    topology: draft.topology ?? undefined,
     events: draft.events.map(normalizeEventForPayload),
   };
 }
@@ -447,6 +453,7 @@ function scenarioDefinitionToDraft(definition: ScenarioDefinition): ScenarioDraf
     id: definition.id,
     name: definition.name,
     description: definition.description,
+    topology: definition.topology ? cloneTopology(definition.topology) : null,
     events: definition.events.map(ensureDraftEvent),
   };
 }
@@ -494,6 +501,7 @@ function extractScenarioPayload(data: unknown): ScenarioPayload | null {
       name: rest.name,
       description: rest.description,
       events: rest.events,
+      topology: rest.topology,
     };
   }
   return null;
@@ -1435,6 +1443,22 @@ export function App() {
     setDraftScenario((prev) => ({ ...prev, description }));
   };
 
+  const handleScenarioAttachTopology = useCallback(() => {
+    if (!topology) {
+      setScenarioError("Aucun plan n'est disponible. Importez une cartographie dans l'Admin Studio.");
+      setScenarioFeedback(null);
+      return;
+    }
+    setDraftScenario((prev) => ({ ...prev, topology: cloneTopology(topology) }));
+    setScenarioError(null);
+    setScenarioFeedback('Plan interactif associé au scénario.');
+  }, [topology]);
+
+  const handleScenarioDetachTopology = useCallback(() => {
+    setDraftScenario((prev) => ({ ...prev, topology: null }));
+    setScenarioFeedback('Plan interactif détaché du scénario.');
+  }, []);
+
   const handleScenarioResetForm = () => {
     setDraftScenario(createEmptyScenarioDraft());
     setEditingScenarioId(null);
@@ -1499,16 +1523,17 @@ export function App() {
   };
 
   const handleScenarioExport = useCallback((scenario: ScenarioDefinition) => {
-    const exportPayload = {
-      format: SCENARIO_EXPORT_FORMAT,
-      exportedAt: new Date().toISOString(),
-      source: { id: scenario.id },
-      scenario: {
-        name: scenario.name,
-        description: scenario.description,
-        events: scenario.events,
-      },
-    };
+      const exportPayload = {
+        format: SCENARIO_EXPORT_FORMAT,
+        exportedAt: new Date().toISOString(),
+        source: { id: scenario.id },
+        scenario: {
+          name: scenario.name,
+          description: scenario.description,
+          events: scenario.events,
+          ...(scenario.topology ? { topology: scenario.topology } : {}),
+        },
+      };
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1544,6 +1569,7 @@ export function App() {
         const sanitized: ScenarioPayload = {
           name: parsed.name.trim(),
           description: parsed.description?.trim() ? parsed.description.trim() : undefined,
+          topology: parsed.topology ? cloneTopology(parsed.topology) : undefined,
           events: parsed.events.map((event) => ({ ...event })),
         };
         if (sanitized.events.length === 0) {
@@ -1592,7 +1618,18 @@ export function App() {
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);
-  const planMetadata = useMemo(() => extractPlanMetadata(topology), [topology]);
+  const scenarioTopology = useMemo(() => {
+    const activeTopology = scenarioStatus.scenario?.topology ?? null;
+    if (scenarioStatus.status === 'running' && activeTopology) {
+      return activeTopology;
+    }
+    if (draftScenario.topology) {
+      return draftScenario.topology;
+    }
+    return activeTopology ?? topology ?? null;
+  }, [draftScenario.topology, scenarioStatus.scenario, scenarioStatus.status, topology]);
+  const planMetadata = useMemo(() => extractPlanMetadata(scenarioTopology), [scenarioTopology]);
+  const draftPlanMetadata = useMemo(() => extractPlanMetadata(draftScenario.topology), [draftScenario.topology]);
   const devicesByZone = useMemo(() => {
     const map = new Map<string, SiteDevice[]>();
     if (!topology) {
@@ -1618,17 +1655,18 @@ export function App() {
   const unassignedDevices = devicesByZone.get(UNASSIGNED_ZONE_KEY) ?? [];
   const hasTopologyData = Boolean(topology && (topology.zones.length > 0 || topology.devices.length > 0));
   const scenarioZoneOptions = useMemo(() => {
-    if (!topology) {
+    const sourceTopology = scenarioTopology ?? topology;
+    if (!sourceTopology) {
       return [] as Array<{ value: string; label: string; kind?: string }>;
     }
-    return [...topology.zones]
+    return [...sourceTopology.zones]
       .sort((a, b) => a.label.localeCompare(b.label))
       .map((zone) => ({
         value: zone.id.toUpperCase(),
         label: `${zone.label} (${zone.id.toUpperCase()})`,
         kind: zone.kind,
       }));
-  }, [topology]);
+  }, [scenarioTopology, topology]);
   const defaultScenarioZoneId = scenarioZoneOptions[0]?.value ?? 'ZF1';
   const sortedDraftEvents = useMemo(
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
@@ -2479,7 +2517,7 @@ export function App() {
                 </ul>
               </aside>
               <div className="scenario-editor">
-                {topology?.plan?.image && (
+                {scenarioTopology?.plan?.image && (
                   <section className="scenario-plan" aria-label="Plan interactif du site">
                     <div className="scenario-plan__header">
                       <div>
@@ -2491,10 +2529,10 @@ export function App() {
                     </div>
                     <div className="scenario-plan__stage">
                       <img
-                        src={topology.plan.image}
+                        src={scenarioTopology.plan.image}
                         alt={planMetadata.planName ? `Plan ${planMetadata.planName}` : 'Plan du site'}
                       />
-                      {topology.devices.map((device) => {
+                      {scenarioTopology.devices.map((device) => {
                         const position = getDevicePosition(device);
                         if (!position) {
                           return null;
@@ -2550,6 +2588,47 @@ export function App() {
                       rows={2}
                     />
                   </label>
+                </div>
+                <div className="scenario-form__row scenario-form__row--single">
+                  <div className="scenario-form__field">
+                    <span>Plan interactif associé</span>
+                    <div className="scenario-form__topology">
+                      <p className="scenario-form__topology-summary">
+                        {draftScenario.topology
+                          ? `Plan ${
+                              draftPlanMetadata.planName
+                                ? `« ${draftPlanMetadata.planName} »`
+                                : 'sans nom'
+                            } sauvegardé avec le scénario.`
+                          : "Aucun plan n'est actuellement associé à ce scénario."}
+                      </p>
+                      <p className="scenario-form__topology-hint">
+                        {draftScenario.topology
+                          ? 'Associez de nouveau la cartographie du site pour remplacer le plan lié.'
+                          :
+                              'Utilisez le plan importé dans l’onglet Cartographie pour le lier définitivement à ce scénario.'}
+                      </p>
+                      <div className="scenario-form__topology-actions">
+                        <button
+                          type="button"
+                          className="btn btn--outline"
+                          onClick={handleScenarioAttachTopology}
+                          disabled={!topology}
+                        >
+                          Associer le plan actuel
+                        </button>
+                        {draftScenario.topology && (
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            onClick={handleScenarioDetachTopology}
+                          >
+                            Retirer le plan
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 {scenarioZoneOptions.length > 0 && (
                   <datalist id={SCENARIO_ZONE_DATALIST_ID}>
