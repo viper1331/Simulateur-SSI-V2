@@ -5,6 +5,7 @@ import type {
   ScenarioRunnerSnapshot,
 } from '@simu-ssi/sdk';
 import type { DomainLogEvent, SsiDomain } from '@simu-ssi/domain-ssi';
+import { recordManualCallPointActivation, recordManualCallPointReset } from './manual-call-points';
 import { createLogger, toError } from './logger';
 
 interface ScenarioRunnerEventMap {
@@ -88,7 +89,7 @@ export class ScenarioRunner {
     orderedEvents.forEach((event, index) => {
       const delay = Math.max(0, Math.round(event.offset * 1000));
       const handle = setTimeout(() => {
-        this.executeEvent(index);
+        void this.executeEvent(index);
       }, delay);
       this.context?.timeouts.push(handle);
     });
@@ -123,7 +124,7 @@ export class ScenarioRunner {
     });
   }
 
-  private executeEvent(index: number) {
+  private async executeEvent(index: number) {
     if (!this.context) {
       return;
     }
@@ -142,7 +143,7 @@ export class ScenarioRunner {
       });
     } else {
       try {
-        this.dispatchEvent(event);
+        await this.dispatchEvent(event);
         this.log.debug("Événement de scénario déclenché", {
           eventType: event.type,
           index,
@@ -178,12 +179,14 @@ export class ScenarioRunner {
     });
   }
 
-  private dispatchEvent(event: ScenarioEvent) {
+  private async dispatchEvent(event: ScenarioEvent) {
     switch (event.type) {
       case 'DM_TRIGGER':
+        await recordManualCallPointActivation(event.zoneId);
         this.domain.activateDm(event.zoneId);
         break;
       case 'DM_RESET':
+        await recordManualCallPointReset(event.zoneId);
         this.domain.resetDm(event.zoneId);
         break;
       case 'DAI_TRIGGER':
