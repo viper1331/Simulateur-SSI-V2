@@ -238,6 +238,7 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
 export function App() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
   const [snapshot, setSnapshot] = useState<DomainSnapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [events, setEvents] = useState<string[]>([]);
   const [ackPending, setAckPending] = useState(false);
   const [clearPending, setClearPending] = useState(false);
@@ -279,6 +280,18 @@ export function App() {
       socket.disconnect();
     };
   }, [baseUrl, refreshScenarioStatus, refreshScenarios, sdk]);
+
+  useEffect(() => {
+    if (!snapshot?.cmsi?.deadline) {
+      return;
+    }
+
+    const tick = () => setNow(Date.now());
+    tick();
+
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [snapshot?.cmsi?.deadline]);
 
   const handleConfigSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -505,7 +518,8 @@ export function App() {
     }
   };
 
-  const remainingMs = snapshot?.cmsi?.deadline ? snapshot.cmsi.deadline - Date.now() : undefined;
+  const remainingMs =
+    snapshot?.cmsi?.deadline != null ? Math.max(0, snapshot.cmsi.deadline - now) : undefined;
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);
