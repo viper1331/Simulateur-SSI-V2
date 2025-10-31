@@ -24,6 +24,12 @@ CREATE TABLE "User" (
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
+-- Ensure TraineeLayout exists so the redefinition works on fresh databases
+CREATE TABLE IF NOT EXISTS "TraineeLayout" (
+    "id" INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+    "configJson" TEXT NOT NULL,
+    "updatedAt" DATETIME NOT NULL
+);
 CREATE TABLE "new_AccessCode" (
     "level" INTEGER NOT NULL PRIMARY KEY,
     "code" TEXT NOT NULL,
