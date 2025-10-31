@@ -9,7 +9,7 @@ const improvementSchema = z.object({
   description: z.string().optional(),
 });
 
-type ImprovementArea = z.infer<typeof improvementSchema>;
+export type ImprovementArea = z.infer<typeof improvementSchema>;
 
 type SessionWithRelations = Prisma.SessionGetPayload<{
   include: { trainee: true; trainer: true };

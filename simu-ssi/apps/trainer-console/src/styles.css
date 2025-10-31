@@ -2028,6 +2028,11 @@ kbd {
   color: rgba(30, 41, 59, 0.7);
 }
 
+.improvement-actions__buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .improvement-placeholder {
   margin: 12px 0;
   font-size: 0.9rem;
