@@ -4,6 +4,8 @@ import {
   DEFAULT_TRAINEE_LAYOUT,
   SsiSdk,
   traineeLayoutSchema,
+  siteTopologySchema,
+  type SiteTopology,
   type ScenarioRunnerSnapshot,
   type TraineeLayoutConfig,
 } from '@simu-ssi/sdk';
@@ -101,6 +103,26 @@ function orderItems<T extends { id: string }>(items: T[], order: string[]): T[] 
     .map(({ item }) => item);
 }
 
+function extractPlanNotes(topology: SiteTopology | null): string[] {
+  if (!topology) {
+    return [];
+  }
+  const notes = new Set<string>();
+  for (const device of topology.devices) {
+    const props = device.props as Record<string, unknown> | undefined;
+    const rawNotes = props?.planNotes;
+    if (typeof rawNotes === 'string' && rawNotes.trim().length > 0) {
+      for (const line of rawNotes.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.length > 0) {
+          notes.add(trimmed);
+        }
+      }
+    }
+  }
+  return Array.from(notes);
+}
+
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -110,8 +132,15 @@ export function TraineeApp() {
   const [codeBuffer, setCodeBuffer] = useState<string>('');
   const [verifyingAccess, setVerifyingAccess] = useState<boolean>(false);
   const [layout, setLayout] = useState<TraineeLayoutConfig>(DEFAULT_TRAINEE_LAYOUT);
+  const [topology, setTopology] = useState<SiteTopology | null>(null);
+  const [planNotes, setPlanNotes] = useState<string[]>([]);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     const socket = io(baseUrl);
@@ -121,6 +150,12 @@ export function TraineeApp() {
       const parsed = traineeLayoutSchema.safeParse(payload);
       if (parsed.success) {
         setLayout(parsed.data);
+      }
+    });
+    socket.on('topology.update', (payload) => {
+      const parsed = siteTopologySchema.safeParse(payload);
+      if (parsed.success) {
+        setTopology(parsed.data);
       }
     });
     return () => socket.disconnect();
@@ -139,6 +174,17 @@ export function TraineeApp() {
         setLayout(DEFAULT_TRAINEE_LAYOUT);
       });
   }, [sdk]);
+
+  useEffect(() => {
+    sdk
+      .getTopology()
+      .then((data) => setTopology(data))
+      .catch((error) => console.error(error));
+  }, [sdk]);
+
+  useEffect(() => {
+    setPlanNotes(extractPlanNotes(topology));
+  }, [topology]);
 
   useEffect(() => {
     try {
@@ -433,15 +479,27 @@ export function TraineeApp() {
       element: (
         <article className="detail-panel">
           <h3 className="detail-title">Consignes Apprenant</h3>
-          <p className="instruction-text">
-            Surveillez l&apos;évolution du synoptique, vérifiez les zones en alarme et appliquez la procédure
-            d&apos;acquittement avant de réarmer le système. Utilisez les boutons du bandeau de commande pour
-            reproduire fidèlement les actions terrain.
-          </p>
-          <p className="instruction-text">
-            Lorsque plusieurs déclencheurs manuels sont actifs, procédez au réarmement zone par zone afin
-            d&apos;observer les retours d&apos;information dans le tableau répétiteur.
-          </p>
+          {planNotes.length > 0 ? (
+            <ul className="instruction-list">
+              {planNotes.map((note) => (
+                <li key={note} className="instruction-text">
+                  {note}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <>
+              <p className="instruction-text">
+                Surveillez l&apos;évolution du synoptique, vérifiez les zones en alarme et appliquez la procédure
+                d&apos;acquittement avant de réarmer le système. Utilisez les boutons du bandeau de commande pour
+                reproduire fidèlement les actions terrain.
+              </p>
+              <p className="instruction-text">
+                Lorsque plusieurs déclencheurs manuels sont actifs, procédez au réarmement zone par zone afin
+                d&apos;observer les retours d&apos;information dans le tableau répétiteur.
+              </p>
+            </>
+          )}
         </article>
       ),
     },

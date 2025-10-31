@@ -11,6 +11,7 @@ import {
   scenarioDefinitionSchema,
   scenarioPayloadSchema,
   scenarioRunnerSnapshotSchema,
+  siteTopologySchema,
   traineeLayoutSchema,
   type ScenarioDefinition,
   type TraineeLayoutConfig,
@@ -343,23 +344,54 @@ export function createHttpServer(domainContext: DomainContext): {
       prisma.zone.findMany({ orderBy: { label: 'asc' } }),
       prisma.device.findMany({ orderBy: { id: 'asc' } }),
     ]);
-    res.json({
-      zones: zones.map((zone) => ({
-        id: zone.id,
-        label: zone.label,
-        kind: zone.kind,
-      })),
-      devices: devices.map((device) => {
-        const parsedProps = parseDeviceProps(device.propsJson);
-        return {
-          id: device.id,
-          kind: device.kind,
-          zoneId: device.zoneId ?? undefined,
-          label: typeof parsedProps?.label === 'string' ? parsedProps.label : undefined,
-          props: parsedProps ?? undefined,
-        };
-      }),
-    });
+    res.json(formatTopologyResponse(zones, devices));
+  });
+
+  app.put('/api/topology', async (req, res) => {
+    const parsed = siteTopologySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+    const { zones, devices } = parsed.data;
+    const zoneIds = new Set(zones.map((zone) => zone.id));
+    for (const device of devices) {
+      if (device.zoneId && !zoneIds.has(device.zoneId)) {
+        return res.status(400).json({ error: `UNKNOWN_ZONE:${device.zoneId}` });
+      }
+    }
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.device.deleteMany();
+        await tx.zone.deleteMany();
+        if (zones.length > 0) {
+          await tx.zone.createMany({
+            data: zones.map((zone) => ({ id: zone.id, label: zone.label, kind: zone.kind })),
+          });
+        }
+        if (devices.length > 0) {
+          await tx.device.createMany({
+            data: devices.map((device) => ({
+              id: device.id,
+              kind: device.kind,
+              zoneId: device.zoneId ?? null,
+              propsJson: device.props ? JSON.stringify(device.props) : null,
+            })),
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Failed to persist topology', error);
+      return res.status(500).json({ error: 'FAILED_TO_SAVE_TOPOLOGY' });
+    }
+    const [persistedZones, persistedDevices] = await Promise.all([
+      prisma.zone.findMany({ orderBy: { label: 'asc' } }),
+      prisma.device.findMany({ orderBy: { id: 'asc' } }),
+    ]);
+    const payload = formatTopologyResponse(persistedZones, persistedDevices);
+    res.json(payload);
+    if (ioRef) {
+      ioRef.emit('topology.update', payload);
+    }
   });
 
   app.get('/api/scenarios', async (_req, res) => {
@@ -483,6 +515,29 @@ export function createHttpServer(domainContext: DomainContext): {
   });
 
   return { app, server: server as HttpServer, io };
+}
+
+function formatTopologyResponse(
+  zones: Array<{ id: string; label: string; kind: string }>,
+  devices: Array<{ id: string; kind: string; zoneId: string | null; propsJson: string | null }>,
+) {
+  return {
+    zones: zones.map((zone) => ({
+      id: zone.id,
+      label: zone.label,
+      kind: zone.kind,
+    })),
+    devices: devices.map((device) => {
+      const parsedProps = parseDeviceProps(device.propsJson);
+      return {
+        id: device.id,
+        kind: device.kind,
+        zoneId: device.zoneId ?? undefined,
+        label: typeof parsedProps?.label === 'string' ? parsedProps.label : undefined,
+        props: parsedProps ?? undefined,
+      };
+    }),
+  };
 }
 
 function parseDeviceProps(json: string | null): Record<string, unknown> | undefined {

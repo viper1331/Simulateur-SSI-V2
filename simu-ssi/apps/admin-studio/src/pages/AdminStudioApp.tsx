@@ -71,6 +71,7 @@ export function AdminStudioApp() {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isMountedRef = useRef(true);
   const copyTimeoutRef = useRef<number | null>(null);
+  const publishTimeoutRef = useRef<number | null>(null);
 
   const [planImage, setPlanImage] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string>('Aucun plan importé');
@@ -85,6 +86,8 @@ export function AdminStudioApp() {
   const [newZoneLabel, setNewZoneLabel] = useState('');
   const [newZoneKind, setNewZoneKind] = useState('ZF');
   const [copyStatus, setCopyStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const hasWorkspaceContent = Boolean(planImage || devices.length > 0 || planNotes.trim().length > 0);
 
@@ -93,6 +96,9 @@ export function AdminStudioApp() {
       isMountedRef.current = false;
       if (copyTimeoutRef.current) {
         window.clearTimeout(copyTimeoutRef.current);
+      }
+      if (publishTimeoutRef.current) {
+        window.clearTimeout(publishTimeoutRef.current);
       }
     };
   }, []);
@@ -137,6 +143,18 @@ export function AdminStudioApp() {
       setCopyStatus('idle');
     }, 2500);
   }, [copyStatus]);
+
+  useEffect(() => {
+    if (publishStatus !== 'success') {
+      return;
+    }
+    if (publishTimeoutRef.current) {
+      window.clearTimeout(publishTimeoutRef.current);
+    }
+    publishTimeoutRef.current = window.setTimeout(() => {
+      setPublishStatus('idle');
+    }, 2500);
+  }, [publishStatus]);
 
   const handlePlanFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -355,6 +373,7 @@ export function AdminStudioApp() {
     return { zones: sanitizedZones, devices: sanitizedDevices };
   }, [zones, devices, planImage, planName, planNotes]);
 
+  const hasTopologyContent = siteTopology.zones.length > 0 || siteTopology.devices.length > 0;
   const siteTopologyJson = useMemo(() => JSON.stringify(siteTopology, null, 2), [siteTopology]);
 
   const handleCopyTopology = useCallback(async () => {
@@ -367,9 +386,38 @@ export function AdminStudioApp() {
     }
   }, [siteTopologyJson]);
 
-  const isAddZoneDisabled = !newZoneId.trim() || !newZoneLabel.trim() || !newZoneKind.trim();
+  const handlePublishTopology = useCallback(async () => {
+    if (!hasTopologyContent || publishStatus === 'saving') {
+      return;
+    }
+    setPublishStatus('saving');
+    setPublishError(null);
+    try {
+      await sdk.updateTopology(siteTopology);
+      setPublishStatus('success');
+      setPublishError(null);
+      void loadTopology();
+    } catch (error) {
+      console.error(error);
+      const rawMessage = error instanceof Error ? error.message : 'La publication du plan a échoué.';
+      const message = rawMessage.startsWith('UNKNOWN_ZONE:')
+        ? `Un dispositif est associé à une zone inexistante (${rawMessage.split(':')[1] ?? 'zone inconnue'}).`
+        : rawMessage;
+      setPublishStatus('error');
+      setPublishError(message);
+    }
+  }, [hasTopologyContent, loadTopology, publishStatus, sdk, siteTopology]);
 
-  const hasTopologyContent = siteTopology.zones.length > 0 || siteTopology.devices.length > 0;
+  const isAddZoneDisabled = !newZoneId.trim() || !newZoneLabel.trim() || !newZoneKind.trim();
+  const publishFeedbackMessage = publishStatus === 'success'
+    ? 'Plan synchronisé avec les postes formateur et apprenant.'
+    : publishStatus === 'error'
+      ? publishError ?? 'La publication du plan a échoué.'
+      : publishStatus === 'saving'
+        ? 'Publication en cours…'
+        : hasTopologyContent
+          ? 'Publiez pour rendre ce plan disponible sur les autres postes.'
+          : 'Ajoutez un plan et des dispositifs pour activer la publication.';
 
   return (
     <div className="app-shell">
@@ -659,14 +707,24 @@ export function AdminStudioApp() {
                 spellCheck={false}
               />
               <div className="topology-preview__actions">
-                <button
-                  type="button"
-                  className="button button-primary"
-                  onClick={handleCopyTopology}
-                  disabled={!hasTopologyContent}
-                >
-                  Copier la topologie
-                </button>
+                <div className="topology-preview__buttons">
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={handleCopyTopology}
+                    disabled={!hasTopologyContent}
+                  >
+                    Copier la topologie
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={handlePublishTopology}
+                    disabled={!hasTopologyContent || publishStatus === 'saving'}
+                  >
+                    {publishStatus === 'saving' ? 'Publication…' : 'Mettre à disposition'}
+                  </button>
+                </div>
                 <span className={`topology-copy-feedback topology-copy-feedback--${copyStatus}`}>
                   {copyStatus === 'success'
                     ? 'Topologie copiée dans le presse-papiers.'
@@ -675,6 +733,9 @@ export function AdminStudioApp() {
                       : hasTopologyContent
                         ? 'Ajustez zones et dispositifs avant export.'
                         : 'Ajoutez un plan et des dispositifs pour générer la topologie.'}
+                </span>
+                <span className={`topology-publish-feedback topology-publish-feedback--${publishStatus}`}>
+                  {publishFeedbackMessage}
                 </span>
               </div>
             </div>
