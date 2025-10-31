@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { ManualEvacuationPanel, StatusTile, TimelineBadge } from '@simu-ssi/shared-ui';
 import {
   SsiSdk,
+  type AccessCode,
   type ScenarioDefinition,
   type ScenarioEvent,
   type ScenarioPayload,
@@ -289,6 +290,7 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
 export function App() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
   const [snapshot, setSnapshot] = useState<DomainSnapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [events, setEvents] = useState<string[]>([]);
   const [ackPending, setAckPending] = useState(false);
   const [clearPending, setClearPending] = useState(false);
@@ -297,6 +299,12 @@ export function App() {
   const [resetPending, setResetPending] = useState(false);
   const [resettingZone, setResettingZone] = useState<string | null>(null);
   const [resettingDaiZone, setResettingDaiZone] = useState<string | null>(null);
+  const [accessCodes, setAccessCodes] = useState<AccessCode[]>([]);
+  const [accessCodesLoading, setAccessCodesLoading] = useState(true);
+  const [accessCodesError, setAccessCodesError] = useState<string | null>(null);
+  const [accessCodesFeedback, setAccessCodesFeedback] = useState<string | null>(null);
+  const [codeInputs, setCodeInputs] = useState<Record<number, string>>({});
+  const [updatingCodeLevel, setUpdatingCodeLevel] = useState<number | null>(null);
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
@@ -321,6 +329,24 @@ export function App() {
 
   useEffect(() => {
     sdk.getSiteConfig().then(setConfig).catch(console.error);
+    setAccessCodesLoading(true);
+    sdk
+      .getAccessCodes()
+      .then((codes) => {
+        setAccessCodes(codes);
+        setCodeInputs(
+          codes.reduce<Record<number, string>>((acc, entry) => {
+            acc[entry.level] = entry.code;
+            return acc;
+          }, {}),
+        );
+        setAccessCodesError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setAccessCodesError('Impossible de charger les codes d\'accès.');
+      })
+      .finally(() => setAccessCodesLoading(false));
     refreshScenarios();
     refreshScenarioStatus();
     const socket = io(baseUrl);
@@ -462,6 +488,54 @@ export function App() {
     [sdk],
   );
 
+  const handleAccessCodeInputChange = useCallback((level: number, value: string) => {
+    setCodeInputs((prev) => ({ ...prev, [level]: value }));
+  }, []);
+
+  const handleAccessCodeSubmit = useCallback(
+    async (level: number) => {
+      const value = (codeInputs[level] ?? '').trim();
+      if (value.length < 4 || value.length > 8) {
+        setAccessCodesError('Le code doit comporter entre 4 et 8 chiffres.');
+        setAccessCodesFeedback(null);
+        return;
+      }
+      if (!/^[0-9]+$/.test(value)) {
+        setAccessCodesError('Utilisez uniquement des chiffres pour le code.');
+        setAccessCodesFeedback(null);
+        return;
+      }
+      setAccessCodesError(null);
+      setAccessCodesFeedback(null);
+      setUpdatingCodeLevel(level);
+      try {
+        const updated = await sdk.updateAccessCode(level, value);
+        setAccessCodes((prev) => {
+          const others = prev.filter((entry) => entry.level !== level);
+          return [...others, updated].sort((a, b) => a.level - b.level);
+        });
+        setCodeInputs((prev) => ({ ...prev, [level]: updated.code }));
+        setAccessCodesFeedback(`Code niveau ${level} mis à jour.`);
+      } catch (error) {
+        console.error(error);
+        const message = error instanceof Error ? error.message : 'Erreur inattendue';
+        if (message === 'CODE_ALREADY_IN_USE') {
+          setAccessCodesError('Ce code est déjà attribué à un autre niveau.');
+        } else if (message === 'CODE_DIGITS_ONLY') {
+          setAccessCodesError('Le code ne doit contenir que des chiffres.');
+        } else if (message === 'INVALID_LEVEL') {
+          setAccessCodesError('Niveau non pris en charge.');
+        } else {
+          setAccessCodesError('Impossible de mettre à jour le code.');
+        }
+        setAccessCodesFeedback(null);
+      } finally {
+        setUpdatingCodeLevel(null);
+      }
+    },
+    [codeInputs, sdk],
+  );
+
   const updateDraftEvent = (eventId: string, updater: (event: ScenarioEventDraft) => ScenarioEventDraft) => {
     setDraftScenario((prev) => ({
       ...prev,
@@ -588,7 +662,8 @@ export function App() {
     }
   };
 
-  const remainingMs = snapshot?.cmsi?.deadline ? snapshot.cmsi.deadline - Date.now() : undefined;
+  const remainingMs =
+    snapshot?.cmsi?.deadline != null ? Math.max(0, snapshot.cmsi.deadline - now) : undefined;
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);
@@ -623,6 +698,11 @@ export function App() {
   const scenarioStateLabel = translateScenarioStatus(scenarioStatus.status);
   const nextScenarioEvent = describeScenarioEvent(scenarioStatus.nextEvent);
   const scenarioIsRunning = scenarioStatus.status === 'running';
+  const accessCodeMap = useMemo(() => {
+    const map = new Map<number, AccessCode>();
+    accessCodes.forEach((entry) => map.set(entry.level, entry));
+    return map;
+  }, [accessCodes]);
 
   return (
     <div className="app-shell">
@@ -990,6 +1070,66 @@ export function App() {
               </div>
             </div>
 
+            <div className="card access-card">
+              <div className="card__header">
+                <h2 className="card__title">Codes d&apos;accès SSI</h2>
+                <p className="card__description">
+                  Définissez les codes d&apos;accès des niveaux opérateur. Les codes sont appliqués instantanément au poste apprenant.
+                </p>
+              </div>
+              {accessCodesError && <p className="card__alert">{accessCodesError}</p>}
+              {accessCodesFeedback && !accessCodesError && <p className="card__feedback">{accessCodesFeedback}</p>}
+              {accessCodesLoading ? (
+                <p className="access-card__loading">Chargement des codes en cours…</p>
+              ) : (
+                <div className="access-card__grid">
+                  {[2, 3].map((level) => {
+                    const current = accessCodeMap.get(level);
+                    const lastUpdate = current?.updatedAt
+                      ? formatTime(new Date(current.updatedAt).getTime())
+                      : '—';
+                    return (
+                      <form
+                        key={level}
+                        className="access-code-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          handleAccessCodeSubmit(level);
+                        }}
+                      >
+                        <div className="access-code-form__header">
+                          <span className="access-code-form__level">Niveau {level}</span>
+                          <span className="access-code-form__timestamp">Dernière mise à jour : {lastUpdate}</span>
+                        </div>
+                        <label className="access-code-field">
+                          <span>Code</span>
+                          <input
+                            value={codeInputs[level] ?? ''}
+                            onChange={(event) => handleAccessCodeInputChange(level, event.target.value)}
+                            placeholder="4 à 8 chiffres"
+                            className="text-input"
+                            maxLength={8}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className="btn btn--primary"
+                          disabled={updatingCodeLevel === level}
+                          aria-busy={updatingCodeLevel === level}
+                        >
+                          {updatingCodeLevel === level ? 'Enregistrement…' : 'Enregistrer'}
+                        </button>
+                      </form>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="access-card__hint">
+                Le niveau 1 reste accessible sans code. Le niveau 3 est réservé aux équipes de maintenance et n&apos;est pas utilisable
+                depuis le poste apprenant.
+              </p>
+            </div>
+
             <div className="card scenario-card">
               <div className="card__header">
                 <h2 className="card__title">Scénarios personnalisés</h2>
@@ -1106,81 +1246,95 @@ export function App() {
                       const ackEvent = eventDraft.type === 'PROCESS_ACK';
                       return (
                         <div key={eventDraft.id} className="scenario-event-row">
-                          <span className="scenario-event-row__index">#{index + 1}</span>
-                          <label className="scenario-event-field scenario-event-field--offset">
-                            <span>Offset (s)</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={offsetValue}
-                              onChange={(input) => {
-                                const value = Number.parseFloat(input.target.value);
-                                handleScenarioEventOffsetChange(eventDraft.id, Number.isNaN(value) ? 0 : value);
-                              }}
-                            />
-                          </label>
-                          <label className="scenario-event-field scenario-event-field--type">
-                            <span>Action</span>
-                            <select
-                              value={eventDraft.type}
-                              onChange={(input) =>
-                                handleScenarioEventTypeChange(eventDraft.id, input.target.value as ScenarioEvent['type'])
-                              }
-                            >
-                              {SCENARIO_EVENT_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {zoneEvent && (
-                            <label className="scenario-event-field scenario-event-field--zone">
-                              <span>Zone</span>
+                          <div className="scenario-event-row__header">
+                            <div className="scenario-event-row__title">
+                              <span className="scenario-event-row__index">#{index + 1}</span>
+                              <label className="scenario-event-field scenario-event-field--type">
+                                <span>Action</span>
+                                <select
+                                  value={eventDraft.type}
+                                  onChange={(input) =>
+                                    handleScenarioEventTypeChange(
+                                      eventDraft.id,
+                                      input.target.value as ScenarioEvent['type'],
+                                    )
+                                  }
+                                >
+                                  {SCENARIO_EVENT_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <div className="scenario-event-row__meta">
+                              <label className="scenario-event-field scenario-event-field--offset">
+                                <span>Offset (s)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.1}
+                                  value={offsetValue}
+                                  onChange={(input) => {
+                                    const value = Number.parseFloat(input.target.value);
+                                    handleScenarioEventOffsetChange(
+                                      eventDraft.id,
+                                      Number.isNaN(value) ? 0 : value,
+                                    );
+                                  }}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                className="scenario-event-remove"
+                                onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
+                                aria-label={`Supprimer l'événement ${index + 1}`}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                          <div className="scenario-event-row__content">
+                            {zoneEvent && (
+                              <label className="scenario-event-field scenario-event-field--zone">
+                                <span>Zone</span>
+                                <input
+                                  value={(eventDraft as { zoneId: string }).zoneId}
+                                  onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
+                                  placeholder="ZF1"
+                                />
+                              </label>
+                            )}
+                            {reasonEvent && (
+                              <label className="scenario-event-field scenario-event-field--reason">
+                                <span>Motif</span>
+                                <input
+                                  value={(eventDraft as { reason?: string }).reason ?? ''}
+                                  onChange={(input) => handleScenarioEventReasonChange(eventDraft.id, input.target.value)}
+                                  placeholder="Ex : Exercice, dérangement"
+                                />
+                              </label>
+                            )}
+                            {ackEvent && (
+                              <label className="scenario-event-field scenario-event-field--acked">
+                                <span>Opérateur</span>
+                                <input
+                                  value={(eventDraft as { ackedBy?: string }).ackedBy ?? ''}
+                                  onChange={(input) => handleScenarioEventAckedByChange(eventDraft.id, input.target.value)}
+                                  placeholder="trainer / trainee"
+                                />
+                              </label>
+                            )}
+                            <label className="scenario-event-field scenario-event-field--label">
+                              <span>Libellé</span>
                               <input
-                                value={(eventDraft as { zoneId: string }).zoneId}
-                                onChange={(input) => handleScenarioEventZoneChange(eventDraft.id, input.target.value)}
-                                placeholder="ZF1"
+                                value={eventDraft.label ?? ''}
+                                onChange={(input) => handleScenarioEventLabelChange(eventDraft.id, input.target.value)}
+                                placeholder="Note pédagogique (optionnel)"
                               />
                             </label>
-                          )}
-                          {reasonEvent && (
-                            <label className="scenario-event-field scenario-event-field--reason">
-                              <span>Motif</span>
-                              <input
-                                value={(eventDraft as { reason?: string }).reason ?? ''}
-                                onChange={(input) => handleScenarioEventReasonChange(eventDraft.id, input.target.value)}
-                                placeholder="Ex : Exercice, dérangement"
-                              />
-                            </label>
-                          )}
-                          {ackEvent && (
-                            <label className="scenario-event-field scenario-event-field--acked">
-                              <span>Opérateur</span>
-                              <input
-                                value={(eventDraft as { ackedBy?: string }).ackedBy ?? ''}
-                                onChange={(input) => handleScenarioEventAckedByChange(eventDraft.id, input.target.value)}
-                                placeholder="trainer / trainee"
-                              />
-                            </label>
-                          )}
-                          <label className="scenario-event-field scenario-event-field--label">
-                            <span>Libellé</span>
-                            <input
-                              value={eventDraft.label ?? ''}
-                              onChange={(input) => handleScenarioEventLabelChange(eventDraft.id, input.target.value)}
-                              placeholder="Note pédagogique (optionnel)"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="scenario-event-remove"
-                            onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
-                            aria-label={`Supprimer l'événement ${index + 1}`}
-                          >
-                            ×
-                          </button>
+                          </div>
                         </div>
                       );
                     })}

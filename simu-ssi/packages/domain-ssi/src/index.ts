@@ -81,6 +81,7 @@ export interface SsiDomain {
   resetDai(zoneId: string): void;
   acknowledgeProcess(ackedBy: string): void;
   clearProcessAck(): void;
+  silenceAudibleAlarm(): void;
   startManualEvacuation(reason?: string): void;
   stopManualEvacuation(reason?: string): void;
   trySystemReset(): { ok: true } | { ok: false; reason: 'DM_NOT_RESET' | 'DAI_NOT_RESET' };
@@ -312,6 +313,15 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       const now = Date.now();
       processAck = { isAcked: false, clearedAt: now };
       log({ ts: now, source: 'TRAINER', message: 'Process acknowledgement cleared' });
+      emitSnapshot();
+    },
+    silenceAudibleAlarm() {
+      if (!ugaActive) {
+        return;
+      }
+      const now = Date.now();
+      ugaActive = false;
+      log({ ts: now, source: 'TRAINEE', message: 'Audible alarm silenced' });
       emitSnapshot();
     },
     startManualEvacuation(reason) {

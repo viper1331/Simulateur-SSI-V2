@@ -119,6 +119,10 @@ export class SsiSdk {
     await this.post('/api/process/clear');
   }
 
+  async silenceAudibleAlarm() {
+    await this.post('/api/uga/silence');
+  }
+
   async activateManualCallPoint(zoneId: string) {
     await this.post(`/api/sdi/dm/${zoneId}/activate`);
   }
@@ -137,6 +141,44 @@ export class SsiSdk {
 
   async resetSystem() {
     await this.post('/api/system/reset');
+  }
+
+  async verifyAccessCode(code: string): Promise<AccessAuthorisation> {
+    const response = await fetch(`${this.baseUrl}/api/access/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to verify access code');
+    }
+    const json = await response.json();
+    return accessAuthorisationSchema.parse(json);
+  }
+
+  async getAccessCodes(): Promise<AccessCode[]> {
+    const response = await fetch(`${this.baseUrl}/api/access/codes`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch access codes');
+    }
+    const json = await response.json();
+    const parsed = accessCodeListSchema.parse(json);
+    return parsed.codes;
+  }
+
+  async updateAccessCode(level: number, code: string): Promise<AccessCode> {
+    const response = await fetch(`${this.baseUrl}/api/access/codes/${level}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      const message = errorBody?.error ?? 'Failed to update access code';
+      throw new Error(message);
+    }
+    const json = await response.json();
+    return accessCodeSchema.parse(json.code);
   }
 
   async listScenarios(): Promise<ScenarioDefinition[]> {
