@@ -18,20 +18,20 @@ function parsePayload(json: string | null): Record<string, unknown> | null {
     const value = JSON.parse(json);
     return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
   } catch (error) {
-    log.error('Failed to parse event payload JSON', { error: toError(error) });
+    log.error("Échec de l'analyse du JSON de l'événement", { error: toError(error) });
     return null;
   }
 }
 
 export async function generateImprovementAreasForSession(sessionId: string): Promise<ImprovementArea[]> {
-  log.debug('Generating improvement areas for session', { sessionId });
+  log.debug("Génération des axes d'amélioration pour la session", { sessionId });
   const events = await prisma.eventLog.findMany({
     where: { sessionId },
     orderBy: { ts: 'asc' },
   });
 
   if (events.length === 0) {
-    log.info('No events found for session, skipping improvements', { sessionId });
+    log.info("Aucun événement trouvé pour la session, amélioration ignorée", { sessionId });
     return [];
   }
 
@@ -166,7 +166,7 @@ export async function generateImprovementAreasForSession(sessionId: string): Pro
     });
   }
 
-  log.info('Improvement areas generated', {
+  log.info("Axes d'amélioration générés", {
     sessionId,
     improvementCount: improvements.length,
   });

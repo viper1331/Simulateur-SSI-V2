@@ -82,12 +82,12 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
     if (!record) {
       this.activeSessionId = null;
       this.currentSession = null;
-      this.log.debug('No existing sessions found during hydration');
+      this.log.debug("Aucune session existante trouvée lors de l'initialisation");
       return null;
     }
     this.activeSessionId = record.endedAt ? null : record.id;
     this.currentSession = this.serialize(record);
-    this.log.info('Hydrated session state', {
+    this.log.info("État de session chargé", {
       activeSessionId: this.activeSessionId,
       status: this.currentSession.status,
     });
@@ -108,7 +108,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       take: limit,
       include: { trainee: true, trainer: true },
     });
-    this.log.debug('Listed sessions', { limit, count: records.length });
+    this.log.debug("Liste des sessions générée", { limit, count: records.length });
     return records.map((record) => this.serialize(record));
   }
 
@@ -117,13 +117,13 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       where: { id },
       include: { trainee: true, trainer: true },
     });
-    this.log.debug('Fetched session', { id, found: Boolean(record) });
+    this.log.debug("Session récupérée", { id, found: Boolean(record) });
     return record ? this.serialize(record) : null;
   }
 
   async createSession(input: SessionCreateInput): Promise<SessionView> {
     if (this.activeSessionId) {
-      this.log.warn('Attempt to create session while another is active', {
+      this.log.warn("Tentative de création d'une session alors qu'une autre est active", {
         activeSessionId: this.activeSessionId,
       });
       throw new Error('SESSION_ALREADY_ACTIVE');
@@ -143,7 +143,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
     this.activeSessionId = session.id;
     this.currentSession = this.serialize(session);
     this.emit('session.update', this.currentSession);
-    this.log.info('Session created', {
+    this.log.info("Session créée", {
       sessionId: session.id,
       traineeId: session.traineeId,
       trainerId: session.trainerId,
@@ -152,7 +152,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
   }
 
   async updateSession(id: string, input: SessionUpdateInput): Promise<SessionView> {
-    this.log.debug('Updating session', { id, payload: input });
+    this.log.debug("Mise à jour de la session", { id, payload: input });
     const session = await prisma.session.update({
       where: { id },
       data: {
@@ -170,7 +170,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       this.currentSession = this.serialize(session);
       this.emit('session.update', this.currentSession);
     }
-    this.log.info('Session updated', {
+    this.log.info("Session mise à jour", {
       sessionId: session.id,
       status: session.endedAt ? 'completed' : 'active',
     });
@@ -178,7 +178,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
   }
 
   async closeSession(id: string, input: SessionCloseInput): Promise<SessionView> {
-    this.log.debug('Closing session', { id });
+    this.log.debug("Clôture de la session", { id });
     const improvementJson =
       input.improvementAreas === undefined
         ? undefined
@@ -199,7 +199,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
     }
     this.currentSession = this.serialize(session);
     this.emit('session.update', this.currentSession);
-    this.log.info('Session closed', {
+    this.log.info("Session clôturée", {
       sessionId: session.id,
       improvementCount: input.improvementAreas?.length ?? 0,
     });
@@ -250,7 +250,7 @@ function parseImprovementAreas(json: string | null): ImprovementArea[] {
     }
     return result;
   } catch (error) {
-    sessionLogger.error('Failed to parse improvement axes JSON', { error: toError(error) });
+    sessionLogger.error("Échec de l'analyse du JSON des axes d'amélioration", { error: toError(error) });
     return [];
   }
 }

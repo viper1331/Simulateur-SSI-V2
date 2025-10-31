@@ -105,9 +105,9 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   app.use((req, res, next) => {
     const start = Date.now();
-    log.debug('Incoming request', { method: req.method, path: req.originalUrl });
+    log.debug("Requête entrante", { method: req.method, path: req.originalUrl });
     res.on('finish', () => {
-      log.info('Request completed', {
+      log.info("Requête terminée", {
         method: req.method,
         path: req.originalUrl,
         status: res.statusCode,
@@ -115,7 +115,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       });
     });
     res.on('error', (error) => {
-      log.error('Response stream error', {
+      log.error("Erreur du flux de réponse", {
         error: toError(error),
         method: req.method,
         path: req.originalUrl,
@@ -130,10 +130,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   void loadTraineeLayout()
     .then((layout) => {
       latestLayout = layout;
-      log.info('Trainee layout loaded at startup');
+      log.info("Disposition stagiaire chargée au démarrage");
     })
     .catch((error) => {
-      log.error('Failed to load trainee layout at startup', { error: toError(error) });
+      log.error("Échec du chargement de la disposition stagiaire au démarrage", { error: toError(error) });
     });
 
   app.get('/api/users', async (req, res) => {
@@ -144,7 +144,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       where,
       orderBy: { fullName: 'asc' },
     });
-    log.debug('Users fetched', { role: where?.role ?? 'ANY', count: users.length });
+    log.debug("Utilisateurs récupérés", { role: where?.role ?? 'ANY', count: users.length });
     res.json({ users: users.map(formatUser) });
   });
 
@@ -162,13 +162,13 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
           role: data.role,
         },
       });
-      log.info('User created', { userId: user.id, role: user.role });
+      log.info("Utilisateur créé", { userId: user.id, role: user.role });
       res.status(201).json({ user: formatUser(user) });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         return res.status(409).json({ error: 'EMAIL_ALREADY_IN_USE' });
       }
-      log.error('Failed to create user', { error: toError(error) });
+      log.error("Échec de la création de l'utilisateur", { error: toError(error) });
       res.status(500).json({ error: 'FAILED_TO_CREATE_USER' });
     }
   });
@@ -194,7 +194,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
           role: data.role ?? undefined,
         },
       });
-      log.info('User updated', { userId: user.id });
+      log.info("Utilisateur mis à jour", { userId: user.id });
       res.json({ user: formatUser(user) });
     } catch (error) {
       if (isKnownRequestError(error)) {
@@ -205,7 +205,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
           return res.status(404).json({ error: 'USER_NOT_FOUND' });
         }
       }
-      log.error('Failed to update user', { error: toError(error), userId: id });
+      log.error("Échec de la mise à jour de l'utilisateur", { error: toError(error), userId: id });
       res.status(500).json({ error: 'FAILED_TO_UPDATE_USER' });
     }
   });
@@ -221,13 +221,13 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }
     try {
       await prisma.user.delete({ where: { id } });
-      log.info('User deleted', { userId: id });
+      log.info("Utilisateur supprimé", { userId: id });
       res.status(204).send();
     } catch (error) {
       if (isKnownRequestError(error) && error.code === 'P2025') {
         return res.status(404).json({ error: 'USER_NOT_FOUND' });
       }
-      log.error('Failed to delete user', { error: toError(error), userId: id });
+      log.error("Échec de la suppression de l'utilisateur", { error: toError(error), userId: id });
       res.status(500).json({ error: 'FAILED_TO_DELETE_USER' });
     }
   });
@@ -237,16 +237,16 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     const limit = Number.isFinite(limitRaw) && limitRaw! > 0 ? Math.min(Math.floor(limitRaw!), 100) : 20;
     try {
       const sessions = await sessionManager.listSessions(limit);
-      log.debug('Sessions listed', { limit, count: sessions.length });
+      log.debug("Sessions renvoyées", { limit, count: sessions.length });
       res.json({ sessions });
     } catch (error) {
-      log.error('Failed to list sessions', { error: toError(error), limit });
+      log.error("Échec de la récupération des sessions", { error: toError(error), limit });
       res.status(500).json({ error: 'FAILED_TO_LIST_SESSIONS' });
     }
   });
 
   app.get('/api/sessions/active', (_req, res) => {
-    log.debug('Active session requested');
+    log.debug("Session active demandée");
     res.json({ session: sessionManager.getCurrentSession() });
   });
 
@@ -272,7 +272,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         objective: objectiveInput.length > 0 ? objectiveInput : undefined,
         notes: notesInput.length > 0 ? notesInput : undefined,
       });
-      log.info('Session created via API', { sessionId: session.id });
+      log.info("Session créée via l'API", { sessionId: session.id });
       res.status(201).json({ session });
     } catch (error) {
       if (error instanceof Error && error.message === 'SESSION_ALREADY_ACTIVE') {
@@ -281,7 +281,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       if (isKnownRequestError(error) && error.code === 'P2025') {
         return res.status(404).json({ error: 'RELATED_USER_NOT_FOUND' });
       }
-      log.error('Failed to create session', { error: toError(error) });
+      log.error("Échec de la création de la session", { error: toError(error) });
       res.status(500).json({ error: 'FAILED_TO_CREATE_SESSION' });
     }
   });
@@ -333,7 +333,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         objective: nextObjective,
         notes: nextNotes,
       });
-      log.info('Session updated via API', { sessionId: session.id });
+      log.info("Session mise à jour via l'API", { sessionId: session.id });
       res.json({ session });
     } catch (error) {
       if (isKnownRequestError(error) && error.code === 'P2025') {
@@ -342,7 +342,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       if (isKnownRequestError(error) && error.code === 'P2003') {
         return res.status(404).json({ error: 'RELATED_USER_NOT_FOUND' });
       }
-      log.error('Failed to update session', { error: toError(error), sessionId: id });
+      log.error("Échec de la mise à jour de la session", { error: toError(error), sessionId: id });
       res.status(500).json({ error: 'FAILED_TO_UPDATE_SESSION' });
     }
   });
@@ -366,13 +366,13 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         improvementAreas: normalizeImprovementAreas(payload.improvementAreas),
         endedAt,
       });
-      log.info('Session closed via API', { sessionId: session.id });
+      log.info("Session clôturée via l'API", { sessionId: session.id });
       res.json({ session });
     } catch (error) {
       if (isKnownRequestError(error) && error.code === 'P2025') {
         return res.status(404).json({ error: 'SESSION_NOT_FOUND' });
       }
-      log.error('Failed to close session', { error: toError(error), sessionId: id });
+      log.error("Échec de la clôture de la session", { error: toError(error), sessionId: id });
       res.status(500).json({ error: 'FAILED_TO_CLOSE_SESSION' });
     }
   });
@@ -385,20 +385,20 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         return res.status(404).json({ error: 'SESSION_NOT_FOUND' });
       }
       const suggestions = await generateImprovementAreasForSession(id);
-      log.info('Improvement suggestions generated', {
+      log.info("Suggestions d'amélioration générées", {
         sessionId: id,
         improvementCount: suggestions.length,
       });
       res.json({ improvementAreas: suggestions });
     } catch (error) {
-      log.error('Failed to generate improvement suggestions', { error: toError(error), sessionId: id });
+      log.error("Échec de la génération des suggestions d'amélioration", { error: toError(error), sessionId: id });
       res.status(500).json({ error: 'FAILED_TO_GENERATE_IMPROVEMENTS' });
     }
   });
 
   app.get('/api/config/site', async (_req, res) => {
     const config = await prisma.siteConfig.findUniqueOrThrow({ where: { id: 1 } });
-    log.debug('Site configuration fetched');
+    log.debug("Configuration du site récupérée");
     res.json({
       evacOnDAI: config.evacOnDAI,
       evacOnDMDelayMs: config.evacOnDMDelayMs,
@@ -410,10 +410,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     try {
       const layout = await loadTraineeLayout();
       latestLayout = layout;
-      log.debug('Trainee layout fetched');
+      log.debug("Disposition stagiaire récupérée");
       res.json(layout);
     } catch (error) {
-      log.error('Failed to fetch trainee layout', { error: toError(error) });
+      log.error("Échec de la récupération de la disposition stagiaire", { error: toError(error) });
       res.status(500).json({ error: 'FAILED_TO_FETCH_TRAINEE_LAYOUT' });
     }
   });
@@ -436,13 +436,13 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     try {
       const persisted = await persistTraineeLayout(layout);
       latestLayout = persisted;
-      log.info('Trainee layout updated');
+      log.info("Disposition stagiaire mise à jour");
       res.json(persisted);
       if (ioRef) {
         ioRef.emit('layout.update', persisted);
       }
     } catch (error) {
-      log.error('Failed to persist trainee layout', { error: toError(error) });
+      log.error("Échec de la sauvegarde de la disposition stagiaire", { error: toError(error) });
       res.status(500).json({ error: 'FAILED_TO_SAVE_TRAINEE_LAYOUT' });
     }
   });
@@ -457,7 +457,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       data: parsed.data,
     });
     await domainContext.refreshConfig();
-    log.info('Site configuration updated', {
+    log.info("Configuration du site mise à jour", {
       evacOnDAI: parsed.data.evacOnDAI,
       evacOnDMDelayMs: parsed.data.evacOnDMDelayMs,
       processAckRequired: parsed.data.processAckRequired,
@@ -478,7 +478,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       code: row.code,
       updatedAt: new Date(row.updatedAt).toISOString(),
     }));
-    log.debug('Access codes listed', { count: codes.length });
+    log.debug("Codes d'accès renvoyés", { count: codes.length });
     res.json({ codes });
   });
 
@@ -508,7 +508,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     if (!record) {
       return res.status(500).json({ error: 'ACCESS_CODE_NOT_FOUND' });
     }
-    log.info('Access code updated', { level });
+    log.info("Code d'accès mis à jour", { level });
     res.json({
       code: {
         level: Number(record.level),
@@ -525,22 +525,22 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }
     const input = parsed.data.code.trim();
     if (input.length === 0) {
-      log.debug('Access code verification granted by default');
+      log.debug("Vérification du code d'accès accordée par défaut");
       return res.json({ level: 1, allowed: true, label: 'Accès niveau 1 actif — arrêt signal sonore disponible.' });
     }
     const rows = await prisma.$queryRaw<Array<{ level: number }>>`
       SELECT level FROM "AccessCode" WHERE code = ${input} LIMIT 1
     `;
     if (rows.length === 0) {
-      log.debug('Access code rejected', { reason: 'unknown-code' });
+      log.debug("Code d'accès refusé", { reason: 'unknown-code' });
       return res.json({ level: null, allowed: false, label: 'Code invalide — niveau courant conservé.' });
     }
     const level = Number(rows[0].level);
     if (level >= 3) {
-      log.debug('Access code rejected', { reason: 'level-3', level });
+      log.debug("Code d'accès refusé", { reason: 'level-3', level });
       return res.json({ level, allowed: false, label: 'Niveau 3 réservé au technicien de maintenance.' });
     }
-    log.info('Access code accepted', { level });
+    log.info("Code d'accès accepté", { level });
     return res.json({ level, allowed: true, label: `Accès niveau ${level} accordé — commandes avancées disponibles.` });
   });
 
@@ -551,7 +551,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       data: { isAcked: true, ackedBy, ackedAt: new Date(), clearedAt: null },
     });
     domainContext.domain.acknowledgeProcess(ackedBy);
-    log.info('Process acknowledged', { ackedBy });
+    log.info("Processus accusé réception", { ackedBy });
     res.status(204).send();
   });
 
@@ -561,7 +561,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       data: { isAcked: false, clearedAt: new Date(), ackedAt: null, ackedBy: null },
     });
     domainContext.domain.clearProcessAck();
-    log.info('Process acknowledgement cleared');
+    log.info("Accusé de réception du processus annulé");
     res.status(204).send();
   });
 
@@ -578,7 +578,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         },
       });
     }
-    log.info('Audible alarm silenced', { wasActive });
+    log.info("Alarme sonore neutralisée", { wasActive });
     res.status(202).json({ status: 'audible-silenced' });
   });
 
@@ -594,7 +594,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       },
     });
     domainContext.domain.activateDm(zoneId);
-    log.info('Manual call point activated', { zoneId });
+    log.info("Déclencheur manuel activé", { zoneId });
     res.status(202).json({ status: 'latched', zoneId });
   });
 
@@ -608,21 +608,21 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       return res.status(404).json({ error: 'ZONE_NOT_FOUND' });
     }
     domainContext.domain.resetDm(zoneId);
-    log.info('Manual call point reset', { zoneId });
+    log.info("Déclencheur manuel réarmé", { zoneId });
     res.status(200).json({ status: 'cleared', zoneId });
   });
 
   app.post('/api/sdi/dai/:zone/activate', async (req, res) => {
     const zoneId = req.params.zone;
     domainContext.domain.activateDai(zoneId);
-    log.info('Automatic detector activated', { zoneId });
+    log.info("Détecteur automatique activé", { zoneId });
     res.status(202).json({ status: 'activated', zoneId });
   });
 
   app.post('/api/sdi/dai/:zone/reset', async (req, res) => {
     const zoneId = req.params.zone;
     domainContext.domain.resetDai(zoneId);
-    log.info('Automatic detector reset', { zoneId });
+    log.info("Détecteur automatique réarmé", { zoneId });
     res.status(200).json({ status: 'cleared', zoneId });
   });
 
@@ -639,7 +639,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         sessionId: sessionManager.getActiveSessionId() ?? undefined,
       },
     });
-    log.info('Manual evacuation started', { reason: parsed.data.reason });
+    log.info("Évacuation manuelle démarrée", { reason: parsed.data.reason });
     res.status(202).json({ status: 'manual-evac-started' });
   });
 
@@ -656,7 +656,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         sessionId: sessionManager.getActiveSessionId() ?? undefined,
       },
     });
-    log.info('Manual evacuation stopped', { reason: parsed.data.reason });
+    log.info("Évacuation manuelle arrêtée", { reason: parsed.data.reason });
     res.status(202).json({ status: 'manual-evac-stopped' });
   });
 
@@ -669,7 +669,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       where: { id: 1 },
       data: { isAcked: false, ackedAt: null, ackedBy: null, clearedAt: new Date() },
     });
-    log.info('System reset requested');
+    log.info("Remise à zéro du système demandée");
     res.status(200).json({ status: 'reset' });
   });
 
@@ -690,7 +690,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       ...event,
       payloadJson: event.payloadJson ? JSON.parse(event.payloadJson) : null,
     }));
-    log.debug('Events fetched', {
+    log.debug("Événements récupérés", {
       count: normalizedEvents.length,
       sessionId: sessionId ? String(sessionId) : undefined,
     });
@@ -698,7 +698,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   });
 
   app.get('/api/state', (_req, res) => {
-    log.debug('Domain state requested');
+    log.debug("État du domaine demandé");
     res.json(domainContext.snapshot());
   });
 
@@ -708,7 +708,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       prisma.device.findMany({ orderBy: { id: 'asc' } }),
       prisma.siteConfig.findUnique({ where: { id: 1 } }),
     ]);
-    log.debug('Topology fetched', { zoneCount: zones.length, deviceCount: devices.length });
+    log.debug("Topologie récupérée", { zoneCount: zones.length, deviceCount: devices.length });
     res.json(
       formatTopologyResponse(zones, devices, {
         name: config?.planName ?? undefined,
@@ -769,7 +769,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         });
       });
     } catch (error) {
-      log.error('Failed to persist topology', { error: toError(error) });
+      log.error("Échec de la sauvegarde de la topologie", { error: toError(error) });
       return res.status(500).json({ error: 'FAILED_TO_SAVE_TOPOLOGY' });
     }
     const [persistedZones, persistedDevices, persistedConfig] = await Promise.all([
@@ -782,7 +782,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       image: persistedConfig?.planImage ?? undefined,
       notes: persistedConfig?.planNotes ?? undefined,
     });
-    log.info('Topology updated', {
+    log.info("Topologie mise à jour", {
       zoneCount: persistedZones.length,
       deviceCount: persistedDevices.length,
     });
@@ -795,7 +795,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   app.get('/api/scenarios', async (_req, res) => {
     const records = await prisma.scenario.findMany({ orderBy: { name: 'asc' } });
     const scenarios = records.map(serializeScenarioRecord);
-    log.debug('Scenarios listed', { count: scenarios.length });
+    log.debug("Scénarios renvoyés", { count: scenarios.length });
     res.json({ scenarios });
   });
 
@@ -821,7 +821,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       description: parsed.data.description,
       events: eventsWithIds,
     });
-    log.info('Scenario created', { scenarioId: scenario.id });
+    log.info("Scénario créé", { scenarioId: scenario.id });
     res.status(201).json({ scenario });
   });
 
@@ -847,13 +847,13 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       description: parsed.data.description,
       events: eventsWithIds,
     });
-    log.info('Scenario updated', { scenarioId: scenario.id });
+    log.info("Scénario mis à jour", { scenarioId: scenario.id });
     res.json({ scenario });
   });
 
   app.delete('/api/scenarios/:id', async (req, res) => {
     await prisma.scenario.delete({ where: { id: req.params.id } });
-    log.info('Scenario deleted', { scenarioId: req.params.id });
+    log.info("Scénario supprimé", { scenarioId: req.params.id });
     res.status(204).send();
   });
 
@@ -864,7 +864,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }
     const scenario = serializeScenarioRecord(record);
     scenarioRunner.run(scenario);
-    log.info('Scenario run requested', { scenarioId: scenario.id });
+    log.info("Exécution de scénario demandée", { scenarioId: scenario.id });
     await prisma.eventLog.create({
       data: {
         source: 'TRAINER',
@@ -878,7 +878,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   app.post('/api/scenarios/stop', async (_req, res) => {
     const previousScenario = scenarioRunner.state.scenario;
     scenarioRunner.stop(previousScenario ? 'stopped' : 'idle');
-    log.info('Scenario stop requested', { scenarioId: previousScenario?.id });
+    log.info("Arrêt de scénario demandé", { scenarioId: previousScenario?.id });
     if (previousScenario) {
       await prisma.eventLog.create({
         data: {
@@ -892,7 +892,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   });
 
   app.get('/api/scenarios/active', (_req, res) => {
-    log.debug('Scenario snapshot requested');
+    log.debug("Instantané du scénario demandé");
     res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
   });
 
@@ -921,7 +921,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   });
 
   io.on('connection', (socket) => {
-    log.debug('Client connected to websocket', { socketId: socket.id });
+    log.debug("Client connecté au WebSocket", { socketId: socket.id });
     socket.emit('scenario.update', scenarioRunner.state);
     socket.emit('layout.update', latestLayout);
     socket.emit('session.update', sessionManager.getCurrentSession());
@@ -970,7 +970,7 @@ function parseDeviceProps(json: string | null): Record<string, unknown> | undefi
     const value = JSON.parse(json);
     return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined;
   } catch (error) {
-    httpLogger.error('Failed to parse device props json', { error: toError(error) });
+    httpLogger.error("Échec de l'analyse du JSON des attributs de dispositif", { error: toError(error) });
     return undefined;
   }
 }
@@ -1038,7 +1038,7 @@ async function loadTraineeLayout(): Promise<TraineeLayoutConfig> {
       return layout;
     }
   } catch (error) {
-    httpLogger.error('Failed to parse trainee layout JSON', { error: toError(error) });
+    httpLogger.error("Échec de l'analyse du JSON de la disposition stagiaire", { error: toError(error) });
   }
   return DEFAULT_TRAINEE_LAYOUT;
 }
@@ -1054,7 +1054,7 @@ async function persistTraineeLayout(layout: TraineeLayoutConfig): Promise<Traine
     const parsed = JSON.parse(record.configJson);
     return traineeLayoutSchema.parse(parsed);
   } catch (error) {
-    httpLogger.error('Failed to parse persisted trainee layout JSON', { error: toError(error) });
+    httpLogger.error("Échec de l'analyse du JSON de la disposition stagiaire enregistrée", { error: toError(error) });
     return DEFAULT_TRAINEE_LAYOUT;
   }
 }
