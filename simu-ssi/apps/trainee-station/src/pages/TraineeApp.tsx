@@ -6,6 +6,8 @@ import {
   traineeLayoutSchema,
   siteTopologySchema,
   type SiteTopology,
+  type ScenarioDefinition,
+  type ScenarioEvent,
   type ScenarioRunnerSnapshot,
   type TraineeLayoutConfig,
 } from '@simu-ssi/sdk';
@@ -38,6 +40,7 @@ interface BoardModule {
   description: string;
   tone: BoardModuleTone;
   active: boolean;
+  highlighted?: boolean;
 }
 
 const cmsiStatusLabel: Record<string, string> = {
@@ -101,6 +104,106 @@ function describeScenarioEvent(status: ScenarioRunnerSnapshot): string {
     default:
       return 'Action scénarisée';
   }
+}
+
+interface ScenarioAdaptation {
+  boardHighlights: Set<string>;
+  controlHighlights: Set<string>;
+  steps: string[];
+  description?: string;
+}
+
+function formatScenarioOffset(offset: number): string {
+  if (!Number.isFinite(offset)) {
+    return '';
+  }
+  if (offset === 0) {
+    return 'T0';
+  }
+  const rounded = Number.isInteger(offset) ? offset : Number(offset.toFixed(1));
+  return `T+${rounded}s`;
+}
+
+function describeScenarioStep(event: ScenarioEvent): string {
+  if (event.label && event.label.trim().length > 0) {
+    return event.label.trim();
+  }
+  switch (event.type) {
+    case 'DM_TRIGGER':
+      return `Déclenchement DM ${event.zoneId}`;
+    case 'DM_RESET':
+      return `Réarmement DM ${event.zoneId}`;
+    case 'DAI_TRIGGER':
+      return `Détection DAI ${event.zoneId}`;
+    case 'DAI_RESET':
+      return `Réarmement DAI ${event.zoneId}`;
+    case 'MANUAL_EVAC_START':
+      return "Début évacuation manuelle";
+    case 'MANUAL_EVAC_STOP':
+      return 'Fin évacuation manuelle';
+    case 'PROCESS_ACK':
+      return 'Acquittement process';
+    case 'PROCESS_CLEAR':
+      return "Nettoyage de l'acquit";
+    case 'SYSTEM_RESET':
+      return 'Réarmement système';
+    default:
+      return 'Action scénarisée';
+  }
+}
+
+function deriveScenarioAdaptation(scenario?: ScenarioDefinition | null): ScenarioAdaptation {
+  const boardHighlights = new Set<string>();
+  const controlHighlights = new Set<string>();
+  const steps: string[] = [];
+  if (!scenario) {
+    return { boardHighlights, controlHighlights, steps, description: undefined };
+  }
+  const orderedEvents = [...scenario.events].sort((a, b) => a.offset - b.offset);
+  for (const event of orderedEvents) {
+    const offsetLabel = formatScenarioOffset(event.offset);
+    const actionLabel = describeScenarioStep(event);
+    const line = offsetLabel ? `${offsetLabel} · ${actionLabel}` : actionLabel;
+    steps.push(line);
+    switch (event.type) {
+      case 'DM_TRIGGER':
+      case 'DM_RESET': {
+        const boardId = `dm-${event.zoneId.toLowerCase()}`;
+        boardHighlights.add(boardId);
+        if (event.zoneId.toUpperCase() === 'ZF1') {
+          controlHighlights.add('reset-dm-zf1');
+        }
+        break;
+      }
+      case 'DAI_TRIGGER':
+      case 'DAI_RESET':
+        boardHighlights.add('dai');
+        break;
+      case 'MANUAL_EVAC_START':
+      case 'MANUAL_EVAC_STOP':
+        boardHighlights.add('manual-evac');
+        boardHighlights.add('uga');
+        controlHighlights.add('manual-evac-toggle');
+        break;
+      case 'PROCESS_ACK':
+      case 'PROCESS_CLEAR':
+        controlHighlights.add('ack');
+        boardHighlights.add('cmsi-status');
+        break;
+      case 'SYSTEM_RESET':
+        controlHighlights.add('reset-request');
+        boardHighlights.add('cmsi-status');
+        break;
+      default:
+        break;
+    }
+  }
+  return {
+    boardHighlights,
+    controlHighlights,
+    steps,
+    description: scenario.description?.trim() || undefined,
+  };
 }
 
 function orderItems<T extends { id: string }>(items: T[], order: string[], hidden: string[] = []): T[] {
@@ -307,6 +410,10 @@ export function TraineeApp() {
 
   const anyAudible = Boolean(snapshot?.ugaActive || snapshot?.localAudibleActive);
   const localAudibleOnly = Boolean(snapshot?.localAudibleActive && !snapshot?.ugaActive);
+  const scenarioAdaptation = useMemo(
+    () => deriveScenarioAdaptation(scenarioStatus.scenario),
+    [scenarioStatus.scenario],
+  );
 
   const boardModules: BoardModule[] = useMemo(() => {
     const daiCount = Object.keys(snapshot?.daiActivated ?? {}).length;
@@ -319,6 +426,7 @@ export function TraineeApp() {
         description: `Déclencheur manuel ${zone}`,
         tone: 'warning',
         active: isLatched,
+        highlighted: scenarioAdaptation.boardHighlights.has(`dm-${zone.toLowerCase()}`),
       };
     });
 
@@ -329,6 +437,7 @@ export function TraineeApp() {
         description: cmsiStatusLabel[snapshot?.cmsi.status ?? ''] ?? 'Système normal',
         tone: cmsiStatusTone[snapshot?.cmsi.status ?? ''] ?? 'info',
         active: Boolean(snapshot?.cmsi.status && snapshot.cmsi.status !== 'IDLE'),
+        highlighted: scenarioAdaptation.boardHighlights.has('cmsi-status'),
       },
       {
         id: 'uga',
@@ -340,6 +449,7 @@ export function TraineeApp() {
           : 'Alarme générale sonore',
         tone: snapshot?.ugaActive ? 'alarm' : localAudibleOnly ? 'warning' : 'info',
         active: anyAudible,
+        highlighted: scenarioAdaptation.boardHighlights.has('uga'),
       },
       {
         id: 'das',
@@ -347,6 +457,7 @@ export function TraineeApp() {
         description: 'Dispositifs actionnés de sécurité',
         tone: 'warning',
         active: Boolean(snapshot?.dasApplied),
+        highlighted: scenarioAdaptation.boardHighlights.has('das'),
       },
       {
         id: 'manual-evac',
@@ -354,6 +465,7 @@ export function TraineeApp() {
         description: 'Commande manuelle évacuation',
         tone: 'info',
         active: Boolean(snapshot?.manualEvacuation),
+        highlighted: scenarioAdaptation.boardHighlights.has('manual-evac'),
       },
       {
         id: 'dai',
@@ -364,10 +476,11 @@ export function TraineeApp() {
             : 'Détection automatique incendie',
         tone: daiCount > 0 ? 'warning' : 'info',
         active: daiCount > 0,
+        highlighted: scenarioAdaptation.boardHighlights.has('dai'),
       },
       ...dmModules,
     ];
-  }, [snapshot, anyAudible, localAudibleOnly]);
+  }, [snapshot, anyAudible, localAudibleOnly, scenarioAdaptation.boardHighlights]);
 
   const orderedBoardModules = useMemo(
     () => orderItems(boardModules, layout.boardModuleOrder, layout.boardModuleHidden ?? []),
@@ -381,6 +494,10 @@ export function TraineeApp() {
   const nextScenarioEvent = describeScenarioEvent(scenarioStatus);
 
   const cmsiMode = snapshot?.cmsi.manual ? 'Mode manuel' : 'Mode automatique';
+  const scenarioDescription = scenarioAdaptation.description;
+  const hasScenarioGuidance = Boolean(
+    scenarioStatus.scenario && (scenarioDescription || scenarioAdaptation.steps.length > 0),
+  );
 
   const controlButtons: ControlButtonItem[] = [
     {
@@ -423,7 +540,10 @@ export function TraineeApp() {
       disabled: accessLevel < 2,
       title: accessLevel < 2 ? 'Code niveau 2 requis' : undefined,
     },
-  ];
+  ].map((button) => ({
+    ...button,
+    highlighted: scenarioAdaptation.controlHighlights.has(button.id),
+  }));
 
   const orderedControlButtons = orderItems(
     controlButtons,
@@ -508,9 +628,38 @@ export function TraineeApp() {
     {
       id: 'instructions',
       element: (
-        <article className="detail-panel">
+        <article className={`detail-panel ${hasScenarioGuidance ? 'detail-panel--highlighted' : ''}`}>
           <h3 className="detail-title">Consignes Apprenant</h3>
-          {planNotes.length > 0 ? (
+          {hasScenarioGuidance ? (
+            <>
+              <div className="scenario-guidance">
+                <span className="scenario-guidance__label">Scénario actif</span>
+                <span className="scenario-guidance__name">{scenarioStatus.scenario?.name}</span>
+              </div>
+              {scenarioDescription && <p className="instruction-text">{scenarioDescription}</p>}
+              {scenarioAdaptation.steps.length > 0 && (
+                <ol className="instruction-timeline">
+                  {scenarioAdaptation.steps.map((step, index) => (
+                    <li key={`${index}-${step}`} className="instruction-step">
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {planNotes.length > 0 && (
+                <div className="plan-notes">
+                  <h4 className="plan-notes__title">Repères site</h4>
+                  <ul className="instruction-list">
+                    {planNotes.map((note) => (
+                      <li key={note} className="instruction-text">
+                        {note}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : planNotes.length > 0 ? (
             <ul className="instruction-list">
               {planNotes.map((note) => (
                 <li key={note} className="instruction-text">
@@ -581,16 +730,17 @@ export function TraineeApp() {
           </div>
           <div className="control-strip">
             {orderedControlButtons.map((button) => (
-              <ControlButton
-                key={button.id}
-                label={button.label}
-                tone={button.tone}
-                onClick={button.onClick}
-                disabled={button.disabled}
-                title={button.title}
-              />
-            ))}
-          </div>
+            <ControlButton
+              key={button.id}
+              label={button.label}
+              tone={button.tone}
+              onClick={button.onClick}
+              disabled={button.disabled}
+              title={button.title}
+              highlighted={button.highlighted}
+            />
+          ))}
+        </div>
         </section>
         <section className="side-panels">
           {orderedSidePanels.map((panel) => (
@@ -621,17 +771,18 @@ interface ControlButtonProps {
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+  highlighted?: boolean;
 }
 
 interface ControlButtonItem extends ControlButtonProps {
   id: string;
 }
 
-function ControlButton({ label, tone, onClick, disabled, title }: ControlButtonProps) {
+function ControlButton({ label, tone, onClick, disabled, title, highlighted }: ControlButtonProps) {
   return (
     <button
       type="button"
-      className={`control-button control-${tone}`}
+      className={`control-button control-${tone} ${highlighted ? 'is-highlighted' : ''}`}
       onClick={onClick}
       disabled={disabled}
       title={title}
@@ -647,7 +798,11 @@ interface BoardTileProps {
 
 function BoardTile({ module }: BoardTileProps) {
   return (
-    <div className={`board-tile tone-${module.tone} ${module.active ? 'is-active' : ''}`}>
+    <div
+      className={`board-tile tone-${module.tone} ${module.active ? 'is-active' : ''} ${
+        module.highlighted ? 'is-highlighted' : ''
+      }`}
+    >
       <div className="tile-header">
         <span className="tile-label">{module.label}</span>
         <span className="tile-led" aria-hidden />
