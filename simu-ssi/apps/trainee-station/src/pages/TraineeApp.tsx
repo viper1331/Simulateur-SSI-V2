@@ -699,18 +699,51 @@ export function TraineeApp() {
 
   const boardModules: BoardModule[] = useMemo(() => {
     const daiCount = Object.keys(snapshot?.daiActivated ?? {}).length;
-    const dmModules: BoardModule[] = Array.from({ length: 8 }, (_, index) => {
-      const zone = `ZF${index + 1}`;
-      const isLatched = Boolean(snapshot?.dmLatched?.[zone]);
-      return {
-        id: `dm-${zone.toLowerCase()}`,
-        label: zone,
-        description: `Déclencheur manuel ${zone}`,
-        tone: 'warning',
-        active: isLatched,
-        highlighted: scenarioAdaptation.boardHighlights.has(`dm-${zone.toLowerCase()}`),
-      };
-    });
+    const dmModules: BoardModule[] = (() => {
+      if (!topology) {
+        return Array.from({ length: 8 }, (_, index) => {
+          const zone = `ZF${index + 1}`;
+          const isLatched = Boolean(snapshot?.dmLatched?.[zone]);
+          return {
+            id: `dm-${zone.toLowerCase()}`,
+            label: zone,
+            description: `Déclencheur manuel ${zone}`,
+            tone: 'warning',
+            active: isLatched,
+            highlighted: scenarioAdaptation.boardHighlights.has(`dm-${zone.toLowerCase()}`),
+          };
+        });
+      }
+
+      const zoneLabels = new Map(topology.zones.map((zone) => [zone.id, zone.label]));
+      const dmZoneIds = new Set<string>();
+      topology.devices.forEach((device) => {
+        if (device.kind === 'DM' && device.zoneId) {
+          dmZoneIds.add(device.zoneId);
+        }
+      });
+
+      if (dmZoneIds.size === 0) {
+        return [];
+      }
+
+      return Array.from(dmZoneIds)
+        .sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }))
+        .map((zoneId) => {
+          const label = zoneLabels.get(zoneId) ?? zoneId;
+          const description = label && label !== zoneId
+            ? `Déclencheur manuel ${label}`
+            : `Déclencheur manuel ${zoneId}`;
+          return {
+            id: `dm-${zoneId.toLowerCase()}`,
+            label: zoneId,
+            description,
+            tone: 'warning' as const,
+            active: Boolean(snapshot?.dmLatched?.[zoneId]),
+            highlighted: scenarioAdaptation.boardHighlights.has(`dm-${zoneId.toLowerCase()}`),
+          };
+        });
+    })();
 
     return [
       {
@@ -762,7 +795,13 @@ export function TraineeApp() {
       },
       ...dmModules,
     ];
-  }, [snapshot, anyAudible, localAudibleOnly, scenarioAdaptation.boardHighlights]);
+  }, [
+    snapshot,
+    anyAudible,
+    localAudibleOnly,
+    scenarioAdaptation.boardHighlights,
+    topology,
+  ]);
 
   const orderedBoardModules = useMemo(
     () => orderItems(boardModules, layout.boardModuleOrder, layout.boardModuleHidden ?? []),
