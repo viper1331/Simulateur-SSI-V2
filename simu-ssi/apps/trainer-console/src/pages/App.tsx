@@ -1034,6 +1034,7 @@ export function App() {
               </div>
             </div>
           </header>
+        </section>
 
         <section className="status-grid">
           <StatusTile
