@@ -68,6 +68,10 @@ const DEVICE_MARKER_LABELS: Record<string, string> = {
   UGA: 'UGA',
 };
 
+const LOWEST_ACCESS_LEVEL = 1;
+const LOWEST_ACCESS_MESSAGE = 'Niveau 1 actif — arrêt signal sonore disponible.';
+const ACCESS_LEVEL_AUTO_RESET_DELAY_MS = 100_000;
+
 function translateScenarioStatus(
   status: ScenarioRunnerSnapshot['status'],
   awaitingSystemReset?: boolean,
@@ -407,10 +411,11 @@ export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
-  const [accessLevel, setAccessLevel] = useState<number>(1);
-  const [ledMessage, setLedMessage] = useState<string>('Niveau 1 actif — arrêt signal sonore disponible.');
+  const [accessLevel, setAccessLevel] = useState<number>(LOWEST_ACCESS_LEVEL);
+  const [ledMessage, setLedMessage] = useState<string>(LOWEST_ACCESS_MESSAGE);
   const [codeBuffer, setCodeBuffer] = useState<string>('');
   const [verifyingAccess, setVerifyingAccess] = useState<boolean>(false);
+  const [accessLevelExpiryRevision, setAccessLevelExpiryRevision] = useState<number>(0);
   const [layout, setLayout] = useState<TraineeLayoutConfig>(DEFAULT_TRAINEE_LAYOUT);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
@@ -427,6 +432,7 @@ export function TraineeApp() {
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
   const scenarioStatusRef = useRef<ScenarioRunnerSnapshot>({ status: 'idle' });
   const pendingTopologyRef = useRef<SiteTopology | null>(null);
+  const accessLevelResetTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   const scenarioUiStatus = useMemo<ScenarioRunnerSnapshot>(
     () =>
@@ -601,6 +607,7 @@ export function TraineeApp() {
         if (parsed === 2) {
           setAccessLevel(2);
           setLedMessage('Niveau 2 actif — commandes avancées disponibles.');
+          setAccessLevelExpiryRevision((revision) => revision + 1);
         }
       }
     } catch (error) {
@@ -688,8 +695,8 @@ export function TraineeApp() {
   }, [verifyingAccess]);
 
   const handleAccessLock = useCallback(() => {
-    setAccessLevel(1);
-    setLedMessage('Niveau 1 actif — arrêt signal sonore disponible.');
+    setAccessLevel(LOWEST_ACCESS_LEVEL);
+    setLedMessage(LOWEST_ACCESS_MESSAGE);
     setCodeBuffer('');
   }, []);
 
@@ -707,6 +714,9 @@ export function TraineeApp() {
       setLedMessage(result.label);
       if (result.allowed && typeof result.level === 'number') {
         setAccessLevel(result.level);
+        if (result.level > LOWEST_ACCESS_LEVEL) {
+          setAccessLevelExpiryRevision((revision) => revision + 1);
+        }
       }
     } catch (error) {
       console.error(error);
@@ -716,6 +726,25 @@ export function TraineeApp() {
       setCodeBuffer('');
     }
   }, [codeBuffer, handleAccessLock, sdk, verifyingAccess]);
+
+  useEffect(() => {
+    if (accessLevelResetTimeoutRef.current !== null) {
+      window.clearTimeout(accessLevelResetTimeoutRef.current);
+      accessLevelResetTimeoutRef.current = null;
+    }
+    if (accessLevel > LOWEST_ACCESS_LEVEL) {
+      accessLevelResetTimeoutRef.current = window.setTimeout(() => {
+        accessLevelResetTimeoutRef.current = null;
+        handleAccessLock();
+      }, ACCESS_LEVEL_AUTO_RESET_DELAY_MS);
+    }
+    return () => {
+      if (accessLevelResetTimeoutRef.current !== null) {
+        window.clearTimeout(accessLevelResetTimeoutRef.current);
+        accessLevelResetTimeoutRef.current = null;
+      }
+    };
+  }, [accessLevel, accessLevelExpiryRevision, handleAccessLock]);
 
   const remainingDeadline = snapshot?.cmsi.status === 'EVAC_SUSPENDED'
     ? snapshot.cmsi.remainingMs != null
