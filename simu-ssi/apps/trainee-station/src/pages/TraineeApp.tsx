@@ -384,6 +384,19 @@ export function TraineeApp() {
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
 
+  const scenarioUiStatus = useMemo<ScenarioRunnerSnapshot>(
+    () =>
+      scenarioStatus.status === 'stopped'
+        ? {
+            ...scenarioStatus,
+            scenario: undefined,
+            nextEvent: null,
+            awaitingSystemReset: false,
+          }
+        : scenarioStatus,
+    [scenarioStatus],
+  );
+
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
@@ -635,8 +648,8 @@ export function TraineeApp() {
   const anyAudible = Boolean(snapshot?.ugaActive || snapshot?.localAudibleActive);
   const localAudibleOnly = Boolean(snapshot?.localAudibleActive && !snapshot?.ugaActive);
   const scenarioAdaptation = useMemo(
-    () => deriveScenarioAdaptation(scenarioStatus),
-    [scenarioStatus],
+    () => deriveScenarioAdaptation(scenarioUiStatus),
+    [scenarioUiStatus],
   );
   const planName = topology?.plan?.name?.trim() ?? null;
   const planImage = topology?.plan?.image ?? null;
@@ -812,12 +825,12 @@ export function TraineeApp() {
     scenarioStatus.status,
     scenarioStatus.awaitingSystemReset,
   );
-  const nextScenarioEvent = describeScenarioEvent(scenarioStatus);
+  const nextScenarioEvent = describeScenarioEvent(scenarioUiStatus);
 
   const cmsiMode = snapshot?.cmsi.manual ? 'Mode manuel' : 'Mode automatique';
   const scenarioDescription = scenarioAdaptation.description;
   const hasScenarioGuidance = Boolean(
-    scenarioStatus.scenario && (scenarioDescription || scenarioAdaptation.steps.length > 0),
+    scenarioUiStatus.scenario && (scenarioDescription || scenarioAdaptation.steps.length > 0),
   );
 
   const controlButtons: ControlButtonItem[] = [
@@ -998,8 +1011,8 @@ export function TraineeApp() {
             <li>
               <span className="detail-label">Scénario</span>
               <span className="detail-value">
-                {scenarioStatus.scenario?.name
-                  ? `${scenarioStatus.scenario.name} (${scenarioStatusLabel})`
+                {scenarioUiStatus.scenario?.name
+                  ? `${scenarioUiStatus.scenario.name} (${scenarioStatusLabel})`
                   : scenarioStatusLabel}
               </span>
             </li>
@@ -1020,7 +1033,7 @@ export function TraineeApp() {
             <>
               <div className="scenario-guidance">
                 <span className="scenario-guidance__label">Scénario actif</span>
-                <span className="scenario-guidance__name">{scenarioStatus.scenario?.name}</span>
+                <span className="scenario-guidance__name">{scenarioUiStatus.scenario?.name}</span>
               </div>
               {scenarioDescription && <p className="instruction-text">{scenarioDescription}</p>}
               {scenarioAdaptation.steps.length > 0 && (
@@ -1092,7 +1105,7 @@ export function TraineeApp() {
             <h1 className="title">Poste Apprenant – Façade CMSI</h1>
           </div>
           <div className={`scenario-chip scenario-chip--${scenarioStatus.status}`}>
-            {scenarioStatus.scenario?.name ?? 'Scénario libre'} · {scenarioStatusLabel}
+            {scenarioUiStatus.scenario?.name ?? 'Scénario libre'} · {scenarioStatusLabel}
           </div>
         </div>
         <div className="header-actions">
