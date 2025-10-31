@@ -5,6 +5,10 @@ import {
   SsiSdk,
   DEFAULT_TRAINEE_LAYOUT,
   type AccessCode,
+  type SessionSummary,
+  type SessionImprovement,
+  type UserRole,
+  type UserSummary,
   type ScenarioDefinition,
   type ScenarioEvent,
   type ScenarioPayload,
@@ -12,6 +16,7 @@ import {
   type SiteConfig,
   type SiteDevice,
   type SiteTopology,
+  sessionSchema,
   siteTopologySchema,
   traineeLayoutSchema,
   type TraineeLayoutConfig,
@@ -93,6 +98,7 @@ const CONTROL_BUTTON_LABELS: Record<string, string> = {
 const SIDE_PANEL_LABELS: Record<string, string> = {
   'access-control': "Clavier d'accès et niveaux",
   'event-recap': 'Récapitulatif évènementiel',
+  'training-session': 'Session de formation',
   instructions: 'Consignes Apprenant',
 };
 
@@ -103,6 +109,7 @@ const NAVIGATION_SECTIONS = [
   { id: 'trainee', label: 'Poste apprenant' },
   { id: 'topology', label: 'Cartographie' },
   { id: 'scenarios', label: 'Scénarios pédagogiques' },
+  { id: 'sessions', label: 'Sessions & apprenants' },
   { id: 'journal', label: "Journal d'événements" },
 ] as const;
 
@@ -435,9 +442,60 @@ export function App() {
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const [layoutFeedback, setLayoutFeedback] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
+  const [users, setUsers] = useState<UserSummary[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [userForm, setUserForm] = useState<{ fullName: string; email: string; role: UserRole }>(
+    () => ({ fullName: '', email: '', role: 'TRAINEE' }),
+  );
+  const [userFormFeedback, setUserFormFeedback] = useState<string | null>(null);
+  const [userActionError, setUserActionError] = useState<string | null>(null);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editingUserDraft, setEditingUserDraft] = useState<{ fullName: string; email: string; role: UserRole } | null>(null);
+  const [userDeletingId, setUserDeletingId] = useState<string | null>(null);
+  const [userSavingId, setUserSavingId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<SessionSummary | null>(null);
+  const [sessionForm, setSessionForm] = useState({
+    name: '',
+    mode: 'libre',
+    traineeId: '',
+    trainerId: '',
+    objective: '',
+    notes: '',
+  });
+  const [sessionFeedback, setSessionFeedback] = useState<string | null>(null);
+  const [sessionErrorMessage, setSessionErrorMessage] = useState<string | null>(null);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [closingSession, setClosingSession] = useState(false);
+  const [closingNotes, setClosingNotes] = useState('');
+  const [improvementDrafts, setImprovementDrafts] = useState<Array<{ id: string; title: string; description: string }>>([]);
 
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
+  const traineeOptions = useMemo(() => users.filter((user) => user.role === 'TRAINEE'), [users]);
+  const trainerOptions = useMemo(() => users.filter((user) => user.role === 'TRAINER'), [users]);
+  const recentSessions = useMemo(() => sessions.slice(0, 6), [sessions]);
+
+  const applyActiveSession = useCallback((session: SessionSummary | null) => {
+    setActiveSession(session);
+    if (session) {
+      setClosingNotes(session.notes ?? '');
+      setImprovementDrafts(
+        session.improvementAreas.map((area) => ({
+          id: crypto.randomUUID(),
+          title: area.title,
+          description: area.description ?? '',
+        })),
+      );
+    } else {
+      setClosingNotes('');
+      setImprovementDrafts([]);
+    }
+  }, []);
 
   const refreshScenarios = useCallback(() => {
     sdk.listScenarios().then(setScenarios).catch(console.error);
@@ -446,6 +504,49 @@ export function App() {
   const refreshScenarioStatus = useCallback(() => {
     sdk.getActiveScenario().then(setScenarioStatus).catch(console.error);
   }, [sdk]);
+
+  const refreshUsers = useCallback(() => {
+    setUsersLoading(true);
+    sdk
+      .listUsers()
+      .then((list) => {
+        setUsers(list);
+        setUsersError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setUsersError('Impossible de charger les apprenants et formateurs.');
+      })
+      .finally(() => setUsersLoading(false));
+  }, [sdk]);
+
+  const refreshSessionsRegistry = useCallback(() => {
+    setSessionsLoading(true);
+    sdk
+      .listSessions(20)
+      .then((list) => {
+        setSessions(list);
+        setSessionsError(null);
+      })
+      .catch((error) => {
+        console.error(error);
+        setSessionsError('Impossible de charger les sessions.');
+      })
+      .finally(() => setSessionsLoading(false));
+  }, [sdk]);
+
+  const refreshActiveSession = useCallback(() => {
+    sdk
+      .getCurrentSession()
+      .then((session) => {
+        setSessionErrorMessage(null);
+        applyActiveSession(session);
+      })
+      .catch((error) => {
+        console.error(error);
+        setSessionErrorMessage('Impossible de récupérer la session en cours.');
+      });
+  }, [applyActiveSession, sdk]);
 
   useEffect(() => {
     sdk.getSiteConfig().then(setConfig).catch(console.error);
@@ -469,6 +570,9 @@ export function App() {
       .finally(() => setAccessCodesLoading(false));
     refreshScenarios();
     refreshScenarioStatus();
+    refreshUsers();
+    refreshSessionsRegistry();
+    refreshActiveSession();
     setLayoutLoading(true);
     setLayoutFeedback(null);
     sdk
@@ -511,10 +615,33 @@ export function App() {
       setTopologyLoading(false);
       setTopologyFeedback('Topologie mise à jour depuis le Studio.');
     });
+    socket.on('session.update', (payload) => {
+      if (payload === null) {
+        applyActiveSession(null);
+        refreshSessionsRegistry();
+        return;
+      }
+      const parsed = sessionSchema.safeParse(payload);
+      if (!parsed.success) {
+        console.warn('Session payload invalide', parsed.error);
+        return;
+      }
+      applyActiveSession(parsed.data);
+      refreshSessionsRegistry();
+    });
     return () => {
       socket.disconnect();
     };
-  }, [baseUrl, refreshScenarioStatus, refreshScenarios, sdk]);
+  }, [
+    applyActiveSession,
+    baseUrl,
+    refreshActiveSession,
+    refreshScenarioStatus,
+    refreshScenarios,
+    refreshSessionsRegistry,
+    refreshUsers,
+    sdk,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -589,6 +716,219 @@ export function App() {
     });
     setConfig(updated);
   };
+
+  const handleUserFieldChange = useCallback(
+    (field: 'fullName' | 'email' | 'role', value: string) => {
+      setUserForm((prev) => ({
+        ...prev,
+        [field]: field === 'role' ? (value as UserRole) : value,
+      }));
+    },
+    [],
+  );
+
+  const handleUserCreate = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmedName = userForm.fullName.trim();
+      if (!trimmedName) {
+        setUserActionError('Le nom est requis pour créer un utilisateur.');
+        return;
+      }
+      setCreatingUser(true);
+      setUserActionError(null);
+      try {
+        await sdk.createUser({
+          fullName: trimmedName,
+          email: userForm.email.trim() ? userForm.email.trim() : undefined,
+          role: userForm.role,
+        });
+        setUserForm({ fullName: '', email: '', role: 'TRAINEE' });
+        setUserFormFeedback('Utilisateur créé avec succès.');
+        refreshUsers();
+      } catch (error) {
+        console.error(error);
+        setUserActionError("Impossible d'ajouter l'utilisateur. Veuillez vérifier les informations saisies.");
+      } finally {
+        setCreatingUser(false);
+      }
+    },
+    [refreshUsers, sdk, userForm.email, userForm.fullName, userForm.role],
+  );
+
+  const handleUserEditInit = useCallback((user: UserSummary) => {
+    setEditingUserId(user.id);
+    setEditingUserDraft({ fullName: user.fullName, email: user.email ?? '', role: user.role });
+    setUserActionError(null);
+    setUserFormFeedback(null);
+  }, []);
+
+  const handleUserEditFieldChange = useCallback(
+    (field: 'fullName' | 'email' | 'role', value: string) => {
+      setEditingUserDraft((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [field]: field === 'role' ? (value as UserRole) : value,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleUserEditCancel = useCallback(() => {
+    setEditingUserId(null);
+    setEditingUserDraft(null);
+    setUserSavingId(null);
+    setUserActionError(null);
+  }, []);
+
+  const handleUserEditSubmit = useCallback(async () => {
+    if (!editingUserId || !editingUserDraft) {
+      return;
+    }
+    const trimmedName = editingUserDraft.fullName.trim();
+    if (!trimmedName) {
+      setUserActionError('Le nom ne peut pas être vide.');
+      return;
+    }
+    setUserSavingId(editingUserId);
+    setUserActionError(null);
+    try {
+      await sdk.updateUser(editingUserId, {
+        fullName: trimmedName,
+        email: editingUserDraft.email.trim() ? editingUserDraft.email.trim() : null,
+        role: editingUserDraft.role,
+      });
+      setUserFormFeedback('Utilisateur mis à jour.');
+      setEditingUserId(null);
+      setEditingUserDraft(null);
+      refreshUsers();
+    } catch (error) {
+      console.error(error);
+      setUserActionError("Impossible de mettre à jour l'utilisateur. Vérifiez les dépendances ou l'adresse e-mail.");
+    } finally {
+      setUserSavingId(null);
+    }
+  }, [editingUserDraft, editingUserId, refreshUsers, sdk]);
+
+  const handleUserDelete = useCallback(
+    async (id: string) => {
+      setUserDeletingId(id);
+      setUserActionError(null);
+      try {
+        await sdk.deleteUser(id);
+        refreshUsers();
+      } catch (error) {
+        console.error(error);
+        setUserActionError("Suppression impossible : l'utilisateur est peut-être lié à des sessions existantes.");
+      } finally {
+        setUserDeletingId(null);
+      }
+    },
+    [refreshUsers, sdk],
+  );
+
+  const handleSessionFormChange = useCallback(
+    (field: keyof typeof sessionForm, value: string) => {
+      setSessionForm((prev) => ({
+        ...prev,
+        [field]: value,
+      }));
+    },
+    [],
+  );
+
+  const handleSessionCreate = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const trimmedName = sessionForm.name.trim();
+      if (!trimmedName) {
+        setSessionErrorMessage('Le nom de la session est requis.');
+        return;
+      }
+      setCreatingSession(true);
+      setSessionErrorMessage(null);
+      try {
+        await sdk.createSession({
+          name: trimmedName,
+          mode: sessionForm.mode.trim() || undefined,
+          traineeId: sessionForm.traineeId || undefined,
+          trainerId: sessionForm.trainerId || undefined,
+          objective: sessionForm.objective.trim() || undefined,
+          notes: sessionForm.notes.trim() || undefined,
+        });
+        setSessionFeedback('Session démarrée.');
+        setSessionForm({ name: '', mode: 'libre', traineeId: '', trainerId: '', objective: '', notes: '' });
+        refreshActiveSession();
+        refreshSessionsRegistry();
+      } catch (error) {
+        console.error(error);
+        setSessionErrorMessage('Impossible de créer la session. Vérifiez qu\'aucune autre session n\'est active.');
+      } finally {
+        setCreatingSession(false);
+      }
+    },
+    [refreshActiveSession, refreshSessionsRegistry, sdk, sessionForm.mode, sessionForm.name, sessionForm.notes, sessionForm.objective, sessionForm.traineeId, sessionForm.trainerId],
+  );
+
+  const handleAddImprovement = useCallback(() => {
+    setSessionErrorMessage(null);
+    setImprovementDrafts((prev) => {
+      if (prev.length >= 5) {
+        setSessionErrorMessage('Limite de 5 axes atteinte.');
+        return prev;
+      }
+      return [...prev, { id: crypto.randomUUID(), title: '', description: '' }];
+    });
+  }, []);
+
+  const handleImprovementChange = useCallback(
+    (id: string, field: 'title' | 'description', value: string) => {
+      setImprovementDrafts((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+      );
+    },
+    [],
+  );
+
+  const handleImprovementRemove = useCallback((id: string) => {
+    setImprovementDrafts((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const handleCloseSession = useCallback(async () => {
+    if (!activeSession) {
+      return;
+    }
+    setClosingSession(true);
+    setSessionErrorMessage(null);
+    const improvements: SessionImprovement[] = improvementDrafts
+      .map((item) => ({
+        title: item.title.trim(),
+        description: item.description.trim(),
+      }))
+      .filter((item) => item.title.length > 0)
+      .map((item) => ({
+        title: item.title,
+        description: item.description.length > 0 ? item.description : undefined,
+      }));
+    try {
+      await sdk.closeSession(activeSession.id, {
+        notes: closingNotes.trim() ? closingNotes.trim() : null,
+        improvementAreas: improvements,
+      });
+      setSessionFeedback('Session clôturée.');
+      refreshActiveSession();
+      refreshSessionsRegistry();
+    } catch (error) {
+      console.error(error);
+      setSessionErrorMessage('Impossible de clôturer la session.');
+    } finally {
+      setClosingSession(false);
+    }
+  }, [activeSession, closingNotes, improvementDrafts, refreshActiveSession, refreshSessionsRegistry, sdk]);
 
   const handleAcknowledge = useCallback(async () => {
     setAckPending(true);
@@ -1943,6 +2283,413 @@ export function App() {
           </div>
         </section>
 
+        <section id="sessions" className="console-section">
+          <div className="section-header">
+            <h2 className="section-header__title">Sessions & apprenants</h2>
+            <p className="section-header__subtitle">
+              Pilotez les participants et conservez une trace des objectifs et axes de progression.
+            </p>
+          </div>
+          <div className="sessions-grid">
+            <div className="card users-card">
+              <div className="card__header">
+                <h2 className="card__title">Gestion des utilisateurs</h2>
+                <p className="card__description">
+                  Enregistrez vos apprenants et formateurs afin de suivre les sessions individuelles.
+                </p>
+              </div>
+              {usersError && <p className="card__alert">{usersError}</p>}
+              {userActionError && <p className="card__alert">{userActionError}</p>}
+              {userFormFeedback && <p className="card__feedback">{userFormFeedback}</p>}
+              <form className="user-form" onSubmit={handleUserCreate}>
+                <div className="user-form__row">
+                  <label className="user-form__field">
+                    <span>Nom complet</span>
+                    <input
+                      value={userForm.fullName}
+                      onChange={(event) => handleUserFieldChange('fullName', event.target.value)}
+                      placeholder="Ex : Marie Dupont"
+                      className="text-input"
+                      required
+                    />
+                  </label>
+                  <label className="user-form__field">
+                    <span>Email (optionnel)</span>
+                    <input
+                      type="email"
+                      value={userForm.email}
+                      onChange={(event) => handleUserFieldChange('email', event.target.value)}
+                      placeholder="prenom.nom@entreprise.fr"
+                      className="text-input"
+                    />
+                  </label>
+                  <label className="user-form__field">
+                    <span>Rôle</span>
+                    <select
+                      value={userForm.role}
+                      onChange={(event) => handleUserFieldChange('role', event.target.value)}
+                    >
+                      <option value="TRAINEE">Apprenant</option>
+                      <option value="TRAINER">Formateur</option>
+                    </select>
+                  </label>
+                </div>
+                <button type="submit" className="btn btn--primary" disabled={creatingUser} aria-busy={creatingUser}>
+                  {creatingUser ? 'Ajout en cours…' : 'Ajouter un utilisateur'}
+                </button>
+              </form>
+              <div className="user-list-wrapper">
+                {usersLoading ? (
+                  <p className="card__placeholder">Chargement des utilisateurs…</p>
+                ) : users.length === 0 ? (
+                  <p className="card__placeholder">Aucun utilisateur enregistré pour le moment.</p>
+                ) : (
+                  <ul className="user-list">
+                    {users.map((user) => {
+                      const editing = editingUserId === user.id && editingUserDraft;
+                      return (
+                        <li key={user.id} className="user-list__item">
+                          {editing ? (
+                            <div className="user-edit">
+                              <label className="user-edit__field">
+                                <span>Nom</span>
+                                <input
+                                  value={editingUserDraft.fullName}
+                                  onChange={(event) =>
+                                    handleUserEditFieldChange('fullName', event.target.value)
+                                  }
+                                  className="text-input"
+                                />
+                              </label>
+                              <label className="user-edit__field">
+                                <span>Email</span>
+                                <input
+                                  value={editingUserDraft.email}
+                                  onChange={(event) =>
+                                    handleUserEditFieldChange('email', event.target.value)
+                                  }
+                                  className="text-input"
+                                />
+                              </label>
+                              <label className="user-edit__field">
+                                <span>Rôle</span>
+                                <select
+                                  value={editingUserDraft.role}
+                                  onChange={(event) =>
+                                    handleUserEditFieldChange('role', event.target.value)
+                                  }
+                                >
+                                  <option value="TRAINEE">Apprenant</option>
+                                  <option value="TRAINER">Formateur</option>
+                                </select>
+                              </label>
+                              <div className="user-edit__actions">
+                                <button
+                                  type="button"
+                                  className="btn btn--primary"
+                                  onClick={handleUserEditSubmit}
+                                  disabled={userSavingId === user.id}
+                                  aria-busy={userSavingId === user.id}
+                                >
+                                  {userSavingId === user.id ? 'Enregistrement…' : 'Enregistrer'}
+                                </button>
+                                <button type="button" className="btn btn--ghost" onClick={handleUserEditCancel}>
+                                  Annuler
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="user-item">
+                              <div className="user-item__info">
+                                <span className="user-item__name">{user.fullName}</span>
+                                {user.email && <span className="user-item__email">{user.email}</span>}
+                                <span className={`user-role-badge user-role-badge--${user.role.toLowerCase()}`}>
+                                  {user.role === 'TRAINER' ? 'Formateur' : 'Apprenant'}
+                                </span>
+                              </div>
+                              <div className="user-item__actions">
+                                <button type="button" className="btn btn--ghost" onClick={() => handleUserEditInit(user)}>
+                                  Modifier
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--ghost user-delete"
+                                  onClick={() => handleUserDelete(user.id)}
+                                  disabled={userDeletingId === user.id}
+                                  aria-busy={userDeletingId === user.id}
+                                >
+                                  {userDeletingId === user.id ? 'Suppression…' : 'Supprimer'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="card current-session-card">
+              <div className="card__header">
+                <h2 className="card__title">Session en cours</h2>
+                <p className="card__description">
+                  Démarrez une nouvelle session pour un apprenant ou clôturez l'entraînement actuel.
+                </p>
+              </div>
+              {sessionErrorMessage && <p className="card__alert">{sessionErrorMessage}</p>}
+              {sessionFeedback && <p className="card__feedback">{sessionFeedback}</p>}
+              {sessionsLoading ? (
+                <p className="card__placeholder">Chargement des sessions…</p>
+              ) : (
+                <div className="current-session">
+                  {activeSession ? (
+                    <div className="session-summary">
+                      <div className="session-summary__header">
+                        <h3 className="session-summary__name">{activeSession.name}</h3>
+                        <span className={`session-status-badge session-status-badge--${activeSession.status}`}>
+                          {activeSession.status === 'active' ? 'En cours' : 'Clôturée'}
+                        </span>
+                      </div>
+                      <dl className="session-summary__meta">
+                        <div>
+                          <dt>Apprenant</dt>
+                          <dd>{activeSession.trainee?.fullName ?? 'Non assigné'}</dd>
+                        </div>
+                        <div>
+                          <dt>Formateur</dt>
+                          <dd>{activeSession.trainer?.fullName ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>Début</dt>
+                          <dd>{formatDateTime(activeSession.startedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt>Fin</dt>
+                          <dd>{formatDateTime(activeSession.endedAt)}</dd>
+                        </div>
+                        {activeSession.objective && (
+                          <div>
+                            <dt>Objectifs</dt>
+                            <dd>{activeSession.objective}</dd>
+                          </div>
+                        )}
+                        {activeSession.notes && (
+                          <div>
+                            <dt>Notes</dt>
+                            <dd>{activeSession.notes}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      {activeSession.improvementAreas.length > 0 && (
+                        <div className="session-summary__improvements">
+                          <h4>Axes d'amélioration</h4>
+                          <ul>
+                            {activeSession.improvementAreas.map((area, index) => (
+                              <li key={`${area.title}-${index}`}>
+                                <strong>{area.title}</strong>
+                                {area.description && <span> — {area.description}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="card__placeholder">Aucune session active pour le moment.</p>
+                  )}
+
+                  {(!activeSession || activeSession.status === 'completed') && (
+                    <form className="session-start-form" onSubmit={handleSessionCreate}>
+                      <h3>Démarrer une session</h3>
+                      <div className="session-form__grid">
+                        <label className="session-form__field">
+                          <span>Nom de la session</span>
+                          <input
+                            value={sessionForm.name}
+                            onChange={(event) => handleSessionFormChange('name', event.target.value)}
+                            placeholder="Ex : Exercice évacuation étage 2"
+                            className="text-input"
+                            required
+                          />
+                        </label>
+                        <label className="session-form__field">
+                          <span>Mode</span>
+                          <input
+                            value={sessionForm.mode}
+                            onChange={(event) => handleSessionFormChange('mode', event.target.value)}
+                            placeholder="libre / scénario…"
+                            className="text-input"
+                          />
+                        </label>
+                        <label className="session-form__field">
+                          <span>Apprenant</span>
+                          <select
+                            value={sessionForm.traineeId}
+                            onChange={(event) => handleSessionFormChange('traineeId', event.target.value)}
+                          >
+                            <option value="">Sélectionner…</option>
+                            {traineeOptions.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.fullName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="session-form__field">
+                          <span>Formateur</span>
+                          <select
+                            value={sessionForm.trainerId}
+                            onChange={(event) => handleSessionFormChange('trainerId', event.target.value)}
+                          >
+                            <option value="">Sélectionner…</option>
+                            {trainerOptions.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.fullName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label className="session-form__field">
+                        <span>Objectifs pédagogiques</span>
+                        <textarea
+                          value={sessionForm.objective}
+                          onChange={(event) => handleSessionFormChange('objective', event.target.value)}
+                          className="text-area"
+                          rows={2}
+                          placeholder="Consignes principales, compétences visées…"
+                        />
+                      </label>
+                      <label className="session-form__field">
+                        <span>Notes formateur</span>
+                        <textarea
+                          value={sessionForm.notes}
+                          onChange={(event) => handleSessionFormChange('notes', event.target.value)}
+                          className="text-area"
+                          rows={2}
+                          placeholder="Informations complémentaires (optionnel)"
+                        />
+                      </label>
+                      <button type="submit" className="btn btn--primary" disabled={creatingSession} aria-busy={creatingSession}>
+                        {creatingSession ? 'Création…' : 'Démarrer la session'}
+                      </button>
+                    </form>
+                  )}
+
+                  {activeSession && activeSession.status === 'active' && (
+                    <div className="session-close">
+                      <h3>Clôturer la session</h3>
+                      <label className="session-form__field">
+                        <span>Retour formateur</span>
+                        <textarea
+                          value={closingNotes}
+                          onChange={(event) => setClosingNotes(event.target.value)}
+                          className="text-area"
+                          rows={3}
+                          placeholder="Synthèse des points maîtrisés, recommandations…"
+                        />
+                      </label>
+                      <div className="improvement-actions">
+                        <span>Axes d'amélioration personnalisés</span>
+                        <button type="button" className="btn btn--ghost" onClick={handleAddImprovement}>
+                          Ajouter un axe
+                        </button>
+                      </div>
+                      {improvementDrafts.length === 0 ? (
+                        <p className="improvement-placeholder">Aucun axe défini pour le moment.</p>
+                      ) : (
+                        <ul className="improvement-list">
+                          {improvementDrafts.map((draft) => (
+                            <li key={draft.id} className="improvement-item">
+                              <input
+                                value={draft.title}
+                                onChange={(event) => handleImprovementChange(draft.id, 'title', event.target.value)}
+                                placeholder="Titre de l'axe"
+                                className="text-input"
+                              />
+                              <textarea
+                                value={draft.description}
+                                onChange={(event) => handleImprovementChange(draft.id, 'description', event.target.value)}
+                                className="text-area"
+                                rows={2}
+                                placeholder="Détail ou recommandation (optionnel)"
+                              />
+                              <button
+                                type="button"
+                                className="btn btn--ghost improvement-remove"
+                                onClick={() => handleImprovementRemove(draft.id)}
+                              >
+                                Retirer
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={handleCloseSession}
+                        disabled={closingSession}
+                        aria-busy={closingSession}
+                      >
+                        {closingSession ? 'Clôture en cours…' : 'Clôturer la session'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="card session-history-card">
+              <div className="card__header">
+                <h2 className="card__title">Historique récent</h2>
+                <p className="card__description">
+                  Consultez les dernières sessions pour préparer vos debriefings personnalisés.
+                </p>
+              </div>
+              {sessionsError && <p className="card__alert">{sessionsError}</p>}
+              {sessionsLoading ? (
+                <p className="card__placeholder">Chargement du journal des sessions…</p>
+              ) : recentSessions.length === 0 ? (
+                <p className="card__placeholder">Aucune session enregistrée.</p>
+              ) : (
+                <ul className="session-history">
+                  {recentSessions.map((sessionItem) => (
+                    <li
+                      key={sessionItem.id}
+                      className={`session-history__item session-history__item--${sessionItem.status}`}
+                    >
+                      <div className="session-history__header">
+                        <span className="session-history__name">{sessionItem.name}</span>
+                        <span className="session-history__badge">
+                          {sessionItem.status === 'active' ? 'En cours' : 'Clôturée'}
+                        </span>
+                      </div>
+                      <div className="session-history__meta">
+                        <span>Apprenant : {sessionItem.trainee?.fullName ?? 'Non défini'}</span>
+                        <span>Début : {formatDateTime(sessionItem.startedAt)}</span>
+                        <span>Fin : {formatDateTime(sessionItem.endedAt)}</span>
+                      </div>
+                      {sessionItem.improvementAreas.length > 0 && (
+                        <ul className="session-history__improvements">
+                          {sessionItem.improvementAreas.map((area, index) => (
+                            <li key={`${sessionItem.id}-area-${index}`}>
+                              <strong>{area.title}</strong>
+                              {area.description && <span> — {area.description}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+
         <section id="journal" className="console-section">
           <div className="section-header">
             <h2 className="section-header__title">Journal d'événements</h2>
@@ -1982,5 +2729,17 @@ function deriveTone(snapshot: DomainSnapshot | null): 'neutral' | 'warning' | 'c
       return 'success';
     default:
       return 'neutral';
+  }
+}
+
+function formatDateTime(iso?: string | null): string {
+  if (!iso) {
+    return '—';
+  }
+  try {
+    return new Date(iso).toLocaleString();
+  } catch (error) {
+    console.error('Failed to format date', error);
+    return iso;
   }
 }
