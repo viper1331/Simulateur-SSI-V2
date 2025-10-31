@@ -6,20 +6,23 @@ const siteConfigSchema = z.object({
   processAckRequired: z.boolean(),
 });
 
-const accessCodeSchema = z.object({
-  level: z.number().int().min(1).max(3),
-  code: z.string(),
-  updatedAt: z.string(),
+const siteZoneSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  kind: z.string().min(1),
 });
 
-const accessCodeListSchema = z.object({
-  codes: z.array(accessCodeSchema),
+const siteDeviceSchema = z.object({
+  id: z.string().min(1),
+  kind: z.string().min(1),
+  zoneId: z.string().min(1).optional(),
+  label: z.string().optional(),
+  props: z.record(z.unknown()).optional(),
 });
 
-const accessAuthorisationSchema = z.object({
-  level: z.number().int().min(1).max(3).nullable(),
-  allowed: z.boolean(),
-  label: z.string(),
+const topologySchema = z.object({
+  zones: z.array(siteZoneSchema),
+  devices: z.array(siteDeviceSchema),
 });
 
 const scenarioEventBaseSchema = z.object({
@@ -71,8 +74,9 @@ export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
 export type ScenarioDefinition = z.infer<typeof scenarioDefinitionSchema>;
 export type ScenarioPayload = z.infer<typeof scenarioPayloadSchema>;
 export type ScenarioRunnerSnapshot = z.infer<typeof scenarioRunnerSnapshotSchema>;
-export type AccessCode = z.infer<typeof accessCodeSchema>;
-export type AccessAuthorisation = z.infer<typeof accessAuthorisationSchema>;
+export type SiteZone = z.infer<typeof siteZoneSchema>;
+export type SiteDevice = z.infer<typeof siteDeviceSchema>;
+export type SiteTopology = z.infer<typeof topologySchema>;
 
 export class SsiSdk {
   constructor(private readonly baseUrl: string) {}
@@ -250,6 +254,15 @@ export class SsiSdk {
     }
     const json = await response.json();
     return scenarioRunnerSnapshotSchema.parse(json);
+  }
+
+  async getTopology(): Promise<SiteTopology> {
+    const response = await fetch(`${this.baseUrl}/api/topology`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch topology');
+    }
+    const json = await response.json();
+    return topologySchema.parse(json);
   }
 
   private async post(path: string, body?: unknown) {

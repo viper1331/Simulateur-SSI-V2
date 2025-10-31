@@ -282,6 +282,30 @@ export function createHttpServer(domainContext: DomainContext): {
     res.json(domainContext.snapshot());
   });
 
+  app.get('/api/topology', async (_req, res) => {
+    const [zones, devices] = await Promise.all([
+      prisma.zone.findMany({ orderBy: { label: 'asc' } }),
+      prisma.device.findMany({ orderBy: { id: 'asc' } }),
+    ]);
+    res.json({
+      zones: zones.map((zone) => ({
+        id: zone.id,
+        label: zone.label,
+        kind: zone.kind,
+      })),
+      devices: devices.map((device) => {
+        const parsedProps = parseDeviceProps(device.propsJson);
+        return {
+          id: device.id,
+          kind: device.kind,
+          zoneId: device.zoneId ?? undefined,
+          label: typeof parsedProps?.label === 'string' ? parsedProps.label : undefined,
+          props: parsedProps ?? undefined,
+        };
+      }),
+    });
+  });
+
   app.get('/api/scenarios', async (_req, res) => {
     const records = await prisma.scenario.findMany({ orderBy: { name: 'asc' } });
     const scenarios = records.map(serializeScenarioRecord);
@@ -401,6 +425,19 @@ export function createHttpServer(domainContext: DomainContext): {
   });
 
   return { app, server: server as HttpServer, io };
+}
+
+function parseDeviceProps(json: string | null): Record<string, unknown> | undefined {
+  if (!json) {
+    return undefined;
+  }
+  try {
+    const value = JSON.parse(json);
+    return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined;
+  } catch (error) {
+    console.error('Failed to parse device props json', error);
+    return undefined;
+  }
 }
 
 async function ensureManualZone(zoneId: string): Promise<number> {
