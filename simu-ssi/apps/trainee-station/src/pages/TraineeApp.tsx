@@ -84,6 +84,7 @@ function describeScenarioEvent(event: ScenarioRunnerSnapshot['nextEvent']): stri
 
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [accessLevel, setAccessLevel] = useState<number>(1);
   const [ledMessage, setLedMessage] = useState<string>('Niveau 1 actif — arrêt signal sonore disponible.');
@@ -201,7 +202,7 @@ export function TraineeApp() {
   }, [codeBuffer, handleAccessLock, sdk, verifyingAccess]);
 
   const remainingDeadline = snapshot?.cmsi.deadline
-    ? Math.max(0, Math.floor((snapshot.cmsi.deadline - Date.now()) / 1000))
+    ? Math.max(0, Math.floor((snapshot.cmsi.deadline - now) / 1000))
     : null;
 
   const boardModules: BoardModule[] = useMemo(() => {
