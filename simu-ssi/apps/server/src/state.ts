@@ -1,13 +1,17 @@
 import { createSsiDomain, DomainSnapshot } from '@simu-ssi/domain-ssi';
 import { prisma } from './prisma';
 
+export interface DomainContextOptions {
+  getActiveSessionId?: () => string | null;
+}
+
 export interface DomainContext {
   snapshot(): DomainSnapshot;
   domain: ReturnType<typeof createSsiDomain>;
   refreshConfig(): Promise<void>;
 }
 
-export async function createDomainContext(): Promise<DomainContext> {
+export async function createDomainContext(options: DomainContextOptions = {}): Promise<DomainContext> {
   const siteConfig = await prisma.siteConfig.findUniqueOrThrow({ where: { id: 1 } });
   const domain = createSsiDomain({
     evacOnDmDelayMs: siteConfig.evacOnDMDelayMs,
@@ -20,6 +24,7 @@ export async function createDomainContext(): Promise<DomainContext> {
       data: {
         source: event.source,
         payloadJson: event.details ? JSON.stringify(event.details) : null,
+        sessionId: options.getActiveSessionId ? options.getActiveSessionId() ?? undefined : undefined,
       },
     });
   });
