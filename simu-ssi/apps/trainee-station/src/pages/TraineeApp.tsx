@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { io } from 'socket.io-client';
 import {
@@ -425,6 +425,8 @@ export function TraineeApp() {
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
+  const scenarioStatusRef = useRef<ScenarioRunnerSnapshot>({ status: 'idle' });
+  const pendingTopologyRef = useRef<SiteTopology | null>(null);
 
   const scenarioUiStatus = useMemo<ScenarioRunnerSnapshot>(
     () =>
@@ -480,8 +482,13 @@ export function TraineeApp() {
     });
     socket.on('topology.update', (payload) => {
       const parsed = siteTopologySchema.safeParse(payload);
-      if (parsed.success) {
+      if (!parsed.success) {
+        return;
+      }
+      pendingTopologyRef.current = parsed.data;
+      if (scenarioStatusRef.current.status === 'running') {
         setTopology(parsed.data);
+        pendingTopologyRef.current = null;
       }
     });
     socket.on('session.update', (payload) => {
@@ -514,15 +521,20 @@ export function TraineeApp() {
   }, [sdk]);
 
   useEffect(() => {
-    sdk
-      .getTopology()
-      .then((data) => setTopology(data))
-      .catch((error) => console.error(error));
-  }, [sdk]);
-
-  useEffect(() => {
     setPlanNotes(extractPlanNotes(topology));
   }, [topology]);
+
+  useEffect(() => {
+    scenarioStatusRef.current = scenarioStatus;
+    if (scenarioStatus.status !== 'running') {
+      setTopology(null);
+      return;
+    }
+    if (pendingTopologyRef.current) {
+      setTopology(pendingTopologyRef.current);
+      pendingTopologyRef.current = null;
+    }
+  }, [scenarioStatus]);
 
   useEffect(() => {
     sdk.getCurrentSession().then(setSessionInfo).catch(console.error);
