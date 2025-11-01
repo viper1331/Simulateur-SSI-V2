@@ -82,6 +82,22 @@ describe('SSI domain core rules', () => {
     expect(domain.snapshot.cmsi.status).toBe('IDLE');
   });
 
+  it('maintains DM evacuation deadline when DAI triggers concurrently', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
+    domain.activateDm('ZF7');
+    jest.advanceTimersByTime(500);
+    domain.activateDai('ZF2');
+
+    expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
+
+    jest.advanceTimersByTime(500);
+
+    expect(domain.snapshot.cmsi.status).toBe('EVAC_ACTIVE');
+    if (domain.snapshot.cmsi.status === 'EVAC_ACTIVE') {
+      expect(domain.snapshot.cmsi.manual).toBe(false);
+    }
+  });
+
   it('retains multiple DM activations in the same zone until reset', () => {
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: true });
     domain.activateDm('ZF5', { deviceId: 'dm-1' });
