@@ -146,7 +146,36 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     next();
   });
 
-  const scenarioRunner = new ScenarioRunner(domainContext.domain);
+  const scenarioRunner = new ScenarioRunner(domainContext.domain, {
+    isZoneOutOfService(kind, zoneId) {
+      const topology = resolveActiveTopology();
+      if (!topology) {
+        return false;
+      }
+      const normalizedZone = zoneId.trim().toUpperCase();
+      if (!normalizedZone) {
+        return false;
+      }
+      const matchingDevices = topology.devices.filter((device) => {
+        if (device.kind !== kind) {
+          return false;
+        }
+        if (!device.zoneId) {
+          return false;
+        }
+        return device.zoneId.trim().toUpperCase() === normalizedZone;
+      });
+      if (matchingDevices.length === 0) {
+        return false;
+      }
+      return matchingDevices.every((device) => {
+        if (device.outOfService) {
+          return true;
+        }
+        return deviceServiceRegistry.get(device.id) ?? false;
+      });
+    },
+  });
   let latestLayout: TraineeLayoutConfig = DEFAULT_TRAINEE_LAYOUT;
   let latestTopology: SiteTopology | null = null;
   const deviceServiceRegistry = new Map<string, boolean>();
@@ -168,7 +197,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       prisma.siteConfig.findUnique({ where: { id: 1 } }),
     ]);
     deviceServiceRegistry.clear();
-    devices.forEach((device) => {
+    devices.forEach((device: { id: string; outOfService: boolean }) => {
       if (device.outOfService) {
         deviceServiceRegistry.set(device.id, true);
       }
@@ -689,7 +718,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     const rows = await prisma.$queryRaw<Array<{ level: number; code: string; updatedAt: string }>>`
       SELECT level, code, updatedAt FROM "AccessCode" ORDER BY level ASC
     `;
-    const codes = rows.map((row) => ({
+    const codes = rows.map((row: { level: number; code: string; updatedAt: string }) => ({
       level: Number(row.level),
       code: row.code,
       updatedAt: new Date(row.updatedAt).toISOString(),
@@ -956,9 +985,9 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       orderBy: { ts: 'desc' },
       take: limit ? Number(limit) : 100,
     });
-    const normalizedEvents = events.map((event) => ({
-      ...event,
-      payloadJson: event.payloadJson ? JSON.parse(event.payloadJson) : null,
+    const normalizedEvents = events.map((eventLog: { payloadJson: string | null }) => ({
+      ...eventLog,
+      payloadJson: eventLog.payloadJson ? JSON.parse(eventLog.payloadJson) : null,
     }));
     log.debug("Événements récupérés", {
       count: normalizedEvents.length,
@@ -1020,7 +1049,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       }
     }
     try {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.device.deleteMany();
         await tx.zone.deleteMany();
         if (zones.length > 0) {
@@ -1388,8 +1417,11 @@ function formatUser(user: { id: string; fullName: string; email: string | null; 
   };
 }
 
-function isKnownRequestError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
-  return error instanceof Prisma.PrismaClientKnownRequestError;
+function isKnownRequestError(error: unknown): error is { code: string } {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  return 'code' in error && typeof (error as { code?: unknown }).code === 'string';
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

@@ -35,7 +35,7 @@ export async function generateImprovementAreasForSession(sessionId: string): Pro
     return [];
   }
 
-  const normalizedEvents: NormalizedEvent[] = events.map((event) => {
+  const normalizedEvents: NormalizedEvent[] = events.map((event: { source: string; payloadJson: string | null }) => {
     const payload = parsePayload(event.payloadJson);
     const eventType = typeof payload?.event === 'string' ? payload.event : undefined;
     const zoneId = typeof payload?.zoneId === 'string' ? payload.zoneId : undefined;

@@ -30,11 +30,16 @@ interface ManualResetContext {
   daiZones: Set<string>;
 }
 
+interface ScenarioRunnerOptions {
+  isZoneOutOfService?: (kind: 'DM' | 'DAI', zoneId: string) => boolean;
+}
+
 export class ScenarioRunner {
   private readonly emitter = new EventEmitter<ScenarioRunnerEventMap>();
   private context?: ActiveScenarioContext;
   private snapshot: ScenarioRunnerSnapshot = { status: 'idle' };
   private readonly log = createLogger('ScenarioRunner');
+  private readonly options: ScenarioRunnerOptions;
   private readonly handleDomainEvent = (event: DomainLogEvent) => {
     if (!this.context) {
       return;
@@ -51,7 +56,9 @@ export class ScenarioRunner {
     }
   };
 
-  constructor(private readonly domain: SsiDomain) {}
+  constructor(private readonly domain: SsiDomain, options: ScenarioRunnerOptions = {}) {
+    this.options = options;
+  }
 
   get state(): ScenarioRunnerSnapshot {
     return this.snapshot;
@@ -284,6 +291,9 @@ export class ScenarioRunner {
   private async dispatchEvent(event: ScenarioEvent) {
     switch (event.type) {
       case 'DM_TRIGGER':
+        if (this.shouldSkipZoneTrigger('DM', event.zoneId, { eventType: event.type })) {
+          return;
+        }
         await recordManualCallPointActivation(event.zoneId);
         this.domain.activateDm(event.zoneId);
         break;
@@ -292,6 +302,9 @@ export class ScenarioRunner {
         this.domain.resetDm(event.zoneId);
         break;
       case 'DAI_TRIGGER':
+        if (this.shouldSkipZoneTrigger('DAI', event.zoneId, { eventType: event.type })) {
+          return;
+        }
         this.domain.activateDai(event.zoneId);
         break;
       case 'DAI_RESET':
@@ -340,6 +353,14 @@ export class ScenarioRunner {
     try {
       switch (event.type) {
         case 'DM_TRIGGER':
+          if (
+            this.shouldSkipZoneTrigger('DM', entry.zoneId, {
+              eventType: event.type,
+              sequenceIndex,
+            })
+          ) {
+            return;
+          }
           await recordManualCallPointActivation(entry.zoneId);
           this.domain.activateDm(entry.zoneId);
           break;
@@ -348,6 +369,14 @@ export class ScenarioRunner {
           this.domain.resetDm(entry.zoneId);
           break;
         case 'DAI_TRIGGER':
+          if (
+            this.shouldSkipZoneTrigger('DAI', entry.zoneId, {
+              eventType: event.type,
+              sequenceIndex,
+            })
+          ) {
+            return;
+          }
           this.domain.activateDai(entry.zoneId);
           break;
         case 'DAI_RESET':
@@ -369,6 +398,43 @@ export class ScenarioRunner {
         sequenceIndex,
         zoneId: entry.zoneId,
       });
+    }
+  }
+
+  private shouldSkipZoneTrigger(
+    kind: 'DM' | 'DAI',
+    zoneId: string,
+    metadata: { eventType: ScenarioEvent['type']; sequenceIndex?: number },
+  ): boolean {
+    const normalizedZone = zoneId.trim().toUpperCase();
+    if (!normalizedZone) {
+      return false;
+    }
+    if (!this.isZoneOutOfService(kind, normalizedZone)) {
+      return false;
+    }
+    this.log.info('Déclenchement de scénario ignoré pour un dispositif hors service', {
+      ...metadata,
+      kind,
+      zoneId: normalizedZone,
+    });
+    return true;
+  }
+
+  private isZoneOutOfService(kind: 'DM' | 'DAI', zoneId: string): boolean {
+    const callback = this.options.isZoneOutOfService;
+    if (!callback) {
+      return false;
+    }
+    try {
+      return callback(kind, zoneId);
+    } catch (error) {
+      this.log.error('Échec de la vérification hors service pour une zone', {
+        error: toError(error),
+        kind,
+        zoneId,
+      });
+      return false;
     }
   }
 
