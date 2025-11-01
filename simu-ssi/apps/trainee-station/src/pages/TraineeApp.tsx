@@ -24,6 +24,7 @@ interface CmsiStateData {
   remainingMs?: number;
   zoneId?: string;
   startedAt?: number;
+  zoneIds?: string[];
 }
 
 interface Snapshot {
@@ -49,6 +50,7 @@ interface BoardModule {
 }
 
 const cmsiStatusLabel: Record<string, string> = {
+  FIRE_ALARM: 'Alarme feu en cours',
   EVAC_ACTIVE: 'Évacuation générale déclenchée',
   EVAC_PENDING: 'Préalarme en cours',
   EVAC_SUSPENDED: 'Suspendu - attente réarmement',
@@ -56,6 +58,7 @@ const cmsiStatusLabel: Record<string, string> = {
 };
 
 const cmsiStatusTone: Record<string, BoardModuleTone> = {
+  FIRE_ALARM: 'alarm',
   EVAC_ACTIVE: 'alarm',
   EVAC_PENDING: 'warning',
   EVAC_SUSPENDED: 'info',

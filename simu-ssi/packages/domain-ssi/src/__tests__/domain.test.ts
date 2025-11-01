@@ -69,6 +69,19 @@ describe('SSI domain core rules', () => {
     expect(domain.snapshot.daiActivated['ZF1']).toBeDefined();
   });
 
+  it('sets CMSI to fire alarm when DAI triggers without evacuation', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
+    domain.activateDai('ZF1');
+
+    expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
+    if (domain.snapshot.cmsi.status === 'FIRE_ALARM') {
+      expect(domain.snapshot.cmsi.zoneIds).toEqual(['ZF1']);
+    }
+
+    domain.resetDai('ZF1');
+    expect(domain.snapshot.cmsi.status).toBe('IDLE');
+  });
+
   it('retains multiple DM activations in the same zone until reset', () => {
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: true });
     domain.activateDm('ZF5', { deviceId: 'dm-1' });
@@ -91,6 +104,11 @@ describe('SSI domain core rules', () => {
     expect(state?.activeDeviceIds).toEqual(expect.arrayContaining(['dai-1', 'dai-2']));
     expect(state?.activeDeviceIds).toHaveLength(2);
 
+    expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
+    if (domain.snapshot.cmsi.status === 'FIRE_ALARM') {
+      expect(domain.snapshot.cmsi.zoneIds).toEqual(['ZF6']);
+    }
+
     domain.resetDai('ZF6');
     expect(domain.snapshot.daiActivated['ZF6']).toBeUndefined();
   });
@@ -101,12 +119,14 @@ describe('SSI domain core rules', () => {
     const resetResult = domain.trySystemReset();
     expect(resetResult).toEqual({ ok: true });
     expect(domain.snapshot.daiActivated['ZF2']).toBeUndefined();
+    expect(domain.snapshot.cmsi.status).toBe('IDLE');
   });
 
   it('activates a local audible signal on DAI pre-alarm that can be silenced', () => {
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: false, evacOnDai: false });
     domain.activateDai('ZF1');
     expect(domain.snapshot.localAudibleActive).toBe(true);
+    expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
     domain.silenceAudibleAlarm();
     expect(domain.snapshot.localAudibleActive).toBe(false);
   });
@@ -118,7 +138,9 @@ describe('SSI domain core rules', () => {
     expect(domain.snapshot.localAudibleActive).toBe(false);
     domain.activateDai('ZF3');
     expect(domain.snapshot.localAudibleActive).toBe(true);
+    expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
     domain.resetDai('ZF3');
     expect(domain.snapshot.localAudibleActive).toBe(false);
+    expect(domain.snapshot.cmsi.status).toBe('IDLE');
   });
 });
