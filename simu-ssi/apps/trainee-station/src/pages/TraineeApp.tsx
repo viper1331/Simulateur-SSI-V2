@@ -522,24 +522,18 @@ export function TraineeApp() {
   const hasOutstandingManualResets = useMemo(() => {
     const normalize = (zone: string) => zone.trim().toUpperCase();
     const dmLatched = snapshot?.dmLatched ?? {};
-    const daiActivated = snapshot?.daiActivated ?? {};
     const activeDmZones = Object.keys(dmLatched).map(normalize);
-    const activeDaiZones = Object.keys(daiActivated).map(normalize);
 
     if (!manualResetConstraints) {
-      return activeDmZones.length > 0 || activeDaiZones.length > 0;
+      return activeDmZones.length > 0;
     }
 
-    const requiresManualDm = manualResetConstraints.dmZones.size > 0;
-    const requiresManualDai = manualResetConstraints.daiZones.size > 0;
+    if (manualResetConstraints.dmZones.size === 0) {
+      return activeDmZones.length > 0;
+    }
 
-    const pendingDm =
-      requiresManualDm && activeDmZones.some((zone) => manualResetConstraints.dmZones.has(zone));
-    const pendingDai =
-      requiresManualDai && activeDaiZones.some((zone) => manualResetConstraints.daiZones.has(zone));
-
-    return pendingDm || pendingDai;
-  }, [manualResetConstraints, snapshot?.daiActivated, snapshot?.dmLatched]);
+    return activeDmZones.some((zone) => manualResetConstraints.dmZones.has(zone));
+  }, [manualResetConstraints, snapshot?.dmLatched]);
 
   const canResetZone = useCallback(
     (kind: 'DM' | 'DAI', zoneId: string) => isManualResetAllowed(manualResetConstraints, kind, zoneId),
