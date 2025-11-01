@@ -83,6 +83,8 @@ function translateScenarioStatus(
   switch (status) {
     case 'running':
       return 'Scénario en cours';
+    case 'ready':
+      return 'Scénario prêt';
     case 'completed':
       return 'Scénario terminé';
     case 'stopped':
@@ -565,7 +567,7 @@ export function TraineeApp() {
         return;
       }
       pendingTopologyRef.current = parsed.data;
-      if (scenarioStatusRef.current.status === 'running') {
+      if (scenarioStatusRef.current.status === 'running' || scenarioStatusRef.current.status === 'ready') {
         setTopology(parsed.data);
         pendingTopologyRef.current = null;
       }
@@ -605,14 +607,21 @@ export function TraineeApp() {
 
   useEffect(() => {
     scenarioStatusRef.current = scenarioStatus;
-    if (scenarioStatus.status !== 'running') {
+    if (scenarioStatus.status === 'running' || scenarioStatus.status === 'ready') {
+      if (scenarioStatus.scenario?.topology) {
+        setTopology(scenarioStatus.scenario.topology);
+        pendingTopologyRef.current = null;
+        return;
+      }
+      if (pendingTopologyRef.current) {
+        setTopology(pendingTopologyRef.current);
+        pendingTopologyRef.current = null;
+        return;
+      }
       setTopology(null);
       return;
     }
-    if (pendingTopologyRef.current) {
-      setTopology(pendingTopologyRef.current);
-      pendingTopologyRef.current = null;
-    }
+    setTopology(null);
   }, [scenarioStatus]);
 
   useEffect(() => {
@@ -863,6 +872,9 @@ export function TraineeApp() {
       if (!asset) {
         audioElement.removeAttribute('src');
       }
+      return;
+    }
+    if (!asset) {
       return;
     }
     if (audioElement.src !== asset.dataUrl) {

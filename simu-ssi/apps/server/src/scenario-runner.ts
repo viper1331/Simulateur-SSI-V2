@@ -64,6 +64,28 @@ export class ScenarioRunner {
     this.emitter.off(event, handler);
   }
 
+  preload(scenario: ScenarioDefinition) {
+    this.stop('stopped');
+
+    const orderedEvents = [...scenario.events].sort((a, b) => a.offset - b.offset);
+    const normalizedScenario: ScenarioDefinition = { ...scenario, events: orderedEvents };
+
+    this.log.info("Préchargement de scénario demandé", {
+      scenarioId: scenario.id,
+      eventCount: orderedEvents.length,
+    });
+
+    this.updateSnapshot({
+      status: 'ready',
+      scenario: normalizedScenario,
+      startedAt: undefined,
+      endedAt: undefined,
+      currentEventIndex: -1,
+      nextEvent: orderedEvents[0] ?? null,
+      awaitingSystemReset: false,
+    });
+  }
+
   run(scenario: ScenarioDefinition) {
     this.stop('stopped');
 
@@ -126,6 +148,19 @@ export class ScenarioRunner {
     this.domain.emitter.off('events.append', this.handleDomainEvent);
     if (!this.context) {
       this.log.debug("Arrêt de scénario demandé sans contexte actif", { status });
+      if (this.snapshot.status === 'ready' && this.snapshot.scenario) {
+        const scenario = this.snapshot.scenario;
+        this.updateSnapshot({
+          status,
+          scenario,
+          startedAt: undefined,
+          endedAt: status === 'idle' ? undefined : Date.now(),
+          currentEventIndex: -1,
+          nextEvent: null,
+          awaitingSystemReset: false,
+        });
+        return;
+      }
       if (status === 'idle') {
         this.updateSnapshot({ status: 'idle' });
       }

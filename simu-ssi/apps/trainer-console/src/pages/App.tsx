@@ -175,6 +175,8 @@ function translateScenarioStatus(
   switch (status) {
     case 'running':
       return 'En cours';
+    case 'ready':
+      return 'Préchargé';
     case 'completed':
       return 'Terminé';
     case 'stopped':
@@ -699,6 +701,7 @@ export function App() {
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
   const [scenarioLoadingId, setScenarioLoadingId] = useState<string | null>(null);
+  const [scenarioPreloadingId, setScenarioPreloadingId] = useState<string | null>(null);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [scenarioFeedback, setScenarioFeedback] = useState<string | null>(null);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
@@ -2012,6 +2015,18 @@ export function App() {
     }
   };
 
+  const handleScenarioPreload = async (scenarioId: string) => {
+    setScenarioPreloadingId(scenarioId);
+    try {
+      const status = await sdk.preloadScenario(scenarioId);
+      setScenarioStatus(status);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setScenarioPreloadingId((current) => (current === scenarioId ? null : current));
+    }
+  };
+
   const handleScenarioStop = async () => {
     try {
       const status = await sdk.stopScenario();
@@ -2129,6 +2144,8 @@ export function App() {
   );
   const nextScenarioEvent = describeScenarioEvent(scenarioStatus);
   const scenarioIsRunning = scenarioStatus.status === 'running';
+  const scenarioIsReady = scenarioStatus.status === 'ready';
+  const scenarioIsActive = scenarioIsRunning || scenarioIsReady;
   const audibleState = snapshot?.ugaActive
     ? { value: 'Diffusion', tone: 'critical' as const, footer: 'Alarme générale en cours' }
     : snapshot?.localAudibleActive
@@ -2905,9 +2922,9 @@ export function App() {
                   type="button"
                   className="btn btn--ghost"
                   onClick={handleScenarioStop}
-                  disabled={!scenarioIsRunning}
+                  disabled={!scenarioIsActive}
                 >
-                  Arrêter le scénario
+                  Arrêter / annuler le scénario
                 </button>
               </div>
             </div>
@@ -2945,8 +2962,25 @@ export function App() {
                           <button
                             type="button"
                             className="btn btn--ghost"
+                            onClick={() => handleScenarioPreload(scenario.id)}
+                            disabled={
+                              scenarioPreloadingId === scenario.id ||
+                              scenarioIsRunning ||
+                              (scenarioIsReady && isActive)
+                            }
+                            aria-busy={scenarioPreloadingId === scenario.id}
+                          >
+                            {scenarioPreloadingId === scenario.id
+                              ? 'Préchargement…'
+                              : scenarioIsReady && isActive
+                              ? 'Préchargé'
+                              : 'Précharger'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
                             onClick={() => handleScenarioRun(scenario.id)}
-                            disabled={scenarioIsRunning && isActive}
+                            disabled={(scenarioIsRunning && isActive) || scenarioPreloadingId === scenario.id}
                           >
                             Lancer
                           </button>
