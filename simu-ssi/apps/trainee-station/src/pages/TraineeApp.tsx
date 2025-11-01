@@ -187,6 +187,70 @@ function doesStateIncludeDevice(
   return state.deviceId === deviceId;
 }
 
+function formatDeviceDisplayName(device?: SiteDevice): string {
+  if (!device) {
+    return '';
+  }
+  const explicitLabel = device.label?.trim();
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+  const kindLabel = DEVICE_MARKER_LABELS[device.kind];
+  if (kindLabel) {
+    if (device.zoneId) {
+      return `${kindLabel} ${device.zoneId}`;
+    }
+    return kindLabel;
+  }
+  return device.id;
+}
+
+function getDeviceLabelsFromState(
+  state: { deviceId?: string; activeDeviceIds?: string[] } | undefined,
+  deviceLookup: Map<string, SiteDevice>,
+): string | null {
+  if (!state) {
+    return null;
+  }
+  const deviceIds =
+    state.activeDeviceIds && state.activeDeviceIds.length > 0
+      ? state.activeDeviceIds
+      : state.deviceId
+        ? [state.deviceId]
+        : [];
+  if (deviceIds.length === 0) {
+    return null;
+  }
+  const labels = deviceIds
+    .map((id) => {
+      const label = formatDeviceDisplayName(deviceLookup.get(id));
+      return label && label.length > 0 ? label : id;
+    })
+    .filter((value, index, array) => array.indexOf(value) === index);
+  if (labels.length === 0) {
+    return null;
+  }
+  return labels.join(', ');
+}
+
+function getDeviceLabelsForEvent(
+  event: ScenarioEvent,
+  snapshot: Snapshot | null,
+  deviceLookup: Map<string, SiteDevice>,
+): string | null {
+  if (!snapshot) {
+    return null;
+  }
+  switch (event.type) {
+    case 'DM_TRIGGER':
+      return getDeviceLabelsFromState(snapshot.dmLatched?.[event.zoneId], deviceLookup);
+    case 'DAI_TRIGGER':
+      return getDeviceLabelsFromState(snapshot.daiActivated?.[event.zoneId], deviceLookup);
+    default:
+      return null;
+  }
+}
+
 function isScenarioEventActive(
   event: ScenarioEvent,
   snapshot: Snapshot | null,
@@ -1143,12 +1207,13 @@ export function TraineeApp() {
   }, [scenarioUiStatus.scenario?.topology, topology]);
   const scenarioDeviceLookup = useMemo(() => {
     const map = new Map<string, SiteDevice>();
-    const devices = scenarioUiStatus.scenario?.topology?.devices ?? [];
-    devices.forEach((device) => {
+    const addDevice = (device: SiteDevice) => {
       map.set(device.id, device);
-    });
+    };
+    (topology?.devices ?? []).forEach(addDevice);
+    (scenarioUiStatus.scenario?.topology?.devices ?? []).forEach(addDevice);
     return map;
-  }, [scenarioUiStatus.scenario?.topology?.devices]);
+  }, [scenarioUiStatus.scenario?.topology?.devices, topology?.devices]);
   const triggeredScenarioEvents = useMemo<TriggeredScenarioEventCard[]>(() => {
     if (scenarioUiStatus.status !== 'running') {
       return [];
@@ -1224,9 +1289,12 @@ export function TraineeApp() {
           ? `${zoneId} · ${zoneName}`
           : zoneId
         : 'Action globale';
+      const deviceLabels = getDeviceLabelsForEvent(event, snapshot, scenarioDeviceLookup);
+      const labelBase = describeScenarioStep(event);
+      const label = deviceLabels && deviceLabels.length > 0 ? `${labelBase} (${deviceLabels})` : labelBase;
       activeCards.push({
         id: event.id ?? `${index}-${event.type}-${zoneId ?? 'none'}-${event.offset}`,
-        label: describeScenarioStep(event),
+        label,
         zoneDisplay,
         offsetLabel: formatScenarioOffset(event.offset),
         tone: getScenarioEventTone(event),
