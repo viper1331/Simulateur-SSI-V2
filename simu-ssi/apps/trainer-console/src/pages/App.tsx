@@ -235,6 +235,16 @@ function resolveDeviceLabel(device: SiteDevice) {
   return device.label?.trim().length ? device.label : device.id;
 }
 
+function formatScenarioOffset(value: number): string {
+  if (Number.isInteger(value)) {
+    return `${value} s`;
+  }
+  return `${value.toLocaleString('fr-FR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} s`;
+}
+
 function extractDeviceCoords(device: SiteDevice): string | null {
   const props = device.props as Record<string, unknown> | undefined;
   if (!props) {
@@ -778,6 +788,7 @@ export function App() {
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
+  const [collapsedEventIds, setCollapsedEventIds] = useState<Set<string>>(() => new Set());
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
@@ -842,6 +853,25 @@ export function App() {
   const scenarioAutomaticAudioInputRef = useRef<HTMLInputElement | null>(null);
   const scenarioManualAudioInputRef = useRef<HTMLInputElement | null>(null);
   const userImportInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setCollapsedEventIds((prev) => {
+      const validIds = new Set(draftScenario.events.map((event) => event.id));
+      let updated = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          updated = true;
+        }
+      });
+      if (!updated && next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+  }, [draftScenario.events]);
 
   useEffect(() => {
     if (trainerOptions.length === 0) {
@@ -1752,7 +1782,27 @@ export function App() {
       ...prev,
       events: prev.events.filter((event) => event.id !== eventId),
     }));
+    setCollapsedEventIds((prev) => {
+      if (!prev.has(eventId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(eventId);
+      return next;
+    });
   };
+
+  const handleScenarioToggleEventCollapse = useCallback((eventId: string) => {
+    setCollapsedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) {
+        next.delete(eventId);
+      } else {
+        next.add(eventId);
+      }
+      return next;
+    });
+  }, []);
 
   const handleScenarioEventTypeChange = (eventId: string, type: ScenarioEvent['type']) => {
     updateDraftEvent(eventId, (event) =>
@@ -3466,6 +3516,8 @@ export function App() {
                     const sequenceEntries = zoneEventDraft
                       ? sanitizeSequenceEntries(eventDraft.sequence)
                       : [];
+                    const isCollapsed = collapsedEventIds.has(eventDraft.id);
+                    const eventContentId = `scenario-event-${eventDraft.id}`;
                     const zoneId =
                       'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
                     const zoneMetadata =
@@ -3498,8 +3550,52 @@ export function App() {
                             .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b)))
                         : [];
                     const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
+                    const summaryItems: Array<{ id: string; label: string; value?: string }> = [];
+                    if (zoneEvent) {
+                      if (zoneMetadata) {
+                        summaryItems.push({ id: 'zone', label: 'Zone', value: zoneMetadata.label });
+                        if (zoneMetadata.kind) {
+                          summaryItems.push({ id: 'zone-kind', label: 'Type', value: formatZoneKind(zoneMetadata.kind) });
+                        }
+                      } else if (zoneId) {
+                        summaryItems.push({ id: 'zone', label: 'Zone', value: zoneId });
+                      } else {
+                        summaryItems.push({ id: 'zone', label: 'Zone', value: 'Non définie' });
+                      }
+                    }
+                    if (zoneEventDraft) {
+                      const selectedDeviceCount = sequenceEntries.length;
+                      summaryItems.push({
+                        id: 'devices',
+                        label: 'Déclenchements',
+                        value:
+                          selectedDeviceCount > 0
+                            ? `${selectedDeviceCount} dispositif${selectedDeviceCount > 1 ? 's' : ''}`
+                            : 'Aucun dispositif',
+                      });
+                    }
+                    if (reasonEvent) {
+                      const reason = (eventDraft as { reason?: string }).reason?.trim();
+                      if (reason) {
+                        summaryItems.push({ id: 'reason', label: 'Motif', value: reason });
+                      }
+                    }
+                    if (ackEvent) {
+                      const ackedBy = (eventDraft as { ackedBy?: string }).ackedBy?.trim();
+                      if (ackedBy) {
+                        summaryItems.push({ id: 'acked-by', label: 'Opérateur', value: ackedBy });
+                      }
+                    }
+                    const eventNote = eventDraft.label?.trim();
+                    if (eventNote) {
+                      summaryItems.push({ id: 'label', label: 'Note', value: eventNote });
+                    }
+                    const offsetLabel = formatScenarioOffset(offsetValue);
                     return (
-                      <div key={eventDraft.id} className="scenario-event-row">
+                      <div
+                        key={eventDraft.id}
+                        className={`scenario-event-row ${isCollapsed ? 'scenario-event-row--collapsed' : ''}`}
+                      >
                         <div className="scenario-event-row__header">
                           <div className="scenario-event-row__title">
                             <span className="scenario-event-row__index">#{index + 1}</span>
@@ -3523,22 +3619,45 @@ export function App() {
                             </label>
                           </div>
                           <div className="scenario-event-row__meta">
-                            <label className="scenario-event-field scenario-event-field--offset">
-                              <span>Offset (s)</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.1}
-                                value={offsetValue}
-                                onChange={(input) => {
-                                  const value = Number.parseFloat(input.target.value);
-                                  handleScenarioEventOffsetChange(
-                                    eventDraft.id,
-                                    Number.isNaN(value) ? 0 : value,
-                                  );
-                                }}
-                              />
-                            </label>
+                            <button
+                              type="button"
+                              className="scenario-event-collapse"
+                              onClick={() => handleScenarioToggleEventCollapse(eventDraft.id)}
+                              aria-expanded={!isCollapsed}
+                              aria-controls={eventContentId}
+                            >
+                              <span
+                                className={`scenario-event-collapse__icon ${
+                                  isCollapsed ? '' : 'scenario-event-collapse__icon--open'
+                                }`}
+                                aria-hidden="true"
+                              >
+                                ▸
+                              </span>
+                              <span>{isCollapsed ? 'Développer' : 'Réduire'}</span>
+                            </button>
+                            {isCollapsed ? (
+                              <span className="scenario-event-row__offset" aria-label={`Offset ${offsetLabel}`}>
+                                Offset : {offsetLabel}
+                              </span>
+                            ) : (
+                              <label className="scenario-event-field scenario-event-field--offset">
+                                <span>Offset (s)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.1}
+                                  value={offsetValue}
+                                  onChange={(input) => {
+                                    const value = Number.parseFloat(input.target.value);
+                                    handleScenarioEventOffsetChange(
+                                      eventDraft.id,
+                                      Number.isNaN(value) ? 0 : value,
+                                    );
+                                  }}
+                                />
+                              </label>
+                            )}
                             <button
                               type="button"
                               className="scenario-event-remove"
@@ -3549,7 +3668,24 @@ export function App() {
                             </button>
                           </div>
                         </div>
-                        <div className="scenario-event-row__content">
+                        {isCollapsed && summaryItems.length > 0 && (
+                          <ul className="scenario-event-row__summary" aria-label="Résumé de l'action">
+                            {summaryItems.map((item) => (
+                              <li key={item.id} className="scenario-event-row__summary-item">
+                                <span className="scenario-event-row__summary-label">{item.label}</span>
+                                {item.value && (
+                                  <span className="scenario-event-row__summary-value">{item.value}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div
+                          id={eventContentId}
+                          className="scenario-event-row__content"
+                          hidden={isCollapsed}
+                          aria-hidden={isCollapsed}
+                        >
                           {zoneEvent && (
                             <label className="scenario-event-field scenario-event-field--zone">
                               <span>Zone</span>
