@@ -778,6 +778,7 @@ export function App() {
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
+  const [collapsedEventIds, setCollapsedEventIds] = useState<Set<string>>(() => new Set());
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
@@ -842,6 +843,25 @@ export function App() {
   const scenarioAutomaticAudioInputRef = useRef<HTMLInputElement | null>(null);
   const scenarioManualAudioInputRef = useRef<HTMLInputElement | null>(null);
   const userImportInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setCollapsedEventIds((prev) => {
+      const validIds = new Set(draftScenario.events.map((event) => event.id));
+      let updated = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        } else {
+          updated = true;
+        }
+      });
+      if (!updated && next.size === prev.size) {
+        return prev;
+      }
+      return next;
+    });
+  }, [draftScenario.events]);
 
   useEffect(() => {
     if (trainerOptions.length === 0) {
@@ -1752,7 +1772,27 @@ export function App() {
       ...prev,
       events: prev.events.filter((event) => event.id !== eventId),
     }));
+    setCollapsedEventIds((prev) => {
+      if (!prev.has(eventId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(eventId);
+      return next;
+    });
   };
+
+  const handleScenarioToggleEventCollapse = useCallback((eventId: string) => {
+    setCollapsedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) {
+        next.delete(eventId);
+      } else {
+        next.add(eventId);
+      }
+      return next;
+    });
+  }, []);
 
   const handleScenarioEventTypeChange = (eventId: string, type: ScenarioEvent['type']) => {
     updateDraftEvent(eventId, (event) =>
@@ -3466,6 +3506,8 @@ export function App() {
                     const sequenceEntries = zoneEventDraft
                       ? sanitizeSequenceEntries(eventDraft.sequence)
                       : [];
+                    const isCollapsed = collapsedEventIds.has(eventDraft.id);
+                    const eventContentId = `scenario-event-${eventDraft.id}`;
                     const zoneId =
                       'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
                     const zoneMetadata =
@@ -3499,7 +3541,10 @@ export function App() {
                         : [];
                     const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
                     return (
-                      <div key={eventDraft.id} className="scenario-event-row">
+                      <div
+                        key={eventDraft.id}
+                        className={`scenario-event-row ${isCollapsed ? 'scenario-event-row--collapsed' : ''}`}
+                      >
                         <div className="scenario-event-row__header">
                           <div className="scenario-event-row__title">
                             <span className="scenario-event-row__index">#{index + 1}</span>
@@ -3523,6 +3568,23 @@ export function App() {
                             </label>
                           </div>
                           <div className="scenario-event-row__meta">
+                            <button
+                              type="button"
+                              className="scenario-event-collapse"
+                              onClick={() => handleScenarioToggleEventCollapse(eventDraft.id)}
+                              aria-expanded={!isCollapsed}
+                              aria-controls={eventContentId}
+                            >
+                              <span
+                                className={`scenario-event-collapse__icon ${
+                                  isCollapsed ? '' : 'scenario-event-collapse__icon--open'
+                                }`}
+                                aria-hidden="true"
+                              >
+                                ▸
+                              </span>
+                              <span>{isCollapsed ? 'Développer' : 'Réduire'}</span>
+                            </button>
                             <label className="scenario-event-field scenario-event-field--offset">
                               <span>Offset (s)</span>
                               <input
@@ -3549,7 +3611,12 @@ export function App() {
                             </button>
                           </div>
                         </div>
-                        <div className="scenario-event-row__content">
+                        <div
+                          id={eventContentId}
+                          className="scenario-event-row__content"
+                          hidden={isCollapsed}
+                          aria-hidden={isCollapsed}
+                        >
                           {zoneEvent && (
                             <label className="scenario-event-field scenario-event-field--zone">
                               <span>Zone</span>
