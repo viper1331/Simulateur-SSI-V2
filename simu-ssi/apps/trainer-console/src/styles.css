@@ -2053,23 +2053,6 @@ kbd {
   color: rgba(15, 23, 42, 0.85);
 }
 
-.scenario-event-sequence__add {
-  padding: 6px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  background: rgba(191, 219, 254, 0.45);
-  color: rgba(30, 64, 175, 0.9);
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.2s ease;
-}
-
-.scenario-event-sequence__add:hover {
-  background: rgba(147, 197, 253, 0.75);
-  transform: translateY(-1px);
-}
-
 .scenario-event-sequence__list {
   list-style: none;
   margin: 0;
@@ -2090,30 +2073,26 @@ kbd {
   border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
-.scenario-event-field--sequence-zone,
 .scenario-event-field--sequence-delay {
   flex: 1 1 160px;
 }
 
-.scenario-event-sequence__remove {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid rgba(185, 28, 28, 0.35);
-  background: rgba(254, 226, 226, 0.75);
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: rgba(153, 27, 27, 0.9);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.2s ease;
+.scenario-event-sequence__device {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.scenario-event-sequence__remove:hover {
-  background: rgba(248, 113, 113, 0.6);
-  transform: translateY(-1px);
+.scenario-event-sequence__device strong {
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.95);
+}
+
+.scenario-event-sequence__device span {
+  font-size: 0.75rem;
+  color: rgba(71, 85, 105, 0.9);
+  letter-spacing: 0.01em;
 }
 
 .scenario-event-sequence__empty {

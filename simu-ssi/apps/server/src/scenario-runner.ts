@@ -4,6 +4,7 @@ import type {
   ScenarioEvent,
   ScenarioEventSequenceEntry,
   ScenarioRunnerSnapshot,
+  SiteDevice,
 } from '@simu-ssi/sdk';
 import type { DomainLogEvent, SsiDomain } from '@simu-ssi/domain-ssi';
 import { recordManualCallPointActivation, recordManualCallPointReset } from './manual-call-points';
@@ -22,12 +23,18 @@ interface ActiveScenarioContext {
   currentEventIndex: number;
   awaitingSystemReset: boolean;
   manualReset: ManualResetContext;
+  deviceLookup: Map<string, SiteDevice>;
+  sequenceSteps: Map<number, ScenarioSequenceStep[]>;
 }
 
 interface ManualResetContext {
   mode: 'all' | 'custom';
   dmZones: Set<string>;
   daiZones: Set<string>;
+}
+
+interface ScenarioSequenceStep extends ScenarioEventSequenceEntry {
+  device: SiteDevice;
 }
 
 export class ScenarioRunner {
@@ -118,6 +125,12 @@ export class ScenarioRunner {
           daiZones: new Set<string>(),
         };
 
+    const deviceLookup = new Map<string, SiteDevice>();
+    for (const device of normalizedScenario.topology?.devices ?? []) {
+      deviceLookup.set(device.id, device);
+    }
+    const sequenceSteps = new Map<number, ScenarioSequenceStep[]>();
+
     this.context = {
       scenario: normalizedScenario,
       startedAt,
@@ -125,6 +138,8 @@ export class ScenarioRunner {
       currentEventIndex: -1,
       awaitingSystemReset: false,
       manualReset,
+      deviceLookup,
+      sequenceSteps,
     };
 
     this.updateSnapshot({
@@ -136,25 +151,26 @@ export class ScenarioRunner {
       awaitingSystemReset: false,
     });
 
+    const activeContext = this.context;
+    if (!activeContext) {
+      return;
+    }
+
     orderedEvents.forEach((event, index) => {
       const delay = Math.max(0, Math.round(event.offset * 1000));
       const handle = setTimeout(() => {
         void this.executeEvent(index);
       }, delay);
-      this.context?.timeouts.push(handle);
+      activeContext.timeouts.push(handle);
 
-      if ('sequence' in event && Array.isArray(event.sequence) && event.sequence.length > 0) {
-        const normalizedSequence = event.sequence
-          .map((entry) => this.normalizeSequenceEntry(entry))
-          .filter((entry): entry is ScenarioEventSequenceEntry => Boolean(entry))
-          .sort((a, b) => a.delay - b.delay);
-        for (const [sequenceIndex, entry] of normalizedSequence.entries()) {
-          const sequenceDelay = Math.max(0, Math.round((event.offset + entry.delay) * 1000));
-          const sequenceHandle = setTimeout(() => {
-            void this.executeSequenceEntry(event, entry, index, sequenceIndex);
-          }, sequenceDelay);
-          this.context?.timeouts.push(sequenceHandle);
-        }
+      const steps = this.normalizeSequence(event);
+      activeContext.sequenceSteps.set(index, steps);
+      for (const [sequenceIndex, step] of steps.entries()) {
+        const sequenceDelay = Math.max(0, Math.round((event.offset + step.delay) * 1000));
+        const sequenceHandle = setTimeout(() => {
+          void this.executeSequenceEntry(event, step, index, sequenceIndex);
+        }, sequenceDelay);
+        activeContext.timeouts.push(sequenceHandle);
       }
     });
   }
@@ -237,11 +253,21 @@ export class ScenarioRunner {
     }
     const event = scenario.events[index];
 
+    const sequenceSteps = this.context.sequenceSteps.get(index) ?? [];
+    const orchestratedBySequence =
+      sequenceSteps.length > 0 && this.resolveSequenceDeviceKind(event) !== null;
+
     if (event.type === 'SYSTEM_RESET') {
       this.context.awaitingSystemReset = true;
       this.log.info("En attente de réinitialisation du système après l'événement", {
         index,
         eventType: event.type,
+      });
+    } else if (orchestratedBySequence) {
+      this.log.debug('Événement orchestré via séquence de dispositifs', {
+        eventType: event.type,
+        index,
+        sequenceCount: sequenceSteps.length,
       });
     } else {
       try {
@@ -314,23 +340,61 @@ export class ScenarioRunner {
     }
   }
 
-  private normalizeSequenceEntry(entry: ScenarioEventSequenceEntry | undefined):
-    | ScenarioEventSequenceEntry
-    | undefined {
-    if (!entry) {
+  private normalizeSequence(event: ScenarioEvent): ScenarioSequenceStep[] {
+    if (!this.context) {
+      return [];
+    }
+    if (!('sequence' in event) || !Array.isArray(event.sequence) || event.sequence.length === 0) {
+      return [];
+    }
+    const expectedKind = this.resolveSequenceDeviceKind(event);
+    if (!expectedKind) {
+      return [];
+    }
+    return event.sequence
+      .map((entry) => this.normalizeSequenceEntry(entry, expectedKind))
+      .filter((entry): entry is ScenarioSequenceStep => Boolean(entry))
+      .sort((a, b) => a.delay - b.delay);
+  }
+
+  private normalizeSequenceEntry(
+    entry: ScenarioEventSequenceEntry | undefined,
+    expectedKind: 'DM' | 'DAI',
+  ): ScenarioSequenceStep | undefined {
+    if (!this.context || !entry) {
       return undefined;
     }
-    const zoneId = entry.zoneId?.trim().toUpperCase();
-    if (!zoneId) {
+    const deviceId = entry.deviceId?.toString().trim();
+    if (!deviceId) {
+      return undefined;
+    }
+    const device = this.context.deviceLookup.get(deviceId);
+    if (!device || !device.zoneId) {
+      return undefined;
+    }
+    if (device.kind !== expectedKind) {
       return undefined;
     }
     const delay = Number.isFinite(entry.delay) && entry.delay >= 0 ? entry.delay : 0;
-    return { zoneId, delay };
+    return { deviceId, delay, device };
+  }
+
+  private resolveSequenceDeviceKind(event: ScenarioEvent): 'DM' | 'DAI' | null {
+    switch (event.type) {
+      case 'DM_TRIGGER':
+      case 'DM_RESET':
+        return 'DM';
+      case 'DAI_TRIGGER':
+      case 'DAI_RESET':
+        return 'DAI';
+      default:
+        return null;
+    }
   }
 
   private async executeSequenceEntry(
     event: ScenarioEvent,
-    entry: ScenarioEventSequenceEntry,
+    step: ScenarioSequenceStep,
     parentIndex: number,
     sequenceIndex: number,
   ) {
@@ -338,20 +402,24 @@ export class ScenarioRunner {
       return;
     }
     try {
+      const zoneId = step.device.zoneId?.toUpperCase();
+      if (!zoneId) {
+        return;
+      }
       switch (event.type) {
         case 'DM_TRIGGER':
-          await recordManualCallPointActivation(entry.zoneId);
-          this.domain.activateDm(entry.zoneId);
+          await recordManualCallPointActivation(zoneId);
+          this.domain.activateDm(zoneId);
           break;
         case 'DM_RESET':
-          await recordManualCallPointReset(entry.zoneId);
-          this.domain.resetDm(entry.zoneId);
+          await recordManualCallPointReset(zoneId);
+          this.domain.resetDm(zoneId);
           break;
         case 'DAI_TRIGGER':
-          this.domain.activateDai(entry.zoneId);
+          this.domain.activateDai(zoneId);
           break;
         case 'DAI_RESET':
-          this.domain.resetDai(entry.zoneId);
+          this.domain.resetDai(zoneId);
           break;
         default:
           return;
@@ -360,7 +428,8 @@ export class ScenarioRunner {
         parentIndex,
         sequenceIndex,
         parentType: event.type,
-        zoneId: entry.zoneId,
+        zoneId,
+        deviceId: step.deviceId,
       });
     } catch (error) {
       this.log.error("Échec de l'exécution d'un déclenchement de séquence", {
