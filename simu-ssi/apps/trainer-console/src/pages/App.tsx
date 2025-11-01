@@ -830,8 +830,10 @@ export function App() {
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
   const [scenarioEventsCollapsed, setScenarioEventsCollapsed] = useState(false);
-  const [collapsedEventIds, setCollapsedEventIds] = useState<Set<string>>(() => new Set());
-  const [collapsedSequenceEventIds, setCollapsedSequenceEventIds] = useState<Set<string>>(() => new Set());
+  const [collapsedEventIds, setCollapsedEventIds] = useState<Record<string, boolean>>(() => ({}));
+  const [collapsedSequenceEventIds, setCollapsedSequenceEventIds] = useState<Record<string, boolean>>(
+    () => ({}),
+  );
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
@@ -898,18 +900,33 @@ export function App() {
   const userImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    const validIds = new Set(draftScenario.events.map((event) => event.id));
     setCollapsedEventIds((prev) => {
-      const validIds = new Set(draftScenario.events.map((event) => event.id));
-      let updated = false;
-      const next = new Set<string>();
-      prev.forEach((id) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const id of Object.keys(prev)) {
         if (validIds.has(id)) {
-          next.add(id);
+          next[id] = true;
         } else {
-          updated = true;
+          changed = true;
         }
-      });
-      if (!updated && next.size === prev.size) {
+      }
+      if (!changed && Object.keys(next).length === Object.keys(prev).length) {
+        return prev;
+      }
+      return next;
+    });
+    setCollapsedSequenceEventIds((prev) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const id of Object.keys(prev)) {
+        if (validIds.has(id)) {
+          next[id] = true;
+        } else {
+          changed = true;
+        }
+      }
+      if (!changed && Object.keys(next).length === Object.keys(prev).length) {
         return prev;
       }
       return next;
@@ -1833,30 +1850,30 @@ export function App() {
       events: prev.events.filter((event) => event.id !== eventId),
     }));
     setCollapsedEventIds((prev) => {
-      if (!prev.has(eventId)) {
+      if (!prev[eventId]) {
         return prev;
       }
-      const next = new Set(prev);
-      next.delete(eventId);
+      const next = { ...prev };
+      delete next[eventId];
       return next;
     });
     setCollapsedSequenceEventIds((prev) => {
-      if (!prev.has(eventId)) {
+      if (!prev[eventId]) {
         return prev;
       }
-      const next = new Set(prev);
-      next.delete(eventId);
+      const next = { ...prev };
+      delete next[eventId];
       return next;
     });
   };
 
   const handleScenarioToggleEventCollapse = useCallback((eventId: string) => {
     setCollapsedEventIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) {
-        next.delete(eventId);
+      const next = { ...prev };
+      if (next[eventId]) {
+        delete next[eventId];
       } else {
-        next.add(eventId);
+        next[eventId] = true;
       }
       return next;
     });
@@ -1864,11 +1881,11 @@ export function App() {
 
   const handleScenarioToggleSequenceCollapse = useCallback((eventId: string) => {
     setCollapsedSequenceEventIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) {
-        next.delete(eventId);
+      const next = { ...prev };
+      if (next[eventId]) {
+        delete next[eventId];
       } else {
-        next.add(eventId);
+        next[eventId] = true;
       }
       return next;
     });
@@ -1880,11 +1897,11 @@ export function App() {
     );
     if (!isZoneScenarioEventType(type)) {
       setCollapsedSequenceEventIds((prev) => {
-        if (!prev.has(eventId)) {
+        if (!prev[eventId]) {
           return prev;
         }
-        const next = new Set(prev);
-        next.delete(eventId);
+        const next = { ...prev };
+        delete next[eventId];
         return next;
       });
     }
@@ -3630,10 +3647,10 @@ export function App() {
                     const sequenceEntries = zoneEventDraft
                       ? sanitizeSequenceEntries(eventDraft.sequence)
                       : [];
-                    const isCollapsed = collapsedEventIds.has(eventDraft.id);
+                    const isCollapsed = Boolean(collapsedEventIds[eventDraft.id]);
                     const eventContentId = `scenario-event-${eventDraft.id}`;
                     const isSequenceCollapsed =
-                      zoneEventDraft && collapsedSequenceEventIds.has(eventDraft.id);
+                      zoneEventDraft && Boolean(collapsedSequenceEventIds[eventDraft.id]);
                     const sequenceContentId = `${eventContentId}-sequence`;
                     const zoneId =
                       'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
