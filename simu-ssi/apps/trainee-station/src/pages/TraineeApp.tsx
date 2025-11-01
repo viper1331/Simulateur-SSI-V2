@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react';
 import { io } from 'socket.io-client';
 import {
   DEFAULT_TRAINEE_LAYOUT,
@@ -459,6 +459,155 @@ function isDeviceActionable(
   return false;
 }
 
+type TopologyTreeNodeType = 'root' | 'zone' | 'group' | 'device';
+
+interface TopologyTreeNode {
+  id: string;
+  parentId: string | null;
+  label: string;
+  type: TopologyTreeNodeType;
+  depth: number;
+  children: string[];
+  device?: SiteDevice;
+  zone?: { id: string; label: string; kind: string };
+}
+
+interface TopologyTreeData {
+  rootId: string;
+  nodes: Map<string, TopologyTreeNode>;
+}
+
+const UNASSIGNED_NODE_ID = '__unassigned__';
+
+function buildTopologyTree(topology: SiteTopology | null, scenarioName: string | null): TopologyTreeData {
+  const nodes = new Map<string, TopologyTreeNode>();
+  const title = scenarioName?.trim().length
+    ? `Topologie · ${scenarioName.trim()}`
+    : 'Topologie du site';
+  const rootNode: TopologyTreeNode = {
+    id: 'root',
+    parentId: null,
+    label: title,
+    type: 'root',
+    depth: 0,
+    children: [],
+  };
+  nodes.set(rootNode.id, rootNode);
+
+  if (!topology) {
+    return { rootId: rootNode.id, nodes };
+  }
+
+  const zoneList = [...topology.zones].sort((a, b) =>
+    a.label.localeCompare(b.label, 'fr', { sensitivity: 'base' }),
+  );
+
+  const deviceGroups = new Map<string, SiteDevice[]>();
+  topology.devices.forEach((device) => {
+    const key = device.zoneId ?? UNASSIGNED_NODE_ID;
+    if (!deviceGroups.has(key)) {
+      deviceGroups.set(key, []);
+    }
+    deviceGroups.get(key)!.push(device);
+  });
+
+  const addDeviceNode = (parent: TopologyTreeNode, device: SiteDevice) => {
+    const labelBase = device.label?.trim().length ? device.label.trim() : device.id;
+    const kindLabel = DEVICE_MARKER_LABELS[device.kind] ?? device.kind;
+    const zoneSuffix = device.zoneId ? ` (${device.zoneId})` : '';
+    const node: TopologyTreeNode = {
+      id: device.id,
+      parentId: parent.id,
+      label: `${kindLabel} · ${labelBase}${zoneSuffix}`,
+      type: 'device',
+      depth: parent.depth + 1,
+      children: [],
+      device,
+    };
+    nodes.set(node.id, node);
+    parent.children.push(node.id);
+  };
+
+  const sortDevices = (devices: SiteDevice[]) =>
+    [...devices].sort((a, b) => {
+      const aLabel = (a.label?.trim().length ? a.label.trim() : a.id).toLocaleLowerCase('fr');
+      const bLabel = (b.label?.trim().length ? b.label.trim() : b.id).toLocaleLowerCase('fr');
+      if (aLabel < bLabel) {
+        return -1;
+      }
+      if (aLabel > bLabel) {
+        return 1;
+      }
+      return a.id.localeCompare(b.id, 'fr');
+    });
+
+  zoneList.forEach((zone) => {
+    const zoneNode: TopologyTreeNode = {
+      id: zone.id,
+      parentId: rootNode.id,
+      label: `${zone.label} · ${zone.kind}`,
+      type: 'zone',
+      depth: 1,
+      children: [],
+      zone: { id: zone.id, label: zone.label, kind: zone.kind },
+    };
+    nodes.set(zoneNode.id, zoneNode);
+    rootNode.children.push(zoneNode.id);
+    const devices = sortDevices(deviceGroups.get(zone.id) ?? []);
+    devices.forEach((device) => addDeviceNode(zoneNode, device));
+  });
+
+  const unassignedDevices = sortDevices(deviceGroups.get(UNASSIGNED_NODE_ID) ?? []);
+  if (unassignedDevices.length > 0) {
+    const groupNode: TopologyTreeNode = {
+      id: UNASSIGNED_NODE_ID,
+      parentId: rootNode.id,
+      label: 'Sans zone',
+      type: 'group',
+      depth: 1,
+      children: [],
+    };
+    nodes.set(groupNode.id, groupNode);
+    rootNode.children.push(groupNode.id);
+    unassignedDevices.forEach((device) => addDeviceNode(groupNode, device));
+  }
+
+  return { rootId: rootNode.id, nodes };
+}
+
+function flattenTopologyTree(
+  rootId: string,
+  nodes: Map<string, TopologyTreeNode>,
+  expanded: Set<string>,
+): TopologyTreeNode[] {
+  const result: TopologyTreeNode[] = [];
+  const visit = (nodeId: string) => {
+    const node = nodes.get(nodeId);
+    if (!node) {
+      return;
+    }
+    result.push(node);
+    if (node.children.length > 0 && expanded.has(nodeId)) {
+      node.children.forEach((childId) => visit(childId));
+    }
+  };
+  visit(rootId);
+  return result;
+}
+
+function collectAncestorIds(
+  node: TopologyTreeNode | undefined,
+  nodes: Map<string, TopologyTreeNode>,
+): string[] {
+  const ancestors: string[] = [];
+  let current = node?.parentId ?? null;
+  while (current) {
+    ancestors.push(current);
+    current = nodes.get(current)?.parentId ?? null;
+  }
+  return ancestors;
+}
+
 export function TraineeApp() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -470,6 +619,9 @@ export function TraineeApp() {
   const [accessLevelExpiryRevision, setAccessLevelExpiryRevision] = useState<number>(0);
   const [layout, setLayout] = useState<TraineeLayoutConfig>(DEFAULT_TRAINEE_LAYOUT);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [serviceUpdatePending, setServiceUpdatePending] = useState(false);
+  const [serviceUpdateError, setServiceUpdateError] = useState<string | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
   const [sessionInfo, setSessionInfo] = useState<SessionSummary | null>(null);
   const [traineeOptions, setTraineeOptions] = useState<UserSummary[]>([]);
@@ -482,6 +634,12 @@ export function TraineeApp() {
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
+  const selectedDevice = useMemo<SiteDevice | null>(() => {
+    if (!selectedDeviceId || !topology) {
+      return null;
+    }
+    return topology.devices.find((device) => device.id === selectedDeviceId) ?? null;
+  }, [selectedDeviceId, setServiceUpdateError, topology]);
   const scenarioStatusRef = useRef<ScenarioRunnerSnapshot>({ status: 'idle' });
   const pendingTopologyRef = useRef<SiteTopology | null>(null);
   const accessLevelResetTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -604,6 +762,16 @@ export function TraineeApp() {
   useEffect(() => {
     setPlanNotes(extractPlanNotes(topology));
   }, [topology]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) {
+      return;
+    }
+    if (!topology?.devices.some((device) => device.id === selectedDeviceId)) {
+      setSelectedDeviceId(null);
+      setServiceUpdateError(null);
+    }
+  }, [selectedDeviceId, topology]);
 
   useEffect(() => {
     scenarioStatusRef.current = scenarioStatus;
@@ -743,8 +911,37 @@ export function TraineeApp() {
     }
   }, [accessLevel, sdk, snapshot?.manualEvacuation]);
 
+  const handleDeviceSelection = useCallback(
+    (deviceId: string | null) => {
+      setServiceUpdateError(null);
+      setSelectedDeviceId(deviceId);
+    },
+    [setServiceUpdateError, setSelectedDeviceId],
+  );
+
+  const handleDeviceServiceToggle = useCallback(
+    async (deviceId: string, outOfService: boolean) => {
+      if (accessLevel < 2) {
+        setServiceUpdateError('Code niveau 2 requis pour modifier l\'état hors service.');
+        return;
+      }
+      setServiceUpdateError(null);
+      setServiceUpdatePending(true);
+      try {
+        await sdk.setDeviceServiceState(deviceId, outOfService);
+      } catch (error) {
+        console.error(error);
+        setServiceUpdateError("Échec de la mise à jour de l'état hors service.");
+      } finally {
+        setServiceUpdatePending(false);
+      }
+    },
+    [accessLevel, sdk, setServiceUpdateError, setServiceUpdatePending],
+  );
+
   const handlePlanDeviceClick = useCallback(
     (device: SiteDevice) => {
+      handleDeviceSelection(device.id);
       if (device.kind === 'DM' && device.zoneId) {
         if (snapshot?.dmLatched?.[device.zoneId] && canResetZone('DM', device.zoneId)) {
           handleResetDm(device.zoneId);
@@ -757,7 +954,7 @@ export function TraineeApp() {
         }
       }
     },
-    [canResetZone, handleResetDai, handleResetDm, snapshot],
+    [canResetZone, handleDeviceSelection, handleResetDai, handleResetDm, snapshot],
   );
 
   const handleSilenceAlarm = useCallback(() => {
@@ -1481,6 +1678,17 @@ export function TraineeApp() {
             </div>
             <div className="panel-mode">{cmsiMode}</div>
           </header>
+          <TopologyLedPanel
+            topology={topology}
+            scenarioName={scenarioUiStatus.scenario?.name ?? null}
+            selectedDeviceId={selectedDeviceId}
+            selectedDevice={selectedDevice}
+            accessLevel={accessLevel}
+            onSelectDevice={handleDeviceSelection}
+            onToggleOutOfService={handleDeviceServiceToggle}
+            serviceUpdatePending={serviceUpdatePending}
+            serviceUpdateError={serviceUpdateError}
+          />
           <div className="synoptic-board">
             {orderedBoardModules.map((module) => (
               <BoardTile key={module.id} module={module} />
@@ -1552,10 +1760,12 @@ export function TraineeApp() {
                     `floor-plan__marker--${device.kind.toLowerCase()}`,
                     active ? 'is-active' : '',
                     actionable ? 'is-actionable' : '',
+                    device.outOfService ? 'is-out-of-service' : '',
                   ]
                     .filter(Boolean)
                     .join(' ');
-                  const title = `${markerLabel} · ${deviceLabel}${zoneLabel}`;
+                  const statusSuffix = device.outOfService ? ' — hors service' : '';
+                  const title = `${markerLabel} · ${deviceLabel}${zoneLabel}${statusSuffix}`;
                   return (
                     <button
                       key={device.id}
@@ -1596,6 +1806,275 @@ interface StatusBadgeProps {
 
 function StatusBadge({ label, tone }: StatusBadgeProps) {
   return <div className={`status-badge status-${tone}`}>{label}</div>;
+}
+
+interface TopologyLedPanelProps {
+  topology: SiteTopology | null;
+  scenarioName: string | null;
+  selectedDeviceId: string | null;
+  selectedDevice: SiteDevice | null;
+  accessLevel: number;
+  onSelectDevice: (deviceId: string | null) => void;
+  onToggleOutOfService: (deviceId: string, outOfService: boolean) => void;
+  serviceUpdatePending: boolean;
+  serviceUpdateError: string | null;
+}
+
+function TopologyLedPanel({
+  topology,
+  scenarioName,
+  selectedDeviceId,
+  selectedDevice,
+  accessLevel,
+  onSelectDevice,
+  onToggleOutOfService,
+  serviceUpdatePending,
+  serviceUpdateError,
+}: TopologyLedPanelProps) {
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['root']));
+  const [focusedNodeId, setFocusedNodeId] = useState<string>('root');
+
+  const treeData = useMemo(() => buildTopologyTree(topology, scenarioName), [topology, scenarioName]);
+
+  useEffect(() => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      next.add(treeData.rootId);
+      return next;
+    });
+  }, [treeData.rootId]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) {
+      return;
+    }
+    const node = treeData.nodes.get(selectedDeviceId);
+    if (!node) {
+      return;
+    }
+    const ancestors = collectAncestorIds(node, treeData.nodes);
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      ancestors.forEach((ancestor) => next.add(ancestor));
+      return next;
+    });
+    setFocusedNodeId(selectedDeviceId);
+  }, [selectedDeviceId, treeData]);
+
+  useEffect(() => {
+    if (!treeData.nodes.has(focusedNodeId)) {
+      setFocusedNodeId(treeData.rootId);
+    }
+  }, [focusedNodeId, treeData]);
+
+  const visibleNodes = useMemo(
+    () => flattenTopologyTree(treeData.rootId, treeData.nodes, expandedNodes),
+    [treeData, expandedNodes],
+  );
+
+  const handleNodeToggle = useCallback(
+    (nodeId: string) => {
+      setExpandedNodes((prev) => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) {
+          if (nodeId !== treeData.rootId) {
+            next.delete(nodeId);
+          }
+        } else {
+          next.add(nodeId);
+        }
+        return next;
+      });
+    },
+    [treeData.rootId],
+  );
+
+  const handleActivateNode = useCallback(
+    (node: TopologyTreeNode) => {
+      if (node.type === 'device') {
+        onSelectDevice(node.id);
+        setFocusedNodeId(node.id);
+      } else if (node.children.length > 0) {
+        handleNodeToggle(node.id);
+      }
+    },
+    [handleNodeToggle, onSelectDevice],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (visibleNodes.length === 0) {
+        return;
+      }
+      const currentIndex = visibleNodes.findIndex((node) => node.id === focusedNodeId);
+      const currentNode = currentIndex >= 0 ? visibleNodes[currentIndex] : visibleNodes[0];
+      if (!currentNode) {
+        return;
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        const nextIndex = currentIndex >= 0 ? currentIndex + 1 : 1;
+        if (nextIndex < visibleNodes.length) {
+          setFocusedNodeId(visibleNodes[nextIndex].id);
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        const prevIndex = currentIndex >= 0 ? currentIndex - 1 : -1;
+        if (prevIndex >= 0) {
+          setFocusedNodeId(visibleNodes[prevIndex].id);
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowRight') {
+        if (currentNode.children.length > 0) {
+          event.preventDefault();
+          if (!expandedNodes.has(currentNode.id)) {
+            handleNodeToggle(currentNode.id);
+          } else {
+            setFocusedNodeId(currentNode.children[0]);
+          }
+        }
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        if (currentNode.id !== treeData.rootId) {
+          event.preventDefault();
+          if (expandedNodes.has(currentNode.id) && currentNode.children.length > 0) {
+            handleNodeToggle(currentNode.id);
+          } else if (currentNode.parentId) {
+            setFocusedNodeId(currentNode.parentId);
+          }
+        }
+        return;
+      }
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleActivateNode(currentNode);
+      }
+    },
+    [expandedNodes, focusedNodeId, handleActivateNode, handleNodeToggle, treeData.rootId, visibleNodes],
+  );
+
+  const renderNodes = () => {
+    if (visibleNodes.length === 0) {
+      return (
+        <div className="topology-led-placeholder" role="presentation">
+          <p>Aucune topologie active pour le scénario courant.</p>
+        </div>
+      );
+    }
+    return visibleNodes.map((node) => {
+      const isSelected = node.type === 'device' && selectedDeviceId === node.id;
+      const isFocused = focusedNodeId === node.id;
+      const isOutOfService = node.device?.outOfService ?? false;
+      const hasChildren = node.children.length > 0;
+      const className = [
+        'topology-led-node',
+        `topology-led-node--${node.type}`,
+        isSelected ? 'is-selected' : '',
+        isFocused ? 'is-focused' : '',
+        isOutOfService ? 'is-out-of-service' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const indicator = hasChildren ? (expandedNodes.has(node.id) ? '▾' : '▸') : '•';
+      return (
+        <div
+          key={node.id}
+          role="treeitem"
+          aria-level={node.depth + 1}
+          aria-expanded={hasChildren ? expandedNodes.has(node.id) : undefined}
+          aria-selected={node.type === 'device' ? isSelected : undefined}
+          tabIndex={isFocused ? 0 : -1}
+          className={className}
+          style={{ paddingLeft: `${node.depth * 1.5}rem` }}
+          onClick={() => handleActivateNode(node)}
+          onFocus={() => setFocusedNodeId(node.id)}
+        >
+          <span className="topology-led-node__indicator" aria-hidden="true">
+            {indicator}
+          </span>
+          <span className="topology-led-node__label">{node.label}</span>
+          {node.type === 'device' && node.device?.outOfService && (
+            <span className="topology-led-node__badge">Hors service</span>
+          )}
+        </div>
+      );
+    });
+  };
+
+  const handleToggleClick = () => {
+    if (!selectedDevice) {
+      return;
+    }
+    onToggleOutOfService(selectedDevice.id, !selectedDevice.outOfService);
+  };
+
+  return (
+    <section className="topology-led-screen" aria-label="Écran LED interactif de topologie">
+      <header className="topology-led-screen__header">
+        <div>
+          <h3 className="topology-led-screen__title">Écran LED interactif</h3>
+          <p className="topology-led-screen__subtitle">
+            Naviguez avec la souris ou les flèches puis validez avec OK/Entrée.
+          </p>
+        </div>
+        <span className="topology-led-screen__access">Accès niveau {accessLevel}</span>
+      </header>
+      <div className="topology-led-tree" role="tree" aria-label="Arborescence du scénario" onKeyDown={handleKeyDown}>
+        {renderNodes()}
+      </div>
+      <div className="topology-led-screen__actions">
+        {selectedDevice ? (
+          <>
+            <div className="topology-led-screen__selection">
+              <div>
+                <span className="topology-led-screen__selection-label">Dispositif sélectionné</span>
+                <strong className="topology-led-screen__selection-value">{selectedDevice.label ?? selectedDevice.id}</strong>
+                {selectedDevice.zoneId && (
+                  <span className="topology-led-screen__selection-zone">Zone {selectedDevice.zoneId}</span>
+                )}
+              </div>
+              <span
+                className={`topology-led-screen__service ${selectedDevice.outOfService ? 'is-disabled' : 'is-active'}`}
+              >
+                {selectedDevice.outOfService ? 'Hors service' : 'En service'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="topology-led-screen__action"
+              onClick={handleToggleClick}
+              disabled={accessLevel < 2 || serviceUpdatePending}
+            >
+              {serviceUpdatePending
+                ? 'Mise à jour…'
+                : selectedDevice.outOfService
+                ? 'Remettre en service'
+                : 'Mettre hors service'}
+            </button>
+            <p className="topology-led-screen__hint">
+              {accessLevel >= 2
+                ? 'Validez pour basculer l’état de service du dispositif.'
+                : 'Passez au niveau 2 pour autoriser les mises hors service.'}
+            </p>
+            {serviceUpdateError && <p className="topology-led-screen__error">{serviceUpdateError}</p>}
+          </>
+        ) : (
+          <p className="topology-led-screen__hint">
+            Sélectionnez un dispositif pour consulter son statut et agir sur sa mise hors service.
+          </p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 interface ControlButtonProps {

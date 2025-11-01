@@ -49,6 +49,10 @@ const accessCodeVerifySchema = z.object({
 
 const userRoleSchema = z.enum(['TRAINER', 'TRAINEE']);
 
+const deviceServiceUpdateSchema = z.object({
+  outOfService: z.boolean(),
+});
+
 const userCreateSchema = z.object({
   fullName: z.string().min(1),
   email: z.string().email().optional(),
@@ -145,6 +149,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   const scenarioRunner = new ScenarioRunner(domainContext.domain);
   let latestLayout: TraineeLayoutConfig = DEFAULT_TRAINEE_LAYOUT;
   let latestTopology: SiteTopology | null = null;
+  const deviceServiceRegistry = new Map<string, boolean>();
   let lastTopologyBroadcastSignature: string | null = null;
   let ioRef: SocketIOServer | null = null;
   void loadTraineeLayout()
@@ -162,14 +167,21 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       prisma.device.findMany({ orderBy: { id: 'asc' } }),
       prisma.siteConfig.findUnique({ where: { id: 1 } }),
     ]);
+    deviceServiceRegistry.clear();
+    devices.forEach((device) => {
+      if (device.outOfService) {
+        deviceServiceRegistry.set(device.id, true);
+      }
+    });
     const payload = formatTopologyResponse(zones, devices, {
       name: config?.planName ?? undefined,
       image: config?.planImage ?? undefined,
       notes: config?.planNotes ?? undefined,
     });
     const parsed = siteTopologySchema.parse(payload);
-    latestTopology = parsed;
-    return parsed;
+    const normalized = applyOutOfServiceState(parsed);
+    latestTopology = normalized;
+    return normalized;
   }
 
   function resolveActiveTopology(): SiteTopology | null {
@@ -191,12 +203,32 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     if (!topology) {
       return;
     }
-    const signature = JSON.stringify(topology);
+    const enrichedTopology = applyOutOfServiceState(topology);
+    if (topology === latestTopology) {
+      latestTopology = enrichedTopology;
+    }
+    const signature = JSON.stringify(enrichedTopology);
     if (!force && signature === lastTopologyBroadcastSignature) {
       return;
     }
-    ioRef.emit('topology.update', topology);
+    ioRef.emit('topology.update', enrichedTopology);
     lastTopologyBroadcastSignature = signature;
+  }
+
+  function applyOutOfServiceState(topology: SiteTopology): SiteTopology {
+    let mutated = false;
+    const devices = topology.devices.map((device) => {
+      const desiredState = deviceServiceRegistry.get(device.id) ?? false;
+      if (device.outOfService !== desiredState) {
+        mutated = true;
+        return { ...device, outOfService: desiredState };
+      }
+      return device;
+    });
+    if (!mutated) {
+      return topology;
+    }
+    return { ...topology, devices };
   }
 
   void loadLatestTopology()
@@ -854,6 +886,54 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     res.status(200).json({ status: 'reset' });
   });
 
+  app.post('/api/devices/:id/out-of-service', async (req, res) => {
+    const deviceId = req.params.id?.trim();
+    if (!deviceId) {
+      return res.status(400).json({ error: 'DEVICE_ID_REQUIRED' });
+    }
+    const parsed = deviceServiceUpdateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+
+    try {
+      const device = await prisma.device.findUnique({ where: { id: deviceId } });
+      if (!device) {
+        return res.status(404).json({ error: 'DEVICE_NOT_FOUND' });
+      }
+
+      const updated = await prisma.device.update({
+        where: { id: deviceId },
+        data: { outOfService: parsed.data.outOfService },
+      });
+
+      if (parsed.data.outOfService) {
+        deviceServiceRegistry.set(deviceId, true);
+      } else {
+        deviceServiceRegistry.delete(deviceId);
+      }
+
+      if (latestTopology) {
+        latestTopology = applyOutOfServiceState(latestTopology);
+      }
+
+      lastTopologyBroadcastSignature = null;
+      log.info("État hors service du dispositif mis à jour", {
+        deviceId,
+        outOfService: parsed.data.outOfService,
+      });
+
+      res.json({ device: { id: updated.id, outOfService: updated.outOfService } });
+      broadcastActiveTopology(true);
+    } catch (error) {
+      log.error("Échec de la mise à jour hors service du dispositif", {
+        error: toError(error),
+        deviceId,
+      });
+      res.status(500).json({ error: 'FAILED_TO_UPDATE_DEVICE_STATE' });
+    }
+  });
+
   app.get('/api/events', async (req, res) => {
     const { sessionId, from, to, limit } = req.query;
     const events = await prisma.eventLog.findMany({
@@ -888,11 +968,12 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     const activeScenarioTopology =
       snapshot.status === 'running' ? snapshot.scenario?.topology : undefined;
     if (activeScenarioTopology?.plan?.image) {
+      const enriched = applyOutOfServiceState(activeScenarioTopology);
       log.debug("Topologie récupérée depuis le scénario actif", {
-        zoneCount: activeScenarioTopology.zones.length,
-        deviceCount: activeScenarioTopology.devices.length,
+        zoneCount: enriched.zones.length,
+        deviceCount: enriched.devices.length,
       });
-      return res.json(activeScenarioTopology);
+      return res.json(enriched);
     }
 
     if (!latestTopology) {
@@ -909,6 +990,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       }
     }
 
+    latestTopology = applyOutOfServiceState(latestTopology);
     log.debug("Topologie récupérée", {
       zoneCount: latestTopology.zones.length,
       deviceCount: latestTopology.devices.length,
@@ -1194,7 +1276,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     socket.emit('session.update', sessionManager.getCurrentSession());
     const activeTopology = resolveActiveTopology();
     if (activeTopology) {
-      socket.emit('topology.update', activeTopology);
+      socket.emit('topology.update', applyOutOfServiceState(activeTopology));
     } else if (!latestTopology) {
       loadLatestTopology()
         .then((topology) => {
@@ -1211,7 +1293,13 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
 function formatTopologyResponse(
   zones: Array<{ id: string; label: string; kind: string }>,
-  devices: Array<{ id: string; kind: string; zoneId: string | null; propsJson: string | null }>,
+  devices: Array<{
+    id: string;
+    kind: string;
+    zoneId: string | null;
+    propsJson: string | null;
+    outOfService: boolean;
+  }>,
   plan?: { name?: string; image?: string; notes?: string },
 ) {
   const planPayload = plan?.image
@@ -1236,6 +1324,7 @@ function formatTopologyResponse(
         zoneId: device.zoneId ?? undefined,
         label: typeof parsedProps?.label === 'string' ? parsedProps.label : undefined,
         props: parsedProps ?? undefined,
+        outOfService: device.outOfService,
       };
     }),
   };
