@@ -1244,6 +1244,9 @@ export function TraineeApp() {
         });
     })();
 
+    const outOfServiceCount =
+      topology?.devices.reduce((count, device) => (device.outOfService ? count + 1 : count), 0) ?? 0;
+
     return [
       {
         id: 'cmsi-status',
@@ -1291,6 +1294,19 @@ export function TraineeApp() {
         tone: daiCount > 0 ? 'warning' : 'info',
         active: daiCount > 0,
         highlighted: scenarioAdaptation.boardHighlights.has('dai'),
+      },
+      {
+        id: 'out-of-service',
+        label: 'Hors service',
+        description:
+          outOfServiceCount === 0
+            ? 'Tous les dispositifs sont en service'
+            : outOfServiceCount === 1
+            ? '1 dispositif hors service'
+            : `${outOfServiceCount} dispositifs hors service`,
+        tone: outOfServiceCount > 0 ? 'warning' : 'info',
+        active: outOfServiceCount > 0,
+        highlighted: scenarioAdaptation.boardHighlights.has('out-of-service'),
       },
       ...dmModules,
     ];

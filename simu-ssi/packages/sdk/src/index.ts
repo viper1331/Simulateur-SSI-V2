@@ -218,6 +218,7 @@ export const DEFAULT_TRAINEE_LAYOUT: TraineeLayoutConfig = {
     'das',
     'manual-evac',
     'dai',
+    'out-of-service',
     'dm-zf1',
     'dm-zf2',
     'dm-zf3',
