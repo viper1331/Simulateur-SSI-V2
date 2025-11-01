@@ -1344,18 +1344,30 @@ function parseDeviceProps(json: string | null): Record<string, unknown> | undefi
 }
 
 function isValidLayoutSection(order: string[], hidden: string[], baseline: string[]): boolean {
-  const combined = [...order, ...hidden];
-  if (combined.length !== baseline.length) {
+  const baselineSet = new Set(baseline);
+  if (baselineSet.size !== baseline.length) {
     return false;
   }
-  const seen = new Set(combined);
-  if (seen.size !== baseline.length) {
+
+  const orderSet = new Set(order);
+  const hiddenSet = new Set(hidden);
+
+  if (orderSet.size !== order.length) {
     return false;
   }
-  if (!baseline.every((item) => seen.has(item))) {
+  if (hiddenSet.size !== hidden.length) {
     return false;
   }
-  return hidden.every((item) => baseline.includes(item));
+
+  if (!order.every((item) => baselineSet.has(item))) {
+    return false;
+  }
+  if (!hidden.every((item) => baselineSet.has(item))) {
+    return false;
+  }
+
+  const unionSize = new Set([...orderSet, ...hiddenSet]).size;
+  return unionSize === baselineSet.size;
 }
 
 function formatUser(user: { id: string; fullName: string; email: string | null; role: string }) {
