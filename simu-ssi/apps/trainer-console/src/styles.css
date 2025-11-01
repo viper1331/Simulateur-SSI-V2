@@ -2029,6 +2029,105 @@ kbd {
   color: #0f172a;
 }
 
+.scenario-event-sequence {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px dashed rgba(148, 163, 184, 0.45);
+}
+
+.scenario-event-sequence__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scenario-event-sequence__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.scenario-event-sequence__add {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: rgba(191, 219, 254, 0.45);
+  color: rgba(30, 64, 175, 0.9);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.scenario-event-sequence__add:hover {
+  background: rgba(147, 197, 253, 0.75);
+  transform: translateY(-1px);
+}
+
+.scenario-event-sequence__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scenario-event-sequence__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.scenario-event-field--sequence-zone,
+.scenario-event-field--sequence-delay {
+  flex: 1 1 160px;
+}
+
+.scenario-event-sequence__remove {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(185, 28, 28, 0.35);
+  background: rgba(254, 226, 226, 0.75);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(153, 27, 27, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.scenario-event-sequence__remove:hover {
+  background: rgba(248, 113, 113, 0.6);
+  transform: translateY(-1px);
+}
+
+.scenario-event-sequence__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(30, 41, 59, 0.65);
+}
+
+.scenario-event-sequence__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(30, 41, 59, 0.6);
+}
+
 .scenario-event-row__title .scenario-event-field {
   flex: 1;
 }

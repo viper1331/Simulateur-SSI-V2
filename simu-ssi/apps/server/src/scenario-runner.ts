@@ -2,6 +2,7 @@ import EventEmitter from 'eventemitter3';
 import type {
   ScenarioDefinition,
   ScenarioEvent,
+  ScenarioEventSequenceEntry,
   ScenarioRunnerSnapshot,
 } from '@simu-ssi/sdk';
 import type { DomainLogEvent, SsiDomain } from '@simu-ssi/domain-ssi';
@@ -141,6 +142,20 @@ export class ScenarioRunner {
         void this.executeEvent(index);
       }, delay);
       this.context?.timeouts.push(handle);
+
+      if ('sequence' in event && Array.isArray(event.sequence) && event.sequence.length > 0) {
+        const normalizedSequence = event.sequence
+          .map((entry) => this.normalizeSequenceEntry(entry))
+          .filter((entry): entry is ScenarioEventSequenceEntry => Boolean(entry))
+          .sort((a, b) => a.delay - b.delay);
+        for (const [sequenceIndex, entry] of normalizedSequence.entries()) {
+          const sequenceDelay = Math.max(0, Math.round((event.offset + entry.delay) * 1000));
+          const sequenceHandle = setTimeout(() => {
+            void this.executeSequenceEntry(event, entry, index, sequenceIndex);
+          }, sequenceDelay);
+          this.context?.timeouts.push(sequenceHandle);
+        }
+      }
     });
   }
 
@@ -296,6 +311,64 @@ export class ScenarioRunner {
         break;
       default:
         break;
+    }
+  }
+
+  private normalizeSequenceEntry(entry: ScenarioEventSequenceEntry | undefined):
+    | ScenarioEventSequenceEntry
+    | undefined {
+    if (!entry) {
+      return undefined;
+    }
+    const zoneId = entry.zoneId?.trim().toUpperCase();
+    if (!zoneId) {
+      return undefined;
+    }
+    const delay = Number.isFinite(entry.delay) && entry.delay >= 0 ? entry.delay : 0;
+    return { zoneId, delay };
+  }
+
+  private async executeSequenceEntry(
+    event: ScenarioEvent,
+    entry: ScenarioEventSequenceEntry,
+    parentIndex: number,
+    sequenceIndex: number,
+  ) {
+    if (!this.context) {
+      return;
+    }
+    try {
+      switch (event.type) {
+        case 'DM_TRIGGER':
+          await recordManualCallPointActivation(entry.zoneId);
+          this.domain.activateDm(entry.zoneId);
+          break;
+        case 'DM_RESET':
+          await recordManualCallPointReset(entry.zoneId);
+          this.domain.resetDm(entry.zoneId);
+          break;
+        case 'DAI_TRIGGER':
+          this.domain.activateDai(entry.zoneId);
+          break;
+        case 'DAI_RESET':
+          this.domain.resetDai(entry.zoneId);
+          break;
+        default:
+          return;
+      }
+      this.log.debug('Déclenchement de séquence exécuté', {
+        parentIndex,
+        sequenceIndex,
+        parentType: event.type,
+        zoneId: entry.zoneId,
+      });
+    } catch (error) {
+      this.log.error("Échec de l'exécution d'un déclenchement de séquence", {
+        error: toError(error),
+        parentType: event.type,
+        sequenceIndex,
+        zoneId: entry.zoneId,
+      });
     }
   }
 
