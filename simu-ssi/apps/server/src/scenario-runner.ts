@@ -426,7 +426,7 @@ export class ScenarioRunner {
             return;
           }
           await recordManualCallPointActivation(zoneId);
-          this.domain.activateDm(zoneId);
+          this.domain.activateDm(zoneId, { deviceId: step.deviceId });
           break;
         case 'DM_RESET':
           await recordManualCallPointReset(zoneId);
@@ -441,7 +441,7 @@ export class ScenarioRunner {
           ) {
             return;
           }
-          this.domain.activateDai(zoneId);
+          this.domain.activateDai(zoneId, { deviceId: step.deviceId });
           break;
         case 'DAI_RESET':
           this.domain.resetDai(zoneId);

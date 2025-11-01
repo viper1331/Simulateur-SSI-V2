@@ -48,8 +48,11 @@ interface DomainSnapshot {
   manualEvacuation: boolean;
   manualEvacuationReason?: string;
   processAck: { isAcked: boolean };
-  dmLatched: Record<string, { zoneId: string; lastActivatedAt?: number }>;
-  daiActivated: Record<string, { zoneId: string; lastActivatedAt?: number; lastResetAt?: number }>;
+  dmLatched: Record<string, { zoneId: string; lastActivatedAt?: number; deviceId?: string }>;
+  daiActivated: Record<
+    string,
+    { zoneId: string; lastActivatedAt?: number; lastResetAt?: number; deviceId?: string }
+  >;
 }
 
 type ScenarioEventDraft = ScenarioEvent & { id: string };
@@ -326,9 +329,33 @@ function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): bo
   }
   switch (device.kind) {
     case 'DM':
-      return device.zoneId ? Boolean(snapshot.dmLatched?.[device.zoneId]) : false;
+      if (!device.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.dmLatched?.[device.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!state.deviceId) {
+          return true;
+        }
+        return state.deviceId === device.id;
+      }
     case 'DAI':
-      return device.zoneId ? Boolean(snapshot.daiActivated?.[device.zoneId]) : false;
+      if (!device.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.daiActivated?.[device.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!state.deviceId) {
+          return true;
+        }
+        return state.deviceId === device.id;
+      }
     case 'DAS':
       return Boolean(snapshot.dasApplied);
     case 'UGA':
