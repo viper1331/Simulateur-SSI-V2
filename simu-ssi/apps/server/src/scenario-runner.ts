@@ -42,6 +42,7 @@ interface ManualResetContext {
 
 interface ScenarioRunnerOptions {
   isZoneOutOfService?: (kind: 'DM' | 'DAI', zoneId: string) => boolean;
+  isDeviceOutOfService?: (deviceId: string) => boolean;
 }
 
 export class ScenarioRunner {
@@ -449,6 +450,16 @@ export class ScenarioRunner {
       return;
     }
     try {
+      if (
+        (event.type === 'DM_TRIGGER' || event.type === 'DAI_TRIGGER') &&
+        this.shouldSkipDeviceTrigger(step.deviceId, {
+          eventType: event.type,
+          sequenceIndex,
+          zoneId,
+        })
+      ) {
+        return;
+      }
       switch (event.type) {
         case 'DM_TRIGGER':
           if (
@@ -521,6 +532,24 @@ export class ScenarioRunner {
     return true;
   }
 
+  private shouldSkipDeviceTrigger(
+    deviceId: string,
+    metadata: { eventType: ScenarioEvent['type']; zoneId?: string; sequenceIndex?: number },
+  ): boolean {
+    const normalizedId = deviceId.trim();
+    if (!normalizedId) {
+      return false;
+    }
+    if (!this.isDeviceOutOfService(normalizedId)) {
+      return false;
+    }
+    this.log.info('Déclenchement de scénario ignoré pour un dispositif hors service', {
+      ...metadata,
+      deviceId: normalizedId,
+    });
+    return true;
+  }
+
   private isZoneOutOfService(kind: 'DM' | 'DAI', zoneId: string): boolean {
     const callback = this.options.isZoneOutOfService;
     if (!callback) {
@@ -533,6 +562,22 @@ export class ScenarioRunner {
         error: toError(error),
         kind,
         zoneId,
+      });
+      return false;
+    }
+  }
+
+  private isDeviceOutOfService(deviceId: string): boolean {
+    const callback = this.options.isDeviceOutOfService;
+    if (!callback) {
+      return false;
+    }
+    try {
+      return callback(deviceId);
+    } catch (error) {
+      this.log.error('Échec de la vérification hors service pour un dispositif', {
+        error: toError(error),
+        deviceId,
       });
       return false;
     }

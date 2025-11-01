@@ -113,6 +113,42 @@ describe('ScenarioRunner out-of-service handling', () => {
     runner.stop('idle');
   });
 
+  it('skips sequence entries targeting out-of-service devices', async () => {
+    const domain = createDomainStub();
+    const runner = new ScenarioRunner(domain, {
+      isDeviceOutOfService: (deviceId) => deviceId === 'dm-2',
+    });
+    const scenario = createScenario([
+      {
+        id: 'event-1',
+        type: 'DM_TRIGGER',
+        zoneId: 'ZF1',
+        offset: 0,
+        sequence: [
+          { deviceId: 'dm-1', delay: 0 },
+          { deviceId: 'dm-2', delay: 0 },
+        ],
+      },
+    ]);
+    scenario.topology = {
+      plan: undefined,
+      zones: [],
+      devices: [
+        { id: 'dm-1', kind: 'DM', zoneId: 'ZF1' },
+        { id: 'dm-2', kind: 'DM', zoneId: 'ZF1' },
+      ],
+    };
+
+    runner.run(scenario);
+    await waitForAsync();
+
+    expect(domain.activateDm).toHaveBeenCalledTimes(1);
+    expect(domain.activateDm).toHaveBeenCalledWith('ZF1', { deviceId: 'dm-1' });
+    expect(manualCallPointMocks.recordManualCallPointActivation).toHaveBeenCalledTimes(1);
+    expect(manualCallPointMocks.recordManualCallPointActivation).toHaveBeenCalledWith('ZF1');
+    runner.stop('idle');
+  });
+
   it('delays orchestrated events to the earliest sequence step when general offset is zero', async () => {
     jest.useFakeTimers();
     try {
