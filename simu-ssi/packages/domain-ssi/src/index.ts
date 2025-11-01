@@ -105,6 +105,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
   let manualEvacuationReason: string | undefined;
   let processAck: ProcessAckState = { isAcked: false };
   let timerHandle: TimerHandle;
+  let pendingEvacuation: { zoneId: string; deadline: number } | undefined;
 
   let config: DomainConfig = { ...initialConfig };
 
@@ -147,6 +148,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
   const scheduleDeadline = (zoneId: string, delay: number) => {
     clearTimer();
     const deadline = Date.now() + delay;
+    pendingEvacuation = { zoneId, deadline };
     cmsi = { status: 'EVAC_PENDING', zoneId, deadline };
     log({
       ts: Date.now(),
@@ -158,15 +160,21 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
 
     timerHandle = setTimeout(() => {
       timerHandle = undefined;
-      if (cmsi.status !== 'EVAC_PENDING' || cmsi.zoneId !== zoneId) {
+      if (
+        !pendingEvacuation ||
+        pendingEvacuation.zoneId !== zoneId ||
+        pendingEvacuation.deadline !== deadline
+      ) {
         return;
       }
+      pendingEvacuation = undefined;
       enterEvacActive({ manual: false, zoneId });
     }, delay);
   };
 
   const enterEvacActive = ({ manual, zoneId }: { manual: boolean; zoneId?: string }) => {
     clearTimer();
+    pendingEvacuation = undefined;
     cmsi = { status: 'EVAC_ACTIVE', manual, startedAt: Date.now(), zoneId };
     manualEvacuation = manual;
     ugaActive = true;
@@ -183,6 +191,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
 
   const enterSafeHold = () => {
     clearTimer();
+    pendingEvacuation = undefined;
     cmsi = { status: 'SAFE_HOLD', enteredAt: Date.now() };
     manualEvacuation = false;
     manualEvacuationReason = undefined;
@@ -203,6 +212,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       return { ok: false as const, reason: 'DM_NOT_RESET' as const };
     }
     clearTimer();
+    pendingEvacuation = undefined;
     cmsi = { status: 'IDLE' };
     manualEvacuation = false;
     manualEvacuationReason = undefined;
@@ -333,6 +343,25 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         activeDeviceIds: [],
       });
       dmLatched.delete(zoneId);
+      if (pendingEvacuation?.zoneId === zoneId) {
+        pendingEvacuation = undefined;
+        clearTimer();
+        if (cmsi.status === 'EVAC_PENDING' || cmsi.status === 'EVAC_SUSPENDED') {
+          if (daiActivated.size > 0) {
+            const zoneEntries = Array.from(daiActivated.entries());
+            const zoneIds = zoneEntries.map(([id]) => id);
+            const startedAt = zoneEntries.reduce(
+              (min, [, state]) => Math.min(min, state.lastActivatedAt ?? now),
+              now,
+            );
+            const previousZoneId = cmsi.status === 'EVAC_SUSPENDED' ? cmsi.zoneId : undefined;
+            const nextZoneId = previousZoneId && zoneIds.includes(previousZoneId) ? previousZoneId : zoneIds[0];
+            cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: nextZoneId };
+          } else {
+            cmsi = { status: 'IDLE' };
+          }
+        }
+      }
       log({ ts: now, source: 'SDI_DM', message: 'Déclencheur manuel réarmé', details: { zoneId, event: 'DM_RESET' } });
       emitSnapshot();
     },
@@ -377,15 +406,18 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         message: 'Accusé de réception reçu',
         details: { ackedBy, event: 'PROCESS_ACK' },
       });
-      if (cmsi.status === 'EVAC_PENDING') {
-        const remainingMs = Math.max(0, cmsi.deadline - now);
+      if (cmsi.status === 'EVAC_PENDING' || (cmsi.status === 'FIRE_ALARM' && pendingEvacuation)) {
+        const zoneId = cmsi.status === 'EVAC_PENDING' ? cmsi.zoneId : pendingEvacuation!.zoneId;
+        const deadline = cmsi.status === 'EVAC_PENDING' ? cmsi.deadline : pendingEvacuation!.deadline;
+        const remainingMs = Math.max(0, deadline - now);
         clearTimer();
-        cmsi = { status: 'EVAC_SUSPENDED', zoneId: cmsi.zoneId, deadline: cmsi.deadline, remainingMs };
+        pendingEvacuation = undefined;
+        cmsi = { status: 'EVAC_SUSPENDED', zoneId, deadline, remainingMs };
         log({
           ts: now,
           source: 'CMSI',
           message: 'Évacuation suspendue après accusé de réception',
-          details: { zoneId: cmsi.zoneId, remainingMs, event: 'EVAC_SUSPENDED' },
+          details: { zoneId, remainingMs, event: 'EVAC_SUSPENDED' },
         });
         emitSnapshot();
       }
