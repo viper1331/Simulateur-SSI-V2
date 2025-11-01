@@ -410,23 +410,23 @@ export class ScenarioRunner {
     if (!this.context) {
       return;
     }
+    const zoneId = step.device.zoneId?.toUpperCase();
+    if (!zoneId) {
+      return;
+    }
     try {
-      const zoneId = step.device.zoneId?.toUpperCase();
-      if (!zoneId) {
-        return;
-      }
       switch (event.type) {
         case 'DM_TRIGGER':
           if (
-            this.shouldSkipZoneTrigger('DM', entry.zoneId, {
+            this.shouldSkipZoneTrigger('DM', zoneId, {
               eventType: event.type,
               sequenceIndex,
             })
           ) {
             return;
           }
-          await recordManualCallPointActivation(entry.zoneId);
-          this.domain.activateDm(entry.zoneId);
+          await recordManualCallPointActivation(zoneId);
+          this.domain.activateDm(zoneId);
           break;
         case 'DM_RESET':
           await recordManualCallPointReset(zoneId);
@@ -434,14 +434,14 @@ export class ScenarioRunner {
           break;
         case 'DAI_TRIGGER':
           if (
-            this.shouldSkipZoneTrigger('DAI', entry.zoneId, {
+            this.shouldSkipZoneTrigger('DAI', zoneId, {
               eventType: event.type,
               sequenceIndex,
             })
           ) {
             return;
           }
-          this.domain.activateDai(entry.zoneId);
+          this.domain.activateDai(zoneId);
           break;
         case 'DAI_RESET':
           this.domain.resetDai(zoneId);
@@ -461,7 +461,7 @@ export class ScenarioRunner {
         error: toError(error),
         parentType: event.type,
         sequenceIndex,
-        zoneId: entry.zoneId,
+        zoneId,
       });
     }
   }
