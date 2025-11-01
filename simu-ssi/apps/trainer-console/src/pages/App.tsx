@@ -93,6 +93,7 @@ const BOARD_TILE_LABELS: Record<string, string> = {
   das: 'DAS – actionneurs',
   'manual-evac': 'Commande évacuation manuelle',
   dai: 'DAI – détection auto',
+  'out-of-service': 'Dispositifs hors service',
 };
 
 for (let index = 1; index <= 8; index += 1) {
