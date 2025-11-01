@@ -238,6 +238,16 @@ function resolveDeviceLabel(device: SiteDevice) {
   return device.label?.trim().length ? device.label : device.id;
 }
 
+function formatScenarioOffset(value: number): string {
+  if (Number.isInteger(value)) {
+    return `${value} s`;
+  }
+  return `${value.toLocaleString('fr-FR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} s`;
+}
+
 function extractDeviceCoords(device: SiteDevice): string | null {
   const props = device.props as Record<string, unknown> | undefined;
   if (!props) {
@@ -3567,6 +3577,47 @@ export function App() {
                             .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b)))
                         : [];
                     const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
+                    const summaryItems: Array<{ id: string; label: string; value?: string }> = [];
+                    if (zoneEvent) {
+                      if (zoneMetadata) {
+                        summaryItems.push({ id: 'zone', label: 'Zone', value: zoneMetadata.label });
+                        if (zoneMetadata.kind) {
+                          summaryItems.push({ id: 'zone-kind', label: 'Type', value: formatZoneKind(zoneMetadata.kind) });
+                        }
+                      } else if (zoneId) {
+                        summaryItems.push({ id: 'zone', label: 'Zone', value: zoneId });
+                      } else {
+                        summaryItems.push({ id: 'zone', label: 'Zone', value: 'Non définie' });
+                      }
+                    }
+                    if (zoneEventDraft) {
+                      const selectedDeviceCount = sequenceEntries.length;
+                      summaryItems.push({
+                        id: 'devices',
+                        label: 'Déclenchements',
+                        value:
+                          selectedDeviceCount > 0
+                            ? `${selectedDeviceCount} dispositif${selectedDeviceCount > 1 ? 's' : ''}`
+                            : 'Aucun dispositif',
+                      });
+                    }
+                    if (reasonEvent) {
+                      const reason = (eventDraft as { reason?: string }).reason?.trim();
+                      if (reason) {
+                        summaryItems.push({ id: 'reason', label: 'Motif', value: reason });
+                      }
+                    }
+                    if (ackEvent) {
+                      const ackedBy = (eventDraft as { ackedBy?: string }).ackedBy?.trim();
+                      if (ackedBy) {
+                        summaryItems.push({ id: 'acked-by', label: 'Opérateur', value: ackedBy });
+                      }
+                    }
+                    const eventNote = eventDraft.label?.trim();
+                    if (eventNote) {
+                      summaryItems.push({ id: 'label', label: 'Note', value: eventNote });
+                    }
+                    const offsetLabel = formatScenarioOffset(offsetValue);
                     return (
                       <div
                         key={eventDraft.id}
@@ -3612,22 +3663,28 @@ export function App() {
                               </span>
                               <span>{isCollapsed ? 'Développer' : 'Réduire'}</span>
                             </button>
-                            <label className="scenario-event-field scenario-event-field--offset">
-                              <span>Offset (s)</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.1}
-                                value={offsetValue}
-                                onChange={(input) => {
-                                  const value = Number.parseFloat(input.target.value);
-                                  handleScenarioEventOffsetChange(
-                                    eventDraft.id,
-                                    Number.isNaN(value) ? 0 : value,
-                                  );
-                                }}
-                              />
-                            </label>
+                            {isCollapsed ? (
+                              <span className="scenario-event-row__offset" aria-label={`Offset ${offsetLabel}`}>
+                                Offset : {offsetLabel}
+                              </span>
+                            ) : (
+                              <label className="scenario-event-field scenario-event-field--offset">
+                                <span>Offset (s)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.1}
+                                  value={offsetValue}
+                                  onChange={(input) => {
+                                    const value = Number.parseFloat(input.target.value);
+                                    handleScenarioEventOffsetChange(
+                                      eventDraft.id,
+                                      Number.isNaN(value) ? 0 : value,
+                                    );
+                                  }}
+                                />
+                              </label>
+                            )}
                             <button
                               type="button"
                               className="scenario-event-remove"
@@ -3638,6 +3695,18 @@ export function App() {
                             </button>
                           </div>
                         </div>
+                        {isCollapsed && summaryItems.length > 0 && (
+                          <ul className="scenario-event-row__summary" aria-label="Résumé de l'action">
+                            {summaryItems.map((item) => (
+                              <li key={item.id} className="scenario-event-row__summary-item">
+                                <span className="scenario-event-row__summary-label">{item.label}</span>
+                                {item.value && (
+                                  <span className="scenario-event-row__summary-value">{item.value}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                         <div
                           id={eventContentId}
                           className="scenario-event-row__content"
