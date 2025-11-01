@@ -829,6 +829,7 @@ export function App() {
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
+  const [scenarioEventsCollapsed, setScenarioEventsCollapsed] = useState(false);
   const [collapsedEventIds, setCollapsedEventIds] = useState<Set<string>>(() => new Set());
   const [collapsedSequenceEventIds, setCollapsedSequenceEventIds] = useState<Set<string>>(() => new Set());
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
@@ -1819,6 +1820,13 @@ export function App() {
     }));
   };
 
+  const handleScenarioAddEventClick = () => {
+    if (scenarioEventsCollapsed) {
+      setScenarioEventsCollapsed(false);
+    }
+    handleScenarioAddEvent();
+  };
+
   const handleScenarioRemoveEvent = (eventId: string) => {
     setDraftScenario((prev) => ({
       ...prev,
@@ -2396,6 +2404,8 @@ export function App() {
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
     [draftScenario.events],
   );
+  const scenarioEventCount = sortedDraftEvents.length;
+  const scenarioEventCountLabel = `${scenarioEventCount} action${scenarioEventCount > 1 ? 's' : ''}`;
   const scenarioStateLabel = translateScenarioStatus(
     scenarioStatus.status,
     scenarioStatus.awaitingSystemReset,
@@ -3568,17 +3578,46 @@ export function App() {
                   ))}
                   </datalist>
                 )}
-                <div className="scenario-events">
+                <div
+                  className={`scenario-events ${scenarioEventsCollapsed ? 'scenario-events--collapsed' : ''}`}
+                >
                   <div className="scenario-events__header">
-                    <h4>Évènements programmés</h4>
-                    <button type="button" className="btn btn--ghost" onClick={handleScenarioAddEvent}>
-                      Ajouter un événement
-                    </button>
+                    <div className="scenario-events__title">
+                      <h4>Évènements programmés</h4>
+                      <span className="scenario-events__count" aria-live="polite">
+                        {scenarioEventCountLabel}
+                      </span>
+                    </div>
+                    <div className="scenario-events__header-actions">
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => setScenarioEventsCollapsed((prev) => !prev)}
+                        aria-expanded={!scenarioEventsCollapsed}
+                        aria-controls="scenario-events-content"
+                      >
+                        {scenarioEventsCollapsed ? 'Afficher la liste' : 'Réduire la liste'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={handleScenarioAddEventClick}
+                      >
+                        Ajouter un événement
+                      </button>
+                    </div>
                   </div>
-                  {sortedDraftEvents.length === 0 && (
-                    <p className="scenario-events__empty">Ajoutez une action pour démarrer la construction du scénario.</p>
-                  )}
-                  {sortedDraftEvents.map((eventDraft, index) => {
+                  <div
+                    id="scenario-events-content"
+                    className="scenario-events__content"
+                    hidden={scenarioEventsCollapsed}
+                  >
+                    {scenarioEventCount === 0 ? (
+                      <p className="scenario-events__empty">
+                        Ajoutez une action pour démarrer la construction du scénario.
+                      </p>
+                    ) : (
+                      sortedDraftEvents.map((eventDraft, index) => {
                     const offsetValue = Number.isFinite(eventDraft.offset) ? eventDraft.offset : 0;
                     const zoneEvent =
                       eventDraft.type === 'DM_TRIGGER' ||
@@ -3934,7 +3973,9 @@ export function App() {
                         </div>
                       </div>
                     );
-                  })}
+                      })
+                    )}
+                  </div>
                 </div>
                   {scenarioFeedback && <p className="scenario-feedback">{scenarioFeedback}</p>}
                   {scenarioError && <p className="scenario-error">{scenarioError}</p>}
