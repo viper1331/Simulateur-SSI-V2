@@ -2,7 +2,13 @@ import EventEmitter from 'eventemitter3';
 
 export type CmsiState =
   | { status: 'IDLE' }
-  | { status: 'FIRE_ALARM'; zoneIds: string[]; startedAt: number; zoneId?: string }
+  | {
+      status: 'FIRE_ALARM';
+      zoneIds: string[];
+      startedAt: number;
+      zoneId?: string;
+      pendingEvacuation?: { zoneId: string; deadline: number };
+    }
   | { status: 'EVAC_PENDING'; zoneId: string; deadline: number }
   | { status: 'EVAC_ACTIVE'; manual: boolean; startedAt: number; zoneId?: string }
   | { status: 'EVAC_SUSPENDED'; zoneId: string; deadline: number; remainingMs: number }
@@ -172,6 +178,62 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     }, delay);
   };
 
+  const enterFireAlarm = ({ preferredZoneId, now }: { preferredZoneId?: string; now: number }) => {
+    const wasFireAlarm = cmsi.status === 'FIRE_ALARM';
+    const previousPrimaryZone =
+      cmsi.status === 'FIRE_ALARM'
+        ? cmsi.zoneId
+        : cmsi.status === 'EVAC_PENDING' || cmsi.status === 'EVAC_SUSPENDED'
+        ? cmsi.zoneId
+        : undefined;
+
+    const zoneSet = new Set<string>();
+    for (const id of daiActivated.keys()) {
+      zoneSet.add(id);
+    }
+    for (const id of dmLatched.keys()) {
+      zoneSet.add(id);
+    }
+    if (zoneSet.size === 0 && preferredZoneId) {
+      zoneSet.add(preferredZoneId);
+    }
+
+    const zoneIds = Array.from(zoneSet);
+    if (zoneIds.length === 0) {
+      return wasFireAlarm;
+    }
+
+    const daiEntries = Array.from(daiActivated.values());
+    const dmEntries = Array.from(dmLatched.values());
+
+    const earliestDai = daiEntries.reduce(
+      (min, entry) => Math.min(min, entry.lastActivatedAt ?? now),
+      now,
+    );
+    const earliestDm = dmEntries.reduce(
+      (min, entry) => Math.min(min, entry.lastActivatedAt ?? now),
+      now,
+    );
+
+    const baseStartedAt = Math.min(now, earliestDai, earliestDm);
+    const startedAt = wasFireAlarm ? Math.min(cmsi.startedAt, baseStartedAt) : baseStartedAt;
+
+    const primaryZoneId =
+      previousPrimaryZone && zoneIds.includes(previousPrimaryZone)
+        ? previousPrimaryZone
+        : preferredZoneId && zoneIds.includes(preferredZoneId)
+        ? preferredZoneId
+        : zoneIds[0];
+
+    const pendingInfo = pendingEvacuation
+      ? { zoneId: pendingEvacuation.zoneId, deadline: pendingEvacuation.deadline }
+      : undefined;
+
+    cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId, pendingEvacuation: pendingInfo };
+
+    return wasFireAlarm;
+  };
+
   const enterEvacActive = ({ manual, zoneId }: { manual: boolean; zoneId?: string }) => {
     clearTimer();
     pendingEvacuation = undefined;
@@ -311,20 +373,13 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         enterEvacActive({ manual: false, zoneId });
       } else {
         localAudibleActive = true;
-        const zoneIds = Array.from(daiActivated.keys());
-        if (cmsi.status === 'FIRE_ALARM') {
-          const startedAt = cmsi.startedAt;
-          const primaryZoneId = zoneId ?? cmsi.zoneId;
-          cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId };
-        } else {
-          const startedAt = now;
-          const primaryZoneId = zoneId;
-          cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId };
+        const alreadyFireAlarm = enterFireAlarm({ preferredZoneId: zoneId, now });
+        if (!alreadyFireAlarm) {
           log({
             ts: now,
             source: 'CMSI',
             message: 'Alarme feu signalée',
-            details: { zoneIds, event: 'FIRE_ALARM_STARTED' },
+            details: { zoneIds: cmsi.zoneIds, event: 'FIRE_ALARM_STARTED' },
           });
         }
         emitSnapshot();
@@ -348,18 +403,27 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         clearTimer();
         if (cmsi.status === 'EVAC_PENDING' || cmsi.status === 'EVAC_SUSPENDED') {
           if (daiActivated.size > 0) {
-            const zoneEntries = Array.from(daiActivated.entries());
-            const zoneIds = zoneEntries.map(([id]) => id);
-            const startedAt = zoneEntries.reduce(
-              (min, [, state]) => Math.min(min, state.lastActivatedAt ?? now),
+            const alreadyFireAlarm = enterFireAlarm({
+              preferredZoneId: cmsi.zoneId,
               now,
-            );
-            const previousZoneId = cmsi.status === 'EVAC_SUSPENDED' ? cmsi.zoneId : undefined;
-            const nextZoneId = previousZoneId && zoneIds.includes(previousZoneId) ? previousZoneId : zoneIds[0];
-            cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: nextZoneId };
+            });
+            if (!alreadyFireAlarm) {
+              log({
+                ts: now,
+                source: 'CMSI',
+                message: 'Alarme feu signalée',
+                details: { zoneIds: cmsi.zoneIds, event: 'FIRE_ALARM_STARTED' },
+              });
+            }
           } else {
             cmsi = { status: 'IDLE' };
           }
+        }
+      } else if (cmsi.status === 'FIRE_ALARM') {
+        if (daiActivated.size > 0) {
+          enterFireAlarm({ preferredZoneId: cmsi.zoneId, now });
+        } else {
+          cmsi = { status: 'IDLE' };
         }
       }
       log({ ts: now, source: 'SDI_DM', message: 'Déclencheur manuel réarmé', details: { zoneId, event: 'DM_RESET' } });
@@ -382,7 +446,15 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       if (daiActivated.size === 0) {
         localAudibleActive = false;
         if (cmsi.status === 'FIRE_ALARM') {
-          cmsi = { status: 'IDLE' };
+          if (pendingEvacuation) {
+            cmsi = {
+              status: 'EVAC_PENDING',
+              zoneId: pendingEvacuation.zoneId,
+              deadline: pendingEvacuation.deadline,
+            };
+          } else {
+            cmsi = { status: 'IDLE' };
+          }
           log({
             ts: now,
             source: 'CMSI',
@@ -391,9 +463,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
           });
         }
       } else if (cmsi.status === 'FIRE_ALARM') {
-        const zoneIds = Array.from(daiActivated.keys());
-        const nextZoneId = zoneIds.includes(cmsi.zoneId ?? '') ? cmsi.zoneId : zoneIds[0];
-        cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt: cmsi.startedAt, zoneId: nextZoneId };
+        enterFireAlarm({ preferredZoneId: cmsi.zoneId, now });
       }
       emitSnapshot();
     },

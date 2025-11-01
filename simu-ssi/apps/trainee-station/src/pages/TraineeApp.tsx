@@ -25,6 +25,7 @@ interface CmsiStateData {
   zoneId?: string;
   startedAt?: number;
   zoneIds?: string[];
+  pendingEvacuation?: { zoneId: string; deadline: number };
 }
 
 interface Snapshot {
@@ -1129,13 +1130,25 @@ export function TraineeApp() {
     };
   }, [accessLevel, accessLevelExpiryRevision, handleAccessLock]);
 
-  const remainingDeadline = snapshot?.cmsi.status === 'EVAC_SUSPENDED'
-    ? snapshot.cmsi.remainingMs != null
-      ? Math.max(0, Math.floor(snapshot.cmsi.remainingMs / 1000))
-      : null
-    : snapshot?.cmsi.deadline
-    ? Math.max(0, Math.floor((snapshot.cmsi.deadline - now) / 1000))
-    : null;
+  const remainingDeadline = (() => {
+    if (!snapshot?.cmsi) {
+      return null;
+    }
+    if (snapshot.cmsi.status === 'EVAC_SUSPENDED') {
+      if (snapshot.cmsi.remainingMs == null) {
+        return null;
+      }
+      return Math.max(0, Math.floor(snapshot.cmsi.remainingMs / 1000));
+    }
+    const deadline =
+      snapshot.cmsi.status === 'FIRE_ALARM'
+        ? snapshot.cmsi.pendingEvacuation?.deadline
+        : snapshot.cmsi.deadline;
+    if (deadline == null) {
+      return null;
+    }
+    return Math.max(0, Math.floor((deadline - now) / 1000));
+  })();
 
   const anyAudible = Boolean(snapshot?.ugaActive || snapshot?.localAudibleActive);
   const localAudibleOnly = Boolean(snapshot?.localAudibleActive && !snapshot?.ugaActive);
