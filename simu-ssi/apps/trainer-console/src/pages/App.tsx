@@ -442,15 +442,16 @@ function sanitizeSequenceEntries(sequence?: ScenarioEventSequenceEntry[]): Scena
   return Array.from(map.values()).sort((a, b) => a.delay - b.delay);
 }
 
+function isZoneScenarioEventType(type: ScenarioEvent['type']): boolean {
+  return (
+    type === 'DM_TRIGGER' || type === 'DM_RESET' || type === 'DAI_TRIGGER' || type === 'DAI_RESET'
+  );
+}
+
 function isZoneScenarioEvent(
   event: ScenarioEventDraft,
 ): event is ScenarioEventDraft & { zoneId: string; sequence?: ScenarioEventSequenceEntry[] } {
-  return (
-    event.type === 'DM_TRIGGER' ||
-    event.type === 'DM_RESET' ||
-    event.type === 'DAI_TRIGGER' ||
-    event.type === 'DAI_RESET'
-  );
+  return isZoneScenarioEventType(event.type);
 }
 
 function createEmptyScenarioDraft(): ScenarioDraft {
@@ -816,6 +817,7 @@ export function App() {
   const [scenarioStatus, setScenarioStatus] = useState<ScenarioRunnerSnapshot>({ status: 'idle' });
   const [draftScenario, setDraftScenario] = useState<ScenarioDraft>(() => createEmptyScenarioDraft());
   const [collapsedEventIds, setCollapsedEventIds] = useState<Set<string>>(() => new Set());
+  const [collapsedSequenceEventIds, setCollapsedSequenceEventIds] = useState<Set<string>>(() => new Set());
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioDeleting, setScenarioDeleting] = useState<string | null>(null);
@@ -1817,6 +1819,14 @@ export function App() {
       next.delete(eventId);
       return next;
     });
+    setCollapsedSequenceEventIds((prev) => {
+      if (!prev.has(eventId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(eventId);
+      return next;
+    });
   };
 
   const handleScenarioToggleEventCollapse = useCallback((eventId: string) => {
@@ -1831,10 +1841,32 @@ export function App() {
     });
   }, []);
 
+  const handleScenarioToggleSequenceCollapse = useCallback((eventId: string) => {
+    setCollapsedSequenceEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) {
+        next.delete(eventId);
+      } else {
+        next.add(eventId);
+      }
+      return next;
+    });
+  }, []);
+
   const handleScenarioEventTypeChange = (eventId: string, type: ScenarioEvent['type']) => {
     updateDraftEvent(eventId, (event) =>
       adaptEventForType({ ...event, type } as ScenarioEventDraft, type, defaultScenarioZoneId),
     );
+    if (!isZoneScenarioEventType(type)) {
+      setCollapsedSequenceEventIds((prev) => {
+        if (!prev.has(eventId)) {
+          return prev;
+        }
+        const next = new Set(prev);
+        next.delete(eventId);
+        return next;
+      });
+    }
   };
 
   const handleScenarioEventOffsetChange = (eventId: string, value: number) => {
@@ -3545,6 +3577,9 @@ export function App() {
                       : [];
                     const isCollapsed = collapsedEventIds.has(eventDraft.id);
                     const eventContentId = `scenario-event-${eventDraft.id}`;
+                    const isSequenceCollapsed =
+                      zoneEventDraft && collapsedSequenceEventIds.has(eventDraft.id);
+                    const sequenceContentId = `${eventContentId}-sequence`;
                     const zoneId =
                       'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
                     const zoneMetadata =
@@ -3577,6 +3612,14 @@ export function App() {
                             .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b)))
                         : [];
                     const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
+                    const selectedDeviceCount = zoneEventDraft ? sequenceEntries.length : 0;
+                    const sequenceSummaryLabel = zoneEventDraft
+                      ? selectedDeviceCount > 0
+                        ? `${selectedDeviceCount} dispositif${selectedDeviceCount > 1 ? 's' : ''} configuré${
+                            selectedDeviceCount > 1 ? 's' : ''
+                          }`
+                        : 'Aucun dispositif configuré'
+                      : '';
                     const summaryItems: Array<{ id: string; label: string; value?: string }> = [];
                     if (zoneEvent) {
                       if (zoneMetadata) {
@@ -3591,7 +3634,6 @@ export function App() {
                       }
                     }
                     if (zoneEventDraft) {
-                      const selectedDeviceCount = sequenceEntries.length;
                       summaryItems.push({
                         id: 'devices',
                         label: 'Déclenchements',
@@ -3732,81 +3774,118 @@ export function App() {
                             </label>
                           )}
                           {zoneEventDraft && (
-                            <div className="scenario-event-sequence">
+                            <section
+                              className={`scenario-event-sequence ${
+                                isSequenceCollapsed ? 'scenario-event-sequence--collapsed' : ''
+                              }`}
+                            >
                               <div className="scenario-event-sequence__header">
-                                <span className="scenario-event-sequence__title">Séquence de déclenchement</span>
+                                <span
+                                  id={`${sequenceContentId}-title`}
+                                  className="scenario-event-sequence__title"
+                                >
+                                  Séquence de déclenchement
+                                </span>
+                                <div className="scenario-event-sequence__header-actions">
+                                  <span className="scenario-event-sequence__summary">{sequenceSummaryLabel}</span>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__collapse"
+                                    onClick={() => handleScenarioToggleSequenceCollapse(eventDraft.id)}
+                                    aria-expanded={!isSequenceCollapsed}
+                                    aria-controls={sequenceContentId}
+                                  >
+                                    <span
+                                      className={`scenario-event-sequence__collapse-icon ${
+                                        isSequenceCollapsed ? '' : 'scenario-event-sequence__collapse-icon--open'
+                                      }`}
+                                      aria-hidden="true"
+                                    >
+                                      ▸
+                                    </span>
+                                    <span>{isSequenceCollapsed ? 'Développer' : 'Réduire'}</span>
+                                  </button>
+                                </div>
                               </div>
-                              {editorTopology == null ? (
-                                <p className="scenario-event-sequence__empty">
-                                  Associez une topologie de site pour configurer les dispositifs de cette zone.
+                              <div
+                                id={sequenceContentId}
+                                className="scenario-event-sequence__content"
+                                hidden={isSequenceCollapsed}
+                                aria-hidden={isSequenceCollapsed}
+                                aria-labelledby={`${sequenceContentId}-title`}
+                              >
+                                {editorTopology == null ? (
+                                  <p className="scenario-event-sequence__empty">
+                                    Associez une topologie de site pour configurer les dispositifs de cette zone.
+                                  </p>
+                                ) : relevantDevices.length === 0 ? (
+                                  <p className="scenario-event-sequence__empty">
+                                    Aucun dispositif {deviceKindLabel} cartographié pour cette zone.
+                                  </p>
+                                ) : (
+                                  <ul className="scenario-event-sequence__list">
+                                    {relevantDevices.map((device) => {
+                                      const isDeviceEnabled = sequenceDelayMap.has(device.id);
+                                      const delay = sequenceDelayMap.get(device.id);
+                                      const delayValue = Number.isFinite(delay) ? (delay as number) : 0;
+                                      const deviceLabel = resolveDeviceLabel(device);
+                                      return (
+                                        <li
+                                          key={`${eventDraft.id}-sequence-${device.id}`}
+                                          className={
+                                            isDeviceEnabled
+                                              ? 'scenario-event-sequence__item'
+                                              : 'scenario-event-sequence__item scenario-event-sequence__item--disabled'
+                                          }
+                                        >
+                                          <div className="scenario-event-sequence__device">
+                                            <strong>{deviceLabel}</strong>
+                                            <span>{device.id}</span>
+                                          </div>
+                                          <label className="scenario-event-sequence__toggle">
+                                            <input
+                                              type="checkbox"
+                                              checked={isDeviceEnabled}
+                                              onChange={(input) =>
+                                                handleScenarioEventDeviceToggle(
+                                                  eventDraft.id,
+                                                  device.id,
+                                                  input.target.checked,
+                                                  delayValue,
+                                                )
+                                              }
+                                            />
+                                            <span>Déclencher ce dispositif</span>
+                                          </label>
+                                          <label className="scenario-event-field scenario-event-field--sequence-delay">
+                                            <span>Délai (s)</span>
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              step={0.1}
+                                              value={delayValue}
+                                              disabled={!isDeviceEnabled}
+                                              onChange={(input) => {
+                                                const value = Number.parseFloat(input.target.value);
+                                                handleScenarioEventDeviceDelayChange(
+                                                  eventDraft.id,
+                                                  device.id,
+                                                  Number.isNaN(value) ? 0 : value,
+                                                );
+                                              }}
+                                            />
+                                          </label>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                                <p className="scenario-event-sequence__hint">
+                                  Indiquez, en secondes, le délai relatif souhaité avant le déclenchement de chaque
+                                  dispositif de la zone.
                                 </p>
-                              ) : relevantDevices.length === 0 ? (
-                                <p className="scenario-event-sequence__empty">
-                                  Aucun dispositif {deviceKindLabel} cartographié pour cette zone.
-                                </p>
-                              ) : (
-                                <ul className="scenario-event-sequence__list">
-                                  {relevantDevices.map((device) => {
-                                    const isDeviceEnabled = sequenceDelayMap.has(device.id);
-                                    const delay = sequenceDelayMap.get(device.id);
-                                    const delayValue = Number.isFinite(delay) ? (delay as number) : 0;
-                                    const deviceLabel = resolveDeviceLabel(device);
-                                    return (
-                                      <li
-                                        key={`${eventDraft.id}-sequence-${device.id}`}
-                                        className={
-                                          isDeviceEnabled
-                                            ? 'scenario-event-sequence__item'
-                                            : 'scenario-event-sequence__item scenario-event-sequence__item--disabled'
-                                        }
-                                      >
-                                        <div className="scenario-event-sequence__device">
-                                          <strong>{deviceLabel}</strong>
-                                          <span>{device.id}</span>
-                                        </div>
-                                        <label className="scenario-event-sequence__toggle">
-                                          <input
-                                            type="checkbox"
-                                            checked={isDeviceEnabled}
-                                            onChange={(input) =>
-                                              handleScenarioEventDeviceToggle(
-                                                eventDraft.id,
-                                                device.id,
-                                                input.target.checked,
-                                                delayValue,
-                                              )
-                                            }
-                                          />
-                                          <span>Déclencher ce dispositif</span>
-                                        </label>
-                                        <label className="scenario-event-field scenario-event-field--sequence-delay">
-                                          <span>Délai (s)</span>
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            step={0.1}
-                                            value={delayValue}
-                                            disabled={!isDeviceEnabled}
-                                            onChange={(input) => {
-                                              const value = Number.parseFloat(input.target.value);
-                                              handleScenarioEventDeviceDelayChange(
-                                                eventDraft.id,
-                                                device.id,
-                                                Number.isNaN(value) ? 0 : value,
-                                              );
-                                            }}
-                                          />
-                                        </label>
-                                      </li>
-                                    );
-                                  })}
-                                </ul>
-                              )}
-                              <p className="scenario-event-sequence__hint">
-                                Indiquez, en secondes, le délai relatif souhaité avant le déclenchement de chaque dispositif
-                                de la zone.
-                              </p>
-                            </div>
+                              </div>
+                            </section>
                           )}
                           {reasonEvent && (
                             <label className="scenario-event-field scenario-event-field--reason">
