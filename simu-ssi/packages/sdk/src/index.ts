@@ -26,6 +26,7 @@ const siteDeviceSchema = z.object({
   zoneId: z.string().min(1).optional(),
   label: z.string().optional(),
   props: z.record(z.unknown()).optional(),
+  outOfService: z.boolean().optional(),
 });
 
 const topologySchema = z.object({
@@ -343,6 +344,11 @@ export class SsiSdk {
 
   async resetAutomaticDetector(zoneId: string) {
     await this.post(`/api/sdi/dai/${zoneId}/reset`);
+  }
+
+  async setDeviceServiceState(deviceId: string, outOfService: boolean) {
+    const encodedId = encodeURIComponent(deviceId);
+    await this.post(`/api/devices/${encodedId}/out-of-service`, { outOfService });
   }
 
   async resetSystem() {

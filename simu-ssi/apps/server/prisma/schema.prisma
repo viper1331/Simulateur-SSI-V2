@@ -59,6 +59,7 @@ model Device {
   kind      String
   zoneId    String?
   propsJson String?
+  outOfService Boolean @default(false)
 }
 
 model Scenario {
