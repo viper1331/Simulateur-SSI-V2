@@ -14,6 +14,7 @@ import {
   type UserSummary,
   type ScenarioDefinition,
   type ScenarioEvent,
+  type ScenarioEventSequenceEntry,
   type ScenarioManualResetSelection,
   type ScenarioPayload,
   type ScenarioEvacuationAudio,
@@ -385,6 +386,38 @@ function normalizeEvacuationAudio(
   return { ...(automatic ? { automatic } : {}), ...(manual ? { manual } : {}) };
 }
 
+function sanitizeSequenceEntries(sequence?: ScenarioEventSequenceEntry[]): ScenarioEventSequenceEntry[] {
+  if (!sequence) {
+    return [];
+  }
+  const sanitized = sequence
+    .map((entry) => {
+      const zoneId = entry.zoneId?.toString().trim().toUpperCase();
+      const delayValue = Number.isFinite(entry.delay) ? Number(entry.delay) : 0;
+      if (!zoneId) {
+        return null;
+      }
+      return {
+        zoneId,
+        delay: delayValue < 0 ? 0 : delayValue,
+      } satisfies ScenarioEventSequenceEntry;
+    })
+    .filter((entry): entry is ScenarioEventSequenceEntry => Boolean(entry));
+  sanitized.sort((a, b) => a.delay - b.delay);
+  return sanitized;
+}
+
+function isZoneScenarioEvent(
+  event: ScenarioEventDraft,
+): event is ScenarioEventDraft & { zoneId: string; sequence?: ScenarioEventSequenceEntry[] } {
+  return (
+    event.type === 'DM_TRIGGER' ||
+    event.type === 'DM_RESET' ||
+    event.type === 'DAI_TRIGGER' ||
+    event.type === 'DAI_RESET'
+  );
+}
+
 function createEmptyScenarioDraft(): ScenarioDraft {
   return {
     name: '',
@@ -399,7 +432,18 @@ function createEmptyScenarioDraft(): ScenarioDraft {
 
 function ensureDraftEvent(event: ScenarioEvent): ScenarioEventDraft {
   const id = event.id ?? crypto.randomUUID();
-  return { ...event, id } as ScenarioEventDraft;
+  const draft = { ...event, id } as ScenarioEventDraft;
+  switch (draft.type) {
+    case 'DM_TRIGGER':
+    case 'DM_RESET':
+    case 'DAI_TRIGGER':
+    case 'DAI_RESET': {
+      const sequence = sanitizeSequenceEntries((draft as { sequence?: ScenarioEventSequenceEntry[] }).sequence);
+      return { ...draft, sequence } as ScenarioEventDraft;
+    }
+    default:
+      return draft;
+  }
 }
 
 function createDraftEvent(type: ScenarioEvent['type'], defaultZoneId?: string): ScenarioEventDraft {
@@ -410,7 +454,12 @@ function createDraftEvent(type: ScenarioEvent['type'], defaultZoneId?: string): 
     case 'DM_RESET':
     case 'DAI_TRIGGER':
     case 'DAI_RESET':
-      return { ...base, type, zoneId: (defaultZoneId ?? 'ZF1').toUpperCase() } as ScenarioEventDraft;
+      return {
+        ...base,
+        type,
+        zoneId: (defaultZoneId ?? 'ZF1').toUpperCase(),
+        sequence: [],
+      } as ScenarioEventDraft;
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP':
       return { ...base, type, reason: '' } as ScenarioEventDraft;
@@ -440,7 +489,13 @@ function adaptEventForType(
     case 'DAI_RESET': {
       const zone = 'zoneId' in event ? event.zoneId : undefined;
       const fallback = (defaultZoneId ?? 'ZF1').toUpperCase();
-      return { ...base, type, zoneId: (zone ?? fallback).toUpperCase() } as ScenarioEventDraft;
+      const sequence = sanitizeSequenceEntries((event as { sequence?: ScenarioEventSequenceEntry[] }).sequence);
+      return {
+        ...base,
+        type,
+        zoneId: (zone ?? fallback).toUpperCase(),
+        sequence,
+      } as ScenarioEventDraft;
     }
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP': {
@@ -465,14 +520,17 @@ function normalizeEventForPayload(event: ScenarioEventDraft): ScenarioEvent {
     case 'DM_TRIGGER':
     case 'DM_RESET':
     case 'DAI_TRIGGER':
-    case 'DAI_RESET':
+    case 'DAI_RESET': {
+      const sequence = sanitizeSequenceEntries((event as { sequence?: ScenarioEventSequenceEntry[] }).sequence);
       return {
         type: event.type,
         id: event.id,
         offset,
         label: label && label.length > 0 ? label : undefined,
         zoneId: (event as { zoneId: string }).zoneId,
+        ...(sequence.length > 0 ? { sequence } : {}),
       };
+    }
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP': {
       const reason = (event as { reason?: string }).reason?.trim();
@@ -1698,6 +1756,66 @@ export function App() {
 
   const handleScenarioEventLabelChange = (eventId: string, label: string) => {
     updateDraftEvent(eventId, (event) => ({ ...event, label }) as ScenarioEventDraft);
+  };
+
+  const handleScenarioEventSequenceAdd = (eventId: string) => {
+    updateDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      const sequence = [...(event.sequence ?? [])];
+      const lastEntry = sequence[sequence.length - 1];
+      const defaultZone = (lastEntry?.zoneId ?? event.zoneId).toUpperCase();
+      const defaultDelay = lastEntry?.delay ?? 0;
+      const nextEntry: ScenarioEventSequenceEntry = {
+        zoneId: defaultZone,
+        delay: defaultDelay,
+      };
+      return { ...event, sequence: [...sequence, nextEntry] } as ScenarioEventDraft;
+    });
+  };
+
+  const handleScenarioEventSequenceZoneChange = (eventId: string, index: number, zoneId: string) => {
+    updateDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      const sequence = [...(event.sequence ?? [])];
+      if (!sequence[index]) {
+        return event;
+      }
+      sequence[index] = { ...sequence[index], zoneId: zoneId.toUpperCase() };
+      return { ...event, sequence } as ScenarioEventDraft;
+    });
+  };
+
+  const handleScenarioEventSequenceDelayChange = (eventId: string, index: number, delay: number) => {
+    updateDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      const sequence = [...(event.sequence ?? [])];
+      if (!sequence[index]) {
+        return event;
+      }
+      const normalizedDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
+      sequence[index] = { ...sequence[index], delay: normalizedDelay };
+      return { ...event, sequence } as ScenarioEventDraft;
+    });
+  };
+
+  const handleScenarioEventSequenceRemove = (eventId: string, index: number) => {
+    updateDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      const sequence = [...(event.sequence ?? [])];
+      if (!sequence[index]) {
+        return event;
+      }
+      sequence.splice(index, 1);
+      return { ...event, sequence } as ScenarioEventDraft;
+    });
   };
 
   const handleScenarioManualResetModeChange = (mode: 'all' | 'custom') => {
@@ -3327,6 +3445,8 @@ export function App() {
                       eventDraft.type === 'DAI_RESET';
                     const reasonEvent = eventDraft.type === 'MANUAL_EVAC_START' || eventDraft.type === 'MANUAL_EVAC_STOP';
                     const ackEvent = eventDraft.type === 'PROCESS_ACK';
+                    const zoneEventDraft = isZoneScenarioEvent(eventDraft);
+                    const sequenceEntries = zoneEventDraft ? eventDraft.sequence ?? [] : [];
                     const zoneId =
                       'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
                     const zoneMetadata =
@@ -3402,6 +3522,78 @@ export function App() {
                                 </span>
                               )}
                             </label>
+                          )}
+                          {zoneEventDraft && (
+                            <div className="scenario-event-sequence">
+                              <div className="scenario-event-sequence__header">
+                                <span className="scenario-event-sequence__title">Séquence de déclenchement</span>
+                                <button
+                                  type="button"
+                                  className="scenario-event-sequence__add"
+                                  onClick={() => handleScenarioEventSequenceAdd(eventDraft.id)}
+                                >
+                                  Ajouter un dispositif
+                                </button>
+                              </div>
+                              {sequenceEntries.length === 0 ? (
+                                <p className="scenario-event-sequence__empty">Aucun déclenchement additionnel.</p>
+                              ) : (
+                                <ul className="scenario-event-sequence__list">
+                                  {sequenceEntries.map((entry, entryIndex) => (
+                                    <li key={`${eventDraft.id}-sequence-${entryIndex}`} className="scenario-event-sequence__item">
+                                      <label className="scenario-event-field scenario-event-field--sequence-zone">
+                                        <span>Dispositif</span>
+                                        <input
+                                          value={entry.zoneId}
+                                          list={
+                                            scenarioZoneOptions.length > 0 ? SCENARIO_ZONE_DATALIST_ID : undefined
+                                          }
+                                          onChange={(input) =>
+                                            handleScenarioEventSequenceZoneChange(
+                                              eventDraft.id,
+                                              entryIndex,
+                                              input.target.value,
+                                            )
+                                          }
+                                          placeholder={
+                                            scenarioZoneOptions.length > 0 ? 'Sélectionner une zone' : 'ZF1'
+                                          }
+                                        />
+                                      </label>
+                                      <label className="scenario-event-field scenario-event-field--sequence-delay">
+                                        <span>Délai (s)</span>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step={0.1}
+                                          value={Number.isFinite(entry.delay) ? entry.delay : 0}
+                                          onChange={(input) => {
+                                            const value = Number.parseFloat(input.target.value);
+                                            handleScenarioEventSequenceDelayChange(
+                                              eventDraft.id,
+                                              entryIndex,
+                                              Number.isNaN(value) ? 0 : value,
+                                            );
+                                          }}
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="scenario-event-sequence__remove"
+                                        onClick={() => handleScenarioEventSequenceRemove(eventDraft.id, entryIndex)}
+                                        aria-label={`Supprimer le déclenchement ${entryIndex + 1}`}
+                                      >
+                                        ×
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              <p className="scenario-event-sequence__hint">
+                                Le dispositif principal est déclenché à l'offset de l'évènement. Ajoutez ici des actions
+                                complémentaires avec leurs délais relatifs.
+                              </p>
+                            </div>
                           )}
                           {reasonEvent && (
                             <label className="scenario-event-field scenario-event-field--reason">
