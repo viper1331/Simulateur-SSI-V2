@@ -39,6 +39,7 @@ interface CmsiStateData {
   startedAt?: number;
   zoneId?: string;
   zoneIds?: string[];
+  pendingEvacuation?: { zoneId: string; deadline: number };
 }
 
 interface DomainSnapshot {
@@ -2310,11 +2311,21 @@ export function App() {
     }
   };
 
-  const remainingMs = snapshot?.cmsi?.status === 'EVAC_SUSPENDED'
-    ? snapshot.cmsi.remainingMs ?? undefined
-    : snapshot?.cmsi?.deadline != null
-    ? Math.max(0, snapshot.cmsi.deadline - now)
-    : undefined;
+  const remainingMs = (() => {
+    const cmsi = snapshot?.cmsi;
+    if (!cmsi) {
+      return undefined;
+    }
+    if (cmsi.status === 'EVAC_SUSPENDED') {
+      return cmsi.remainingMs ?? undefined;
+    }
+    const deadline =
+      cmsi.status === 'FIRE_ALARM' ? cmsi.pendingEvacuation?.deadline : cmsi.deadline;
+    if (deadline == null) {
+      return undefined;
+    }
+    return Math.max(0, deadline - now);
+  })();
   const dmList = Object.values(snapshot?.dmLatched ?? {});
   const daiList = Object.values(snapshot?.daiActivated ?? {});
   const manualActive = Boolean(snapshot?.manualEvacuation);

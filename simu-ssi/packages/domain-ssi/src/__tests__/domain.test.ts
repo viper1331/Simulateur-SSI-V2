@@ -83,18 +83,42 @@ describe('SSI domain core rules', () => {
   });
 
   it('maintains DM evacuation deadline when DAI triggers concurrently', () => {
+    jest.setSystemTime(new Date('2024-01-01T08:00:00.000Z'));
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
     domain.activateDm('ZF7');
     jest.advanceTimersByTime(500);
+    jest.setSystemTime(new Date('2024-01-01T08:00:00.500Z'));
     domain.activateDai('ZF2');
 
     expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
+    if (domain.snapshot.cmsi.status === 'FIRE_ALARM') {
+      expect(domain.snapshot.cmsi.pendingEvacuation).toEqual({ zoneId: 'ZF7', deadline: 1_000 });
+      expect(domain.snapshot.cmsi.zoneIds).toEqual(expect.arrayContaining(['ZF2', 'ZF7']));
+    }
 
     jest.advanceTimersByTime(500);
 
     expect(domain.snapshot.cmsi.status).toBe('EVAC_ACTIVE');
     if (domain.snapshot.cmsi.status === 'EVAC_ACTIVE') {
       expect(domain.snapshot.cmsi.manual).toBe(false);
+    }
+  });
+
+  it('restores the pending evacuation view once DAI are reset', () => {
+    jest.setSystemTime(new Date('2024-01-01T08:15:00.000Z'));
+    const domain = createSsiDomain({ evacOnDmDelayMs: 2000, processAckRequired: true, evacOnDai: false });
+    domain.activateDm('ZF3');
+    jest.advanceTimersByTime(800);
+    jest.setSystemTime(new Date('2024-01-01T08:15:00.800Z'));
+    domain.activateDai('ZF4');
+    expect(domain.snapshot.cmsi.status).toBe('FIRE_ALARM');
+
+    domain.resetDai('ZF4');
+
+    expect(domain.snapshot.cmsi.status).toBe('EVAC_PENDING');
+    if (domain.snapshot.cmsi.status === 'EVAC_PENDING') {
+      expect(domain.snapshot.cmsi.zoneId).toBe('ZF3');
+      expect(domain.snapshot.cmsi.deadline).toBe(2_000);
     }
   });
 
