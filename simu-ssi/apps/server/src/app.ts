@@ -175,6 +175,9 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
         return deviceServiceRegistry.get(device.id) ?? false;
       });
     },
+    isDeviceOutOfService(deviceId) {
+      return deviceServiceRegistry.get(deviceId) ?? false;
+    },
   });
   let latestLayout: TraineeLayoutConfig = DEFAULT_TRAINEE_LAYOUT;
   let latestTopology: SiteTopology | null = null;
