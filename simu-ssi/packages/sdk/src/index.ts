@@ -60,8 +60,14 @@ const scenarioEventBaseSchema = z.object({
   offset: z.number().min(0),
 });
 
+const scenarioEventSequenceEntrySchema = z.object({
+  deviceId: z.string().min(1),
+  delay: z.number().min(0),
+});
+
 const scenarioZoneEvent = scenarioEventBaseSchema.extend({
   zoneId: z.string().min(1),
+  sequence: z.array(scenarioEventSequenceEntrySchema).optional(),
 });
 
 export const scenarioEventSchema = z.discriminatedUnion('type', [
@@ -237,6 +243,7 @@ export const DEFAULT_TRAINEE_LAYOUT: TraineeLayoutConfig = {
 
 export type SiteConfig = z.infer<typeof siteConfigSchema>;
 export type ScenarioEvent = z.infer<typeof scenarioEventSchema>;
+export type ScenarioEventSequenceEntry = z.infer<typeof scenarioEventSequenceEntrySchema>;
 export type ScenarioDefinition = z.infer<typeof scenarioDefinitionSchema>;
 export type ScenarioPayload = z.infer<typeof scenarioPayloadSchema>;
 export type ScenarioManualResetSelection = z.infer<typeof scenarioManualResetSelectionSchema>;

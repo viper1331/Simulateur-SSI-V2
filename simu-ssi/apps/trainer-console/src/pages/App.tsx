@@ -14,6 +14,7 @@ import {
   type UserSummary,
   type ScenarioDefinition,
   type ScenarioEvent,
+  type ScenarioEventSequenceEntry,
   type ScenarioManualResetSelection,
   type ScenarioPayload,
   type ScenarioEvacuationAudio,
@@ -385,6 +386,36 @@ function normalizeEvacuationAudio(
   return { ...(automatic ? { automatic } : {}), ...(manual ? { manual } : {}) };
 }
 
+function sanitizeSequenceEntries(sequence?: ScenarioEventSequenceEntry[]): ScenarioEventSequenceEntry[] {
+  if (!sequence) {
+    return [];
+  }
+  const map = new Map<string, ScenarioEventSequenceEntry>();
+  for (const entry of sequence) {
+    const deviceId = entry.deviceId?.toString().trim();
+    if (!deviceId) {
+      continue;
+    }
+    const delayValue = Number.isFinite(entry.delay) ? Number(entry.delay) : 0;
+    map.set(deviceId, {
+      deviceId,
+      delay: delayValue < 0 ? 0 : delayValue,
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => a.delay - b.delay);
+}
+
+function isZoneScenarioEvent(
+  event: ScenarioEventDraft,
+): event is ScenarioEventDraft & { zoneId: string; sequence?: ScenarioEventSequenceEntry[] } {
+  return (
+    event.type === 'DM_TRIGGER' ||
+    event.type === 'DM_RESET' ||
+    event.type === 'DAI_TRIGGER' ||
+    event.type === 'DAI_RESET'
+  );
+}
+
 function createEmptyScenarioDraft(): ScenarioDraft {
   return {
     name: '',
@@ -399,7 +430,18 @@ function createEmptyScenarioDraft(): ScenarioDraft {
 
 function ensureDraftEvent(event: ScenarioEvent): ScenarioEventDraft {
   const id = event.id ?? crypto.randomUUID();
-  return { ...event, id } as ScenarioEventDraft;
+  const draft = { ...event, id } as ScenarioEventDraft;
+  switch (draft.type) {
+    case 'DM_TRIGGER':
+    case 'DM_RESET':
+    case 'DAI_TRIGGER':
+    case 'DAI_RESET': {
+      const sequence = sanitizeSequenceEntries((draft as { sequence?: ScenarioEventSequenceEntry[] }).sequence);
+      return { ...draft, sequence } as ScenarioEventDraft;
+    }
+    default:
+      return draft;
+  }
 }
 
 function createDraftEvent(type: ScenarioEvent['type'], defaultZoneId?: string): ScenarioEventDraft {
@@ -410,7 +452,12 @@ function createDraftEvent(type: ScenarioEvent['type'], defaultZoneId?: string): 
     case 'DM_RESET':
     case 'DAI_TRIGGER':
     case 'DAI_RESET':
-      return { ...base, type, zoneId: (defaultZoneId ?? 'ZF1').toUpperCase() } as ScenarioEventDraft;
+      return {
+        ...base,
+        type,
+        zoneId: (defaultZoneId ?? 'ZF1').toUpperCase(),
+        sequence: [],
+      } as ScenarioEventDraft;
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP':
       return { ...base, type, reason: '' } as ScenarioEventDraft;
@@ -440,7 +487,13 @@ function adaptEventForType(
     case 'DAI_RESET': {
       const zone = 'zoneId' in event ? event.zoneId : undefined;
       const fallback = (defaultZoneId ?? 'ZF1').toUpperCase();
-      return { ...base, type, zoneId: (zone ?? fallback).toUpperCase() } as ScenarioEventDraft;
+      const sequence = sanitizeSequenceEntries((event as { sequence?: ScenarioEventSequenceEntry[] }).sequence);
+      return {
+        ...base,
+        type,
+        zoneId: (zone ?? fallback).toUpperCase(),
+        sequence,
+      } as ScenarioEventDraft;
     }
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP': {
@@ -458,21 +511,47 @@ function adaptEventForType(
   }
 }
 
-function normalizeEventForPayload(event: ScenarioEventDraft): ScenarioEvent {
+function normalizeEventForPayload(event: ScenarioEventDraft, topology: SiteTopology | null): ScenarioEvent {
   const offset = Number.isFinite(event.offset) ? Number(event.offset) : 0;
   const label = event.label?.toString().trim();
   switch (event.type) {
     case 'DM_TRIGGER':
     case 'DM_RESET':
     case 'DAI_TRIGGER':
-    case 'DAI_RESET':
+    case 'DAI_RESET': {
+      const sequence = sanitizeSequenceEntries((event as { sequence?: ScenarioEventSequenceEntry[] }).sequence);
+      const devices = topology?.devices ?? [];
+      const deviceKind =
+        event.type === 'DM_TRIGGER' || event.type === 'DM_RESET'
+          ? 'DM'
+          : event.type === 'DAI_TRIGGER' || event.type === 'DAI_RESET'
+          ? 'DAI'
+          : null;
+      const zoneId = (event as { zoneId: string }).zoneId?.toUpperCase?.() ?? '';
+      const sequenceMap = new Map(sequence.map((entry) => [entry.deviceId, entry.delay]));
+      const relatedDevices =
+        deviceKind && zoneId
+          ? devices.filter((device) => device.kind === deviceKind && device.zoneId?.toUpperCase() === zoneId)
+          : [];
+      const enrichedSequence: ScenarioEventSequenceEntry[] = [];
+      if (relatedDevices.length > 0) {
+        for (const device of relatedDevices) {
+          const delay = sequenceMap.get(device.id) ?? 0;
+          enrichedSequence.push({ deviceId: device.id, delay });
+        }
+      } else {
+        enrichedSequence.push(...sequence);
+      }
+      enrichedSequence.sort((a, b) => a.delay - b.delay);
       return {
         type: event.type,
         id: event.id,
         offset,
         label: label && label.length > 0 ? label : undefined,
         zoneId: (event as { zoneId: string }).zoneId,
+        ...(enrichedSequence.length > 0 ? { sequence: enrichedSequence } : {}),
       };
+    }
     case 'MANUAL_EVAC_START':
     case 'MANUAL_EVAC_STOP': {
       const reason = (event as { reason?: string }).reason?.trim();
@@ -506,13 +585,14 @@ function normalizeEventForPayload(event: ScenarioEventDraft): ScenarioEvent {
   }
 }
 
-function draftToPayload(draft: ScenarioDraft): ScenarioPayload {
+function draftToPayload(draft: ScenarioDraft, fallbackTopology: SiteTopology | null): ScenarioPayload {
   const evacuationAudio = normalizeEvacuationAudio(draft.evacuationAudio);
+  const sourceTopology = draft.topology ?? fallbackTopology ?? undefined;
   return {
     name: draft.name.trim(),
     description: draft.description?.trim() ? draft.description.trim() : undefined,
     topology: draft.topology ?? undefined,
-    events: draft.events.map(normalizeEventForPayload),
+    events: draft.events.map((event) => normalizeEventForPayload(event, sourceTopology ?? null)),
     ...(draft.manualResetMode === 'custom'
       ? { manualResettable: normalizeManualResetSelection(draft.manualResettable) }
       : {}),
@@ -1700,6 +1780,25 @@ export function App() {
     updateDraftEvent(eventId, (event) => ({ ...event, label }) as ScenarioEventDraft);
   };
 
+  const handleScenarioEventDeviceDelayChange = (eventId: string, deviceId: string, delay: number) => {
+    updateDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      const normalizedDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
+      const sanitizedDeviceId = deviceId.trim();
+      if (!sanitizedDeviceId) {
+        return event;
+      }
+      const remaining = (event.sequence ?? []).filter((entry) => entry.deviceId !== sanitizedDeviceId);
+      const nextSequence: ScenarioEventSequenceEntry[] = [
+        ...remaining,
+        { deviceId: sanitizedDeviceId, delay: normalizedDelay },
+      ];
+      return { ...event, sequence: sanitizeSequenceEntries(nextSequence) } as ScenarioEventDraft;
+    });
+  };
+
   const handleScenarioManualResetModeChange = (mode: 'all' | 'custom') => {
     setDraftScenario((prev) => ({
       ...prev,
@@ -1917,7 +2016,7 @@ export function App() {
     setScenarioFeedback(null);
     setScenarioSaving(true);
     try {
-      const payload = draftToPayload(draftScenario);
+      const payload = draftToPayload(draftScenario, topology);
       const wasEditing = Boolean(editingScenarioId);
       const saved = editingScenarioId
         ? await sdk.updateScenario(editingScenarioId, payload)
@@ -2134,6 +2233,7 @@ export function App() {
     };
     return { dm: buildOptions('DM'), dai: buildOptions('DAI') };
   }, [scenarioTopology, topology, scenarioZoneLabelMap]);
+  const editorTopology = draftScenario.topology ?? topology ?? null;
   const defaultScenarioZoneId = scenarioZoneOptions[0]?.value ?? 'ZF1';
   const sortedDraftEvents = useMemo(
     () => [...draftScenario.events].sort((a, b) => a.offset - b.offset),
@@ -3327,12 +3427,42 @@ export function App() {
                       eventDraft.type === 'DAI_RESET';
                     const reasonEvent = eventDraft.type === 'MANUAL_EVAC_START' || eventDraft.type === 'MANUAL_EVAC_STOP';
                     const ackEvent = eventDraft.type === 'PROCESS_ACK';
+                    const zoneEventDraft = isZoneScenarioEvent(eventDraft);
+                    const sequenceEntries = zoneEventDraft
+                      ? sanitizeSequenceEntries(eventDraft.sequence)
+                      : [];
                     const zoneId =
                       'zoneId' in eventDraft ? ((eventDraft as { zoneId?: string }).zoneId ?? '').toUpperCase() : '';
                     const zoneMetadata =
                       zoneId && scenarioZoneOptions.length > 0
                         ? scenarioZoneOptions.find((option) => option.value === zoneId)
                         : undefined;
+                    const editorDevices = editorTopology?.devices ?? [];
+                    const deviceKindFilter = zoneEventDraft
+                      ? eventDraft.type === 'DM_TRIGGER' || eventDraft.type === 'DM_RESET'
+                        ? 'DM'
+                        : eventDraft.type === 'DAI_TRIGGER' || eventDraft.type === 'DAI_RESET'
+                        ? 'DAI'
+                        : null
+                      : null;
+                    const normalizedZoneId = zoneId.trim();
+                    const deviceKindLabel =
+                      deviceKindFilter === 'DM'
+                        ? 'DM'
+                        : deviceKindFilter === 'DAI'
+                        ? 'DAI'
+                        : 'FPSSI';
+                    const relevantDevices =
+                      zoneEventDraft && deviceKindFilter && normalizedZoneId
+                        ? editorDevices
+                            .filter(
+                              (device) =>
+                                device.kind === deviceKindFilter &&
+                                device.zoneId?.toUpperCase() === normalizedZoneId,
+                            )
+                            .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b)))
+                        : [];
+                    const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
                     return (
                       <div key={eventDraft.id} className="scenario-event-row">
                         <div className="scenario-event-row__header">
@@ -3402,6 +3532,61 @@ export function App() {
                                 </span>
                               )}
                             </label>
+                          )}
+                          {zoneEventDraft && (
+                            <div className="scenario-event-sequence">
+                              <div className="scenario-event-sequence__header">
+                                <span className="scenario-event-sequence__title">Séquence de déclenchement</span>
+                              </div>
+                              {editorTopology == null ? (
+                                <p className="scenario-event-sequence__empty">
+                                  Associez une topologie de site pour configurer les dispositifs de cette zone.
+                                </p>
+                              ) : relevantDevices.length === 0 ? (
+                                <p className="scenario-event-sequence__empty">
+                                  Aucun dispositif {deviceKindLabel} cartographié pour cette zone.
+                                </p>
+                              ) : (
+                                <ul className="scenario-event-sequence__list">
+                                  {relevantDevices.map((device) => {
+                                    const delay = sequenceDelayMap.get(device.id) ?? 0;
+                                    const deviceLabel = resolveDeviceLabel(device);
+                                    return (
+                                      <li
+                                        key={`${eventDraft.id}-sequence-${device.id}`}
+                                        className="scenario-event-sequence__item"
+                                      >
+                                        <div className="scenario-event-sequence__device">
+                                          <strong>{deviceLabel}</strong>
+                                          <span>{device.id}</span>
+                                        </div>
+                                        <label className="scenario-event-field scenario-event-field--sequence-delay">
+                                          <span>Délai (s)</span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={0.1}
+                                            value={Number.isFinite(delay) ? delay : 0}
+                                            onChange={(input) => {
+                                              const value = Number.parseFloat(input.target.value);
+                                              handleScenarioEventDeviceDelayChange(
+                                                eventDraft.id,
+                                                device.id,
+                                                Number.isNaN(value) ? 0 : value,
+                                              );
+                                            }}
+                                          />
+                                        </label>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              )}
+                              <p className="scenario-event-sequence__hint">
+                                Indiquez, en secondes, le délai relatif souhaité avant le déclenchement de chaque dispositif
+                                de la zone.
+                              </p>
+                            </div>
                           )}
                           {reasonEvent && (
                             <label className="scenario-event-field scenario-event-field--reason">
