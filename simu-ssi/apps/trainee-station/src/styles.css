@@ -694,6 +694,7 @@ button {
   background: #64748b;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.25);
   transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  overflow: visible;
   cursor: default;
 }
 
@@ -720,7 +721,18 @@ button {
 
 .floor-plan__marker.is-active {
   transform: translate(-50%, -50%) scale(1.08);
-  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25), 0 12px 20px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.45), 0 12px 20px rgba(15, 23, 42, 0.35);
+}
+
+.floor-plan__marker.is-active::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid rgba(220, 38, 38, 0.8);
+  box-shadow: 0 0 12px rgba(220, 38, 38, 0.5);
+  animation: floor-plan-marker-blink 1s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .floor-plan__marker.is-actionable {
@@ -731,6 +743,31 @@ button {
   opacity: 0.6;
   cursor: not-allowed;
   box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
+}
+
+.floor-plan__marker.is-active:disabled,
+.floor-plan__marker.is-level-locked {
+  opacity: 1;
+}
+
+.floor-plan__marker.is-active:disabled {
+  box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.45), 0 12px 20px rgba(15, 23, 42, 0.35);
+}
+
+.floor-plan__marker.is-level-locked {
+  cursor: not-allowed;
+}
+
+@keyframes floor-plan-marker-blink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
 }
 
 .board-tile {

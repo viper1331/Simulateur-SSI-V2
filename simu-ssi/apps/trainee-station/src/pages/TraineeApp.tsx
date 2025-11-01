@@ -1860,16 +1860,26 @@ export function TraineeApp() {
                     accessLevel,
                     manualResetConstraints,
                   );
+                  const lockedByLevel = active && accessLevel < 2;
                   const className = [
                     'floor-plan__marker',
                     `floor-plan__marker--${device.kind.toLowerCase()}`,
                     active ? 'is-active' : '',
                     actionable ? 'is-actionable' : '',
                     device.outOfService ? 'is-out-of-service' : '',
+                    lockedByLevel ? 'is-level-locked' : '',
                   ]
                     .filter(Boolean)
                     .join(' ');
-                  const statusSuffix = device.outOfService ? ' — hors service' : '';
+                  const statusDetails: string[] = [];
+                  if (device.outOfService) {
+                    statusDetails.push('hors service');
+                  }
+                  if (lockedByLevel) {
+                    statusDetails.push('niveau 2 requis pour réarmer');
+                  }
+                  const statusSuffix =
+                    statusDetails.length > 0 ? ` — ${statusDetails.join(' · ')}` : '';
                   const title = `${markerLabel} · ${deviceLabel}${zoneLabel}${statusSuffix}`;
                   return (
                     <button
