@@ -1063,6 +1063,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
               id: device.id,
               kind: device.kind,
               zoneId: device.zoneId ?? null,
+              label:
+                device.label && device.label.trim().length > 0
+                  ? device.label.trim()
+                  : null,
               propsJson: device.props ? JSON.stringify(device.props) : null,
             })),
           });
@@ -1335,6 +1339,7 @@ function formatTopologyResponse(
     id: string;
     kind: string;
     zoneId: string | null;
+    label: string | null;
     propsJson: string | null;
     outOfService: boolean;
   }>,
@@ -1356,11 +1361,20 @@ function formatTopologyResponse(
     })),
     devices: devices.map((device) => {
       const parsedProps = parseDeviceProps(device.propsJson);
+      const persistedLabel = typeof device.label === 'string' ? device.label.trim() : '';
+      const parsedLabel =
+        typeof parsedProps?.label === 'string' ? String(parsedProps.label).trim() : '';
+      const label =
+        persistedLabel.length > 0
+          ? persistedLabel
+          : parsedLabel.length > 0
+            ? parsedLabel
+            : undefined;
       return {
         id: device.id,
         kind: device.kind,
         zoneId: device.zoneId ?? undefined,
-        label: typeof parsedProps?.label === 'string' ? parsedProps.label : undefined,
+        label,
         props: parsedProps ?? undefined,
         outOfService: device.outOfService,
       };
