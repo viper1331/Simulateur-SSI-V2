@@ -61,7 +61,7 @@ const scenarioEventBaseSchema = z.object({
 });
 
 const scenarioEventSequenceEntrySchema = z.object({
-  zoneId: z.string().min(1),
+  deviceId: z.string().min(1),
   delay: z.number().min(0),
 });
 

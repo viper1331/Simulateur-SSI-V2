@@ -1,49 +1,36 @@
-Licence MIT (MIT License)
-========================
+Licence propriétaire Simulateur-SSI V2
+====================================
 
-Copyright (c) 2025 Simulateur SSI Contributors
+Copyright (c) 2025 Cangemi Sebastien. Tous droits réservés.
 
-Permission est accordée, gratuitement, à toute personne obtenant une copie
-du présent logiciel et des documents associés (le "Logiciel"), de traiter
-le Logiciel sans restriction, y compris, sans s'y limiter, les droits
-d'utiliser, de copier, de modifier, de fusionner, de publier, de distribuer,
-de concéder des sous-licences, et/ou de vendre des copies du Logiciel, et de
-permettre aux personnes auxquelles le Logiciel est fourni de le faire,
-sous réserve des conditions suivantes :
+Cangemi Sebastien est l'unique développeur et titulaire exclusif de l'intégralité des droits
+de propriété intellectuelle relatifs au logiciel « Simulateur SSI V2 » (le « Logiciel »).
 
-L'avis de droit d'auteur ci-dessus et le présent avis d'autorisation doivent
-être inclus dans toutes copies ou parties substantielles du Logiciel.
+Toute personne recevant une copie du Logiciel bénéficie d'une autorisation personnelle,
+non exclusive, non transférable et révocable d'utiliser le Logiciel uniquement pour ses
+besoins internes.
 
-LE LOGICIEL EST FOURNI "TEL QUEL", SANS GARANTIE D'AUCUNE SORTE, EXPRESSE OU
-IMPLICITE, Y COMPRIS MAIS SANS S'Y LIMITER, LES GARANTIES DE QUALITÉ
-MARCHANDE, D'ADÉQUATION À UN USAGE PARTICULIER ET D'ABSENCE DE CONTREFAÇON.
-EN AUCUN CAS LES AUTEURS OU TITULAIRES DU COPYRIGHT NE SAURAIENT ÊTRE TENUS
-RESPONSABLES DE TOUTE RÉCLAMATION, DOMMAGES OU AUTRE RESPONSABILITÉ, QUE CE
-SOIT DANS LE CADRE D'UNE ACTION CONTRACTUELLE, DÉLICTUELLE OU AUTRE, EN
-PROVENANCE DE, LIÉE À OU CONSÉCUTIVE À L'USAGE DU LOGICIEL OU D'AUTRES
-MANIPULATIONS DU LOGICIEL.
+Il est strictement interdit à tout destinataire du Logiciel :
 
----
+1. de vendre, louer, concéder sous licence, diffuser, publier ou autrement exploiter le
+   Logiciel, en tout ou en partie, à des fins commerciales ;
+2. de revendiquer la propriété du Logiciel ou d'en supprimer les mentions de droit
+   d'auteur et d'attribution ;
+3. de modifier, adapter, traduire, décompiler, désassembler, rétro‑concevoir ou créer des
+   œuvres dérivées du Logiciel ;
+4. de transférer, céder ou communiquer le Logiciel à un tiers sans l'autorisation écrite
+   préalable de Cangemi Sebastien ;
+5. d'accorder un quelconque droit d'utilisation ou de sous-licence sur le Logiciel.
 
-MIT License (Licence MIT)
-=========================
+Toute utilisation du Logiciel en violation des présentes conditions constitue une contrefaçon
+et expose l'utilisateur aux sanctions civiles et pénales prévues par la loi.
 
-Copyright (c) 2025 Simulateur SSI Contributors
+LE LOGICIEL EST FOURNI « TEL QUEL ». CANGEMI SEBASTIEN DÉCLINE TOUTE RESPONSABILITÉ
+QUANT AUX DOMMAGES DIRECTS, INDIRECTS, ACCESSOIRES, SPÉCIAUX OU CONSÉCUTIFS RÉSULTANT
+DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER LE LOGICIEL.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Toute demande relative à l'utilisation du Logiciel doit être adressée à :
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Cangemi Sebastien
+Développeur exclusif – Simulateur SSI V2
+[coordonnées à compléter]
