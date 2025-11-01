@@ -83,6 +83,8 @@ type TimerHandle = ReturnType<typeof setTimeout> | undefined;
 
 type DomainEmitter = EventEmitter<DomainEventMap>;
 
+type FireAlarmState = Extract<CmsiState, { status: 'FIRE_ALARM' }>;
+
 export interface SsiDomain {
   readonly emitter: DomainEmitter;
   readonly snapshot: DomainSnapshot;
@@ -178,7 +180,13 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     }, delay);
   };
 
-  const enterFireAlarm = ({ preferredZoneId, now }: { preferredZoneId?: string; now: number }) => {
+  const enterFireAlarm = ({
+    preferredZoneId,
+    now,
+  }: {
+    preferredZoneId?: string;
+    now: number;
+  }): { alreadyFireAlarm: boolean; state?: FireAlarmState } => {
     const wasFireAlarm = cmsi.status === 'FIRE_ALARM';
     const previousPrimaryZone =
       cmsi.status === 'FIRE_ALARM'
@@ -200,7 +208,10 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
 
     const zoneIds = Array.from(zoneSet);
     if (zoneIds.length === 0) {
-      return wasFireAlarm;
+      return {
+        alreadyFireAlarm: wasFireAlarm,
+        state: wasFireAlarm && cmsi.status === 'FIRE_ALARM' ? cmsi : undefined,
+      };
     }
 
     const daiEntries = Array.from(daiActivated.values());
@@ -216,7 +227,8 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     );
 
     const baseStartedAt = Math.min(now, earliestDai, earliestDm);
-    const startedAt = wasFireAlarm ? Math.min(cmsi.startedAt, baseStartedAt) : baseStartedAt;
+    const startedAt =
+      cmsi.status === 'FIRE_ALARM' ? Math.min(cmsi.startedAt, baseStartedAt) : baseStartedAt;
 
     const primaryZoneId =
       previousPrimaryZone && zoneIds.includes(previousPrimaryZone)
@@ -229,9 +241,17 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       ? { zoneId: pendingEvacuation.zoneId, deadline: pendingEvacuation.deadline }
       : undefined;
 
-    cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId, pendingEvacuation: pendingInfo };
+    const nextState: FireAlarmState = {
+      status: 'FIRE_ALARM',
+      zoneIds,
+      startedAt,
+      zoneId: primaryZoneId,
+      pendingEvacuation: pendingInfo,
+    };
 
-    return wasFireAlarm;
+    cmsi = nextState;
+
+    return { alreadyFireAlarm: wasFireAlarm, state: nextState };
   };
 
   const enterEvacActive = ({ manual, zoneId }: { manual: boolean; zoneId?: string }) => {
@@ -373,13 +393,13 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         enterEvacActive({ manual: false, zoneId });
       } else {
         localAudibleActive = true;
-        const alreadyFireAlarm = enterFireAlarm({ preferredZoneId: zoneId, now });
-        if (!alreadyFireAlarm) {
+        const { alreadyFireAlarm, state } = enterFireAlarm({ preferredZoneId: zoneId, now });
+        if (!alreadyFireAlarm && state) {
           log({
             ts: now,
             source: 'CMSI',
             message: 'Alarme feu signalée',
-            details: { zoneIds: cmsi.zoneIds, event: 'FIRE_ALARM_STARTED' },
+            details: { zoneIds: state.zoneIds, event: 'FIRE_ALARM_STARTED' },
           });
         }
         emitSnapshot();
@@ -403,16 +423,16 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         clearTimer();
         if (cmsi.status === 'EVAC_PENDING' || cmsi.status === 'EVAC_SUSPENDED') {
           if (daiActivated.size > 0) {
-            const alreadyFireAlarm = enterFireAlarm({
+            const { alreadyFireAlarm, state } = enterFireAlarm({
               preferredZoneId: cmsi.zoneId,
               now,
             });
-            if (!alreadyFireAlarm) {
+            if (!alreadyFireAlarm && state) {
               log({
                 ts: now,
                 source: 'CMSI',
                 message: 'Alarme feu signalée',
-                details: { zoneIds: cmsi.zoneIds, event: 'FIRE_ALARM_STARTED' },
+                details: { zoneIds: state.zoneIds, event: 'FIRE_ALARM_STARTED' },
               });
             }
           } else {
