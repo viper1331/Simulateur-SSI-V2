@@ -528,19 +528,19 @@ function normalizeEventForPayload(event: ScenarioEventDraft, topology: SiteTopol
           ? 'DAI'
           : null;
       const zoneId = (event as { zoneId: string }).zoneId?.toUpperCase?.() ?? '';
-      const sequenceMap = new Map(sequence.map((entry) => [entry.deviceId, entry.delay]));
       const relatedDevices =
         deviceKind && zoneId
           ? devices.filter((device) => device.kind === deviceKind && device.zoneId?.toUpperCase() === zoneId)
           : [];
-      const enrichedSequence: ScenarioEventSequenceEntry[] = [];
-      if (relatedDevices.length > 0) {
+      const relatedDeviceIds = new Set(relatedDevices.map((device) => device.id));
+      const hasRelatedDevices = relatedDevices.length > 0;
+      const enrichedSequence = hasRelatedDevices
+        ? sequence.filter((entry) => relatedDeviceIds.has(entry.deviceId))
+        : sequence;
+      if (hasRelatedDevices && enrichedSequence.length === 0) {
         for (const device of relatedDevices) {
-          const delay = sequenceMap.get(device.id) ?? 0;
-          enrichedSequence.push({ deviceId: device.id, delay });
+          enrichedSequence.push({ deviceId: device.id, delay: 0 });
         }
-      } else {
-        enrichedSequence.push(...sequence);
       }
       enrichedSequence.sort((a, b) => a.delay - b.delay);
       return {
