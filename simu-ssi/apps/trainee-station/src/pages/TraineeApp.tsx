@@ -33,8 +33,8 @@ interface Snapshot {
   dasApplied: boolean;
   manualEvacuation: boolean;
   processAck: { isAcked: boolean };
-  dmLatched: Record<string, { zoneId: string; deviceId?: string }>;
-  daiActivated: Record<string, { zoneId: string; deviceId?: string }>;
+  dmLatched: Record<string, { zoneId: string; deviceId?: string; activeDeviceIds?: string[] }>;
+  daiActivated: Record<string, { zoneId: string; deviceId?: string; activeDeviceIds?: string[] }>;
 }
 
 type BoardModuleTone = 'alarm' | 'info' | 'safe' | 'warning';
@@ -167,6 +167,26 @@ function getScenarioEventTone(event: ScenarioEvent): ScenarioEventTone {
   }
 }
 
+function doesStateIncludeDevice(
+  state: { deviceId?: string; activeDeviceIds?: string[] } | undefined,
+  deviceId?: string,
+): boolean {
+  if (!state) {
+    return false;
+  }
+  const activeDeviceIds = state.activeDeviceIds ?? (state.deviceId ? [state.deviceId] : []);
+  if (!deviceId) {
+    return activeDeviceIds.length > 0 || Boolean(state.deviceId);
+  }
+  if (activeDeviceIds.length > 0) {
+    return activeDeviceIds.includes(deviceId);
+  }
+  if (!state.deviceId) {
+    return true;
+  }
+  return state.deviceId === deviceId;
+}
+
 function isScenarioEventActive(
   event: ScenarioEvent,
   snapshot: Snapshot | null,
@@ -180,30 +200,12 @@ function isScenarioEventActive(
       if (!event.zoneId) {
         return false;
       }
-      {
-        const state = snapshot.dmLatched?.[event.zoneId];
-        if (!state) {
-          return false;
-        }
-        if (!deviceId || !state.deviceId) {
-          return true;
-        }
-        return state.deviceId === deviceId;
-      }
+      return doesStateIncludeDevice(snapshot.dmLatched?.[event.zoneId], deviceId);
     case 'DAI_TRIGGER':
       if (!event.zoneId) {
         return false;
       }
-      {
-        const state = snapshot.daiActivated?.[event.zoneId];
-        if (!state) {
-          return false;
-        }
-        if (!deviceId || !state.deviceId) {
-          return true;
-        }
-        return state.deviceId === deviceId;
-      }
+      return doesStateIncludeDevice(snapshot.daiActivated?.[event.zoneId], deviceId);
     case 'MANUAL_EVAC_START':
       return Boolean(snapshot.manualEvacuation);
     case 'PROCESS_ACK':
@@ -452,30 +454,12 @@ function isDeviceActive(device: SiteDevice, snapshot: Snapshot | null): boolean 
       if (!device.zoneId) {
         return false;
       }
-      {
-        const state = snapshot.dmLatched?.[device.zoneId];
-        if (!state) {
-          return false;
-        }
-        if (!state.deviceId) {
-          return true;
-        }
-        return state.deviceId === device.id;
-      }
+      return doesStateIncludeDevice(snapshot.dmLatched?.[device.zoneId], device.id);
     case 'DAI':
       if (!device.zoneId) {
         return false;
       }
-      {
-        const state = snapshot.daiActivated?.[device.zoneId];
-        if (!state) {
-          return false;
-        }
-        if (!state.deviceId) {
-          return true;
-        }
-        return state.deviceId === device.id;
-      }
+      return doesStateIncludeDevice(snapshot.daiActivated?.[device.zoneId], device.id);
     case 'DAS':
       return Boolean(snapshot.dasApplied);
     case 'UGA':
@@ -499,7 +483,7 @@ function isDeviceActionable(
     if (!state) {
       return false;
     }
-    if (state.deviceId && state.deviceId !== device.id) {
+    if (!doesStateIncludeDevice(state, device.id)) {
       return false;
     }
     return isManualResetAllowed(manualConstraints, 'DM', device.zoneId);
@@ -509,7 +493,7 @@ function isDeviceActionable(
     if (!state) {
       return false;
     }
-    if (state.deviceId && state.deviceId !== device.id) {
+    if (!doesStateIncludeDevice(state, device.id)) {
       return false;
     }
     return isManualResetAllowed(manualConstraints, 'DAI', device.zoneId);

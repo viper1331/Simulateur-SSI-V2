@@ -69,6 +69,32 @@ describe('SSI domain core rules', () => {
     expect(domain.snapshot.daiActivated['ZF1']).toBeDefined();
   });
 
+  it('retains multiple DM activations in the same zone until reset', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: true });
+    domain.activateDm('ZF5', { deviceId: 'dm-1' });
+    domain.activateDm('ZF5', { deviceId: 'dm-2' });
+
+    const state = domain.snapshot.dmLatched['ZF5'];
+    expect(state?.activeDeviceIds).toEqual(expect.arrayContaining(['dm-1', 'dm-2']));
+    expect(state?.activeDeviceIds).toHaveLength(2);
+
+    domain.resetDm('ZF5');
+    expect(domain.snapshot.dmLatched['ZF5']).toBeUndefined();
+  });
+
+  it('retains multiple DAI activations in the same zone until reset', () => {
+    const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
+    domain.activateDai('ZF6', { deviceId: 'dai-1' });
+    domain.activateDai('ZF6', { deviceId: 'dai-2' });
+
+    const state = domain.snapshot.daiActivated['ZF6'];
+    expect(state?.activeDeviceIds).toEqual(expect.arrayContaining(['dai-1', 'dai-2']));
+    expect(state?.activeDeviceIds).toHaveLength(2);
+
+    domain.resetDai('ZF6');
+    expect(domain.snapshot.daiActivated['ZF6']).toBeUndefined();
+  });
+
   it('clears active DAI automatically during system reset', () => {
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
     domain.activateDai('ZF2');

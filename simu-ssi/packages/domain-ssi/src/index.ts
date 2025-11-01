@@ -26,6 +26,7 @@ export interface ManualCallPointState {
   lastActivatedAt?: number;
   lastResetAt?: number;
   deviceId?: string;
+  activeDeviceIds?: string[];
 }
 
 export interface AutomaticDetectorState {
@@ -34,6 +35,7 @@ export interface AutomaticDetectorState {
   lastActivatedAt?: number;
   lastResetAt?: number;
   deviceId?: string;
+  activeDeviceIds?: string[];
 }
 
 export interface DomainSnapshot {
@@ -115,10 +117,16 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       manualEvacuationReason,
       processAck: { ...processAck },
       dmLatched: Object.fromEntries(
-        Array.from(dmLatched.entries()).map(([zoneId, state]) => [zoneId, { ...state }]),
+        Array.from(dmLatched.entries()).map(([zoneId, state]) => [
+          zoneId,
+          { ...state, activeDeviceIds: state.activeDeviceIds ? [...state.activeDeviceIds] : undefined },
+        ]),
       ),
       daiActivated: Object.fromEntries(
-        Array.from(daiActivated.entries()).map(([zoneId, state]) => [zoneId, { ...state }]),
+        Array.from(daiActivated.entries()).map(([zoneId, state]) => [
+          zoneId,
+          { ...state, activeDeviceIds: state.activeDeviceIds ? [...state.activeDeviceIds] : undefined },
+        ]),
       ),
     };
     emitter.emit('state.update', snapshot);
@@ -218,8 +226,18 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         manualEvacuation,
         manualEvacuationReason,
         processAck,
-        dmLatched: Object.fromEntries(dmLatched),
-        daiActivated: Object.fromEntries(daiActivated),
+        dmLatched: Object.fromEntries(
+          Array.from(dmLatched.entries()).map(([zoneId, state]) => [
+            zoneId,
+            { ...state, activeDeviceIds: state.activeDeviceIds ? [...state.activeDeviceIds] : undefined },
+          ]),
+        ),
+        daiActivated: Object.fromEntries(
+          Array.from(daiActivated.entries()).map(([zoneId, state]) => [
+            zoneId,
+            { ...state, activeDeviceIds: state.activeDeviceIds ? [...state.activeDeviceIds] : undefined },
+          ]),
+        ),
       } as DomainSnapshot;
     },
     updateConfig(partial) {
@@ -230,12 +248,19 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       const now = Date.now();
       const deviceId = metadata?.deviceId;
       const existing = dmLatched.get(zoneId);
+      const activeDeviceIds = new Set<string>(
+        existing?.activeDeviceIds ?? (existing?.deviceId ? [existing.deviceId] : []),
+      );
+      if (deviceId) {
+        activeDeviceIds.add(deviceId);
+      }
       const state: ManualCallPointState = {
         zoneId,
         isLatched: true,
         lastActivatedAt: now,
         lastResetAt: existing?.lastResetAt,
-        deviceId,
+        deviceId: deviceId ?? existing?.deviceId,
+        activeDeviceIds: activeDeviceIds.size > 0 ? Array.from(activeDeviceIds) : undefined,
       };
       dmLatched.set(zoneId, state);
       log({
@@ -249,12 +274,20 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     activateDai(zoneId, metadata) {
       const now = Date.now();
       const deviceId = metadata?.deviceId;
+      const existing = daiActivated.get(zoneId);
+      const activeDeviceIds = new Set<string>(
+        existing?.activeDeviceIds ?? (existing?.deviceId ? [existing.deviceId] : []),
+      );
+      if (deviceId) {
+        activeDeviceIds.add(deviceId);
+      }
       const entry: AutomaticDetectorState = {
         zoneId,
         isActive: true,
         lastActivatedAt: now,
-        lastResetAt: daiActivated.get(zoneId)?.lastResetAt,
-        deviceId,
+        lastResetAt: existing?.lastResetAt,
+        deviceId: deviceId ?? existing?.deviceId,
+        activeDeviceIds: activeDeviceIds.size > 0 ? Array.from(activeDeviceIds) : undefined,
       };
       daiActivated.set(zoneId, entry);
       log({
@@ -280,6 +313,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         ...entry,
         isLatched: false,
         lastResetAt: now,
+        activeDeviceIds: [],
       });
       dmLatched.delete(zoneId);
       log({ ts: now, source: 'SDI_DM', message: 'Déclencheur manuel réarmé', details: { zoneId, event: 'DM_RESET' } });
@@ -295,6 +329,7 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         ...entry,
         isActive: false,
         lastResetAt: now,
+        activeDeviceIds: [],
       });
       daiActivated.delete(zoneId);
       log({ ts: now, source: 'SDI_DAI', message: 'Détecteur automatique réarmé', details: { zoneId, event: 'DAI_RESET' } });

@@ -48,10 +48,19 @@ interface DomainSnapshot {
   manualEvacuation: boolean;
   manualEvacuationReason?: string;
   processAck: { isAcked: boolean };
-  dmLatched: Record<string, { zoneId: string; lastActivatedAt?: number; deviceId?: string }>;
+  dmLatched: Record<
+    string,
+    { zoneId: string; lastActivatedAt?: number; deviceId?: string; activeDeviceIds?: string[] }
+  >;
   daiActivated: Record<
     string,
-    { zoneId: string; lastActivatedAt?: number; lastResetAt?: number; deviceId?: string }
+    {
+      zoneId: string;
+      lastActivatedAt?: number;
+      lastResetAt?: number;
+      deviceId?: string;
+      activeDeviceIds?: string[];
+    }
   >;
 }
 
@@ -333,6 +342,26 @@ function getDevicePosition(device: SiteDevice): { x: number; y: number } | null 
   return { x: xValue, y: yValue };
 }
 
+function snapshotStateIncludesDevice(
+  state: { deviceId?: string; activeDeviceIds?: string[] } | undefined,
+  deviceId?: string,
+): boolean {
+  if (!state) {
+    return false;
+  }
+  const activeDeviceIds = state.activeDeviceIds ?? (state.deviceId ? [state.deviceId] : []);
+  if (!deviceId) {
+    return activeDeviceIds.length > 0 || Boolean(state.deviceId);
+  }
+  if (activeDeviceIds.length > 0) {
+    return activeDeviceIds.includes(deviceId);
+  }
+  if (!state.deviceId) {
+    return true;
+  }
+  return state.deviceId === deviceId;
+}
+
 function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): boolean {
   if (!snapshot) {
     return false;
@@ -342,30 +371,12 @@ function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): bo
       if (!device.zoneId) {
         return false;
       }
-      {
-        const state = snapshot.dmLatched?.[device.zoneId];
-        if (!state) {
-          return false;
-        }
-        if (!state.deviceId) {
-          return true;
-        }
-        return state.deviceId === device.id;
-      }
+      return snapshotStateIncludesDevice(snapshot.dmLatched?.[device.zoneId], device.id);
     case 'DAI':
       if (!device.zoneId) {
         return false;
       }
-      {
-        const state = snapshot.daiActivated?.[device.zoneId];
-        if (!state) {
-          return false;
-        }
-        if (!state.deviceId) {
-          return true;
-        }
-        return state.deviceId === device.id;
-      }
+      return snapshotStateIncludesDevice(snapshot.daiActivated?.[device.zoneId], device.id);
     case 'DAS':
       return Boolean(snapshot.dasApplied);
     case 'UGA':
