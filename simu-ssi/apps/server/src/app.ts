@@ -174,7 +174,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 
   function resolveActiveTopology(): SiteTopology | null {
     const snapshot = scenarioRunner.state;
-    if (snapshot.status === 'running' && snapshot.scenario?.topology?.plan?.image) {
+    if (
+      (snapshot.status === 'running' || snapshot.status === 'ready') &&
+      snapshot.scenario?.topology?.plan?.image
+    ) {
       return snapshot.scenario.topology ?? null;
     }
     return latestTopology;
@@ -1095,6 +1098,25 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       data: {
         source: 'TRAINER',
         payloadJson: JSON.stringify({ action: 'scenario-run', scenarioId: scenario.id }),
+        sessionId: sessionManager.getActiveSessionId() ?? undefined,
+      },
+    });
+    res.json(scenarioRunnerSnapshotSchema.parse(scenarioRunner.state));
+  });
+
+  app.post('/api/scenarios/:id/preload', async (req, res) => {
+    const record = await prisma.scenario.findUnique({ where: { id: req.params.id } });
+    if (!record) {
+      return res.status(404).json({ error: 'SCENARIO_NOT_FOUND' });
+    }
+    const scenario = serializeScenarioRecord(record);
+    scenarioRunner.preload(scenario);
+    broadcastActiveTopology(true);
+    log.info("Préchargement de scénario demandé", { scenarioId: scenario.id });
+    await prisma.eventLog.create({
+      data: {
+        source: 'TRAINER',
+        payloadJson: JSON.stringify({ action: 'scenario-preload', scenarioId: scenario.id }),
         sessionId: sessionManager.getActiveSessionId() ?? undefined,
       },
     });

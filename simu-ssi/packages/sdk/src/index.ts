@@ -95,7 +95,7 @@ export const scenarioPayloadSchema = z.object({
 });
 
 export const scenarioRunnerSnapshotSchema = z.object({
-  status: z.enum(['idle', 'running', 'completed', 'stopped']),
+  status: z.enum(['idle', 'ready', 'running', 'completed', 'stopped']),
   scenario: scenarioDefinitionSchema.optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
@@ -627,6 +627,17 @@ export class SsiSdk {
     });
     if (!response.ok) {
       throw new Error('Failed to run scenario');
+    }
+    const json = await response.json();
+    return scenarioRunnerSnapshotSchema.parse(json);
+  }
+
+  async preloadScenario(id: string): Promise<ScenarioRunnerSnapshot> {
+    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}/preload`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to preload scenario');
     }
     const json = await response.json();
     return scenarioRunnerSnapshotSchema.parse(json);

@@ -1493,6 +1493,11 @@ kbd {
   color: #78350f;
 }
 
+.scenario-status__badge--ready {
+  background: rgba(147, 197, 253, 0.35);
+  color: #1d4ed8;
+}
+
 .scenario-status__badge--completed {
   background: rgba(134, 239, 172, 0.4);
   color: #14532d;
