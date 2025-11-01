@@ -10,6 +10,12 @@ Ce dépôt contient un monorepo TypeScript (`pnpm`) pour un simulateur pédagogi
 ## Démarrage rapide
 
 ```bash
+./simu-ssi/manage.sh start
+```
+
+Le script `manage.sh` exécute successivement l'installation des dépendances, la génération du client Prisma puis le lancement du serveur de développement. Les commandes historiques restent disponibles si vous préférez les lancer manuellement :
+
+```bash
 pnpm install
 pnpm prisma:generate
 pnpm prisma:migrate dev
@@ -22,6 +28,14 @@ Les serveurs sont exposés par défaut sur :
 - Console formateur : http://localhost:5301
 - Poste apprenant : http://localhost:5300
 - Admin studio : http://localhost:5302
+
+### Mise à jour des dépendances
+
+Pour maintenir le monorepo à jour, exécutez :
+
+```bash
+./simu-ssi/manage.sh update
+```
 
 ## Tests
 
