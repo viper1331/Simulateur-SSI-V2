@@ -58,6 +58,7 @@ model Device {
   id        String @id
   kind      String
   zoneId    String?
+  label     String?
   propsJson String?
   outOfService Boolean @default(false)
 }
