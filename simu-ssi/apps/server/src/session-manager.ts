@@ -56,7 +56,7 @@ export interface SessionUpdateInput {
 }
 
 export interface SessionCloseInput {
-  notes?: string;
+  notes?: string | null;
   improvementAreas?: ImprovementArea[];
   endedAt?: Date;
 }
