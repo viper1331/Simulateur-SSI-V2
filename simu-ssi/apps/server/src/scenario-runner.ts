@@ -19,12 +19,13 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 interface ActiveScenarioContext {
   scenario: ScenarioDefinition;
   startedAt: number;
-  timeouts: TimerHandle[];
+  timeouts: Set<TimerHandle>;
   currentEventIndex: number;
   awaitingSystemReset: boolean;
   manualReset: ManualResetContext;
   deviceLookup: Map<string, SiteDevice>;
   sequenceSteps: Map<number, ScenarioSequenceStep[]>;
+  sequenceProgress: Map<string, number>;
 }
 
 interface ScenarioSequenceStep {
@@ -139,26 +140,19 @@ export class ScenarioRunner {
       deviceLookup.set(device.id, device);
     }
     const sequenceSteps = new Map<number, ScenarioSequenceStep[]>();
+    const sequenceProgress = new Map<string, number>();
 
     this.context = {
       scenario: normalizedScenario,
       startedAt,
-      timeouts: [],
+      timeouts: new Set<TimerHandle>(),
       currentEventIndex: -1,
       awaitingSystemReset: false,
       manualReset,
       deviceLookup,
       sequenceSteps,
+      sequenceProgress,
     };
-
-    this.updateSnapshot({
-      status: 'running',
-      scenario: normalizedScenario,
-      startedAt,
-      currentEventIndex: -1,
-      nextEvent: orderedEvents[0] ?? null,
-      awaitingSystemReset: false,
-    });
 
     const activeContext = this.context;
     if (!activeContext) {
@@ -168,21 +162,39 @@ export class ScenarioRunner {
     orderedEvents.forEach((event, index) => {
       const steps = this.normalizeSequence(event);
       activeContext.sequenceSteps.set(index, steps);
+      if (steps.length > 0) {
+        const key = this.getSequenceProgressKey(event, index);
+        if (!activeContext.sequenceProgress.has(key)) {
+          activeContext.sequenceProgress.set(key, 0);
+        }
+      }
 
       const eventDelaySeconds = this.computeEventDelay(event, steps);
       const delay = Math.max(0, Math.round(eventDelaySeconds * 1000));
       const handle = setTimeout(() => {
+        activeContext.timeouts.delete(handle);
         void this.executeEvent(index);
       }, delay);
-      activeContext.timeouts.push(handle);
+      activeContext.timeouts.add(handle);
 
       for (const [sequenceIndex, step] of steps.entries()) {
         const sequenceDelay = Math.max(0, Math.round((event.offset + step.delay) * 1000));
         const sequenceHandle = setTimeout(() => {
+          activeContext.timeouts.delete(sequenceHandle);
           void this.executeSequenceEntry(event, step, index, sequenceIndex);
         }, sequenceDelay);
-        activeContext.timeouts.push(sequenceHandle);
+        activeContext.timeouts.add(sequenceHandle);
       }
+    });
+
+    this.updateSnapshot({
+      status: 'running',
+      scenario: normalizedScenario,
+      startedAt,
+      currentEventIndex: -1,
+      nextEvent: orderedEvents[0] ?? null,
+      awaitingSystemReset: false,
+      sequenceProgress: this.serializeSequenceProgress(),
     });
   }
 
@@ -200,6 +212,7 @@ export class ScenarioRunner {
           currentEventIndex: -1,
           nextEvent: null,
           awaitingSystemReset: false,
+          sequenceProgress: this.serializeSequenceProgress(),
         });
         return;
       }
@@ -210,6 +223,7 @@ export class ScenarioRunner {
     }
 
     this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
+    this.context.timeouts.clear();
     const scenario = this.context.scenario;
     const startedAt = this.context.startedAt;
     this.context = undefined;
@@ -225,6 +239,7 @@ export class ScenarioRunner {
       currentEventIndex: this.snapshot.currentEventIndex,
       nextEvent: null,
       awaitingSystemReset: false,
+      sequenceProgress: this.serializeSequenceProgress(),
     });
   }
 
@@ -296,14 +311,10 @@ export class ScenarioRunner {
     const nextEvent = scenario.events[index + 1] ?? null;
     const awaitingReset = this.context.awaitingSystemReset;
 
-    if (!nextEvent) {
-      this.context.timeouts.forEach((timeout) => clearTimeout(timeout));
-      this.context.timeouts = [];
-      if (!awaitingReset) {
-        this.log.info("Événements du scénario terminés, attente de l'arrêt manuel", {
-          scenarioId: scenario.id,
-        });
-      }
+    if (!nextEvent && !awaitingReset) {
+      this.log.info("Événements du scénario terminés, attente de l'arrêt manuel", {
+        scenarioId: scenario.id,
+      });
     }
 
     const status: ScenarioRunnerSnapshot['status'] = 'running';
@@ -479,6 +490,7 @@ export class ScenarioRunner {
         zoneId,
         deviceId: step.deviceId,
       });
+      this.recordSequenceProgress(event, parentIndex, sequenceIndex + 1);
     } catch (error) {
       this.log.error("Échec de l'exécution d'un déclenchement de séquence", {
         error: toError(error),
@@ -536,5 +548,29 @@ export class ScenarioRunner {
       };
     }
     this.emitter.emit('scenario.update', this.snapshot);
+  }
+
+  private recordSequenceProgress(event: ScenarioEvent, index: number, count: number) {
+    if (!this.context) {
+      return;
+    }
+    const key = this.getSequenceProgressKey(event, index);
+    const previous = this.context.sequenceProgress.get(key) ?? 0;
+    if (count <= previous) {
+      return;
+    }
+    this.context.sequenceProgress.set(key, count);
+    this.updateSnapshot({ ...this.snapshot, sequenceProgress: this.serializeSequenceProgress() });
+  }
+
+  private getSequenceProgressKey(event: ScenarioEvent, index: number): string {
+    return event.id ?? index.toString(10);
+  }
+
+  private serializeSequenceProgress(): Record<string, number> {
+    if (!this.context) {
+      return {};
+    }
+    return Object.fromEntries(this.context.sequenceProgress.entries());
   }
 }
