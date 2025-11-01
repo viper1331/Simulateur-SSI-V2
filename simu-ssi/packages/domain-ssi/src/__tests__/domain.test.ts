@@ -69,14 +69,12 @@ describe('SSI domain core rules', () => {
     expect(domain.snapshot.daiActivated['ZF1']).toBeDefined();
   });
 
-  it('prevents reset while a DAI remains active', () => {
+  it('clears active DAI automatically during system reset', () => {
     const domain = createSsiDomain({ evacOnDmDelayMs: 1000, processAckRequired: true, evacOnDai: false });
     domain.activateDai('ZF2');
     const resetResult = domain.trySystemReset();
-    expect(resetResult).toEqual({ ok: false, reason: 'DAI_NOT_RESET' });
-    domain.resetDai('ZF2');
-    const okReset = domain.trySystemReset();
-    expect(okReset).toEqual({ ok: true });
+    expect(resetResult).toEqual({ ok: true });
+    expect(domain.snapshot.daiActivated['ZF2']).toBeUndefined();
   });
 
   it('activates a local audible signal on DAI pre-alarm that can be silenced', () => {

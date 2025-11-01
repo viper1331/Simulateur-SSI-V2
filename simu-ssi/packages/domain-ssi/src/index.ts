@@ -85,7 +85,7 @@ export interface SsiDomain {
   silenceAudibleAlarm(): void;
   startManualEvacuation(reason?: string): void;
   stopManualEvacuation(reason?: string): void;
-  trySystemReset(): { ok: true } | { ok: false; reason: 'DM_NOT_RESET' | 'DAI_NOT_RESET' };
+  trySystemReset(): { ok: true } | { ok: false; reason: 'DM_NOT_RESET' };
 }
 
 export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
@@ -357,9 +357,6 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
     trySystemReset() {
       if (dmLatched.size > 0) {
         return { ok: false as const, reason: 'DM_NOT_RESET' as const };
-      }
-      if (daiActivated.size > 0) {
-        return { ok: false as const, reason: 'DAI_NOT_RESET' as const };
       }
       return tryResetToIdle();
     },
