@@ -27,6 +27,12 @@ interface ActiveScenarioContext {
   sequenceSteps: Map<number, ScenarioSequenceStep[]>;
 }
 
+interface ScenarioSequenceStep {
+  deviceId: string;
+  delay: number;
+  device: SiteDevice;
+}
+
 interface ManualResetContext {
   mode: 'all' | 'custom';
   dmZones: Set<string>;
@@ -160,14 +166,16 @@ export class ScenarioRunner {
     }
 
     orderedEvents.forEach((event, index) => {
-      const delay = Math.max(0, Math.round(event.offset * 1000));
+      const steps = this.normalizeSequence(event);
+      activeContext.sequenceSteps.set(index, steps);
+
+      const eventDelaySeconds = this.computeEventDelay(event, steps);
+      const delay = Math.max(0, Math.round(eventDelaySeconds * 1000));
       const handle = setTimeout(() => {
         void this.executeEvent(index);
       }, delay);
       activeContext.timeouts.push(handle);
 
-      const steps = this.normalizeSequence(event);
-      activeContext.sequenceSteps.set(index, steps);
       for (const [sequenceIndex, step] of steps.entries()) {
         const sequenceDelay = Math.max(0, Math.round((event.offset + step.delay) * 1000));
         const sequenceHandle = setTimeout(() => {
@@ -347,6 +355,21 @@ export class ScenarioRunner {
       default:
         break;
     }
+  }
+
+  private computeEventDelay(event: ScenarioEvent, steps: ScenarioSequenceStep[]): number {
+    if (event.offset > 0) {
+      return event.offset;
+    }
+    if (steps.length === 0) {
+      return event.offset;
+    }
+    const orchestratedKind = this.resolveSequenceDeviceKind(event);
+    if (!orchestratedKind) {
+      return event.offset;
+    }
+    const minDelay = steps.reduce((current, step) => Math.min(current, step.delay), Number.POSITIVE_INFINITY);
+    return Number.isFinite(minDelay) ? minDelay : event.offset;
   }
 
   private normalizeSequence(event: ScenarioEvent): ScenarioSequenceStep[] {

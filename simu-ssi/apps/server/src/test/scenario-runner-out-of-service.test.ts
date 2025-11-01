@@ -111,4 +111,54 @@ describe('ScenarioRunner out-of-service handling', () => {
     expect(domain.activateDai).toHaveBeenCalledWith('ZF1');
     runner.stop('idle');
   });
+
+  it('delays orchestrated events to the earliest sequence step when general offset is zero', async () => {
+    jest.useFakeTimers();
+    try {
+      const domain = createDomainStub();
+      const runner = new ScenarioRunner(domain);
+      const scenario: ScenarioDefinition = {
+        id: 'scenario-2',
+        name: 'Séquence',
+        events: [
+          {
+            id: 'event-1',
+            type: 'DM_TRIGGER',
+            zoneId: 'ZF1',
+            offset: 0,
+            sequence: [{ deviceId: 'dm-1', delay: 5 }],
+          },
+        ],
+        topology: {
+          plan: undefined,
+          zones: [],
+          devices: [{ id: 'dm-1', kind: 'DM', zoneId: 'ZF1' }],
+        },
+        manualResettable: undefined,
+        evacuationAudio: undefined,
+      };
+
+      runner.run(scenario);
+
+      expect(runner.state.currentEventIndex).toBe(-1);
+      expect(domain.activateDm).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(4000);
+      await Promise.resolve();
+
+      expect(runner.state.currentEventIndex).toBe(-1);
+      expect(domain.activateDm).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+
+      expect(runner.state.currentEventIndex).toBe(0);
+      expect(domain.activateDm).toHaveBeenCalledTimes(1);
+      expect(domain.activateDm).toHaveBeenCalledWith('ZF1', { deviceId: 'dm-1' });
+
+      runner.stop('idle');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
