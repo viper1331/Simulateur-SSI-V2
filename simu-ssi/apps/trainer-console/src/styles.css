@@ -2073,6 +2073,10 @@ kbd {
   border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
+.scenario-event-sequence__item--disabled {
+  opacity: 0.7;
+}
+
 .scenario-event-field--sequence-delay {
   flex: 1 1 160px;
 }
@@ -2082,6 +2086,19 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.scenario-event-sequence__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: rgba(30, 41, 59, 0.8);
+}
+
+.scenario-event-sequence__toggle input {
+  width: 16px;
+  height: 16px;
 }
 
 .scenario-event-sequence__device strong {

@@ -1799,6 +1799,41 @@ export function App() {
     });
   };
 
+  const handleScenarioEventDeviceToggle = (
+    eventId: string,
+    deviceId: string,
+    enabled: boolean,
+    fallbackDelay: number,
+  ) => {
+    updateDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      const sanitizedDeviceId = deviceId.trim();
+      if (!sanitizedDeviceId) {
+        return event;
+      }
+      const currentSequence = Array.isArray(event.sequence) ? event.sequence : [];
+      if (!enabled) {
+        const remaining = currentSequence.filter((entry) => entry.deviceId !== sanitizedDeviceId);
+        if (remaining.length === currentSequence.length) {
+          return event;
+        }
+        return { ...event, sequence: sanitizeSequenceEntries(remaining) } as ScenarioEventDraft;
+      }
+      const hasEntry = currentSequence.some((entry) => entry.deviceId === sanitizedDeviceId);
+      if (hasEntry) {
+        return event;
+      }
+      const normalizedDelay = Number.isFinite(fallbackDelay) && fallbackDelay >= 0 ? fallbackDelay : 0;
+      const nextSequence: ScenarioEventSequenceEntry[] = [
+        ...currentSequence,
+        { deviceId: sanitizedDeviceId, delay: normalizedDelay },
+      ];
+      return { ...event, sequence: sanitizeSequenceEntries(nextSequence) } as ScenarioEventDraft;
+    });
+  };
+
   const handleScenarioManualResetModeChange = (mode: 'all' | 'custom') => {
     setDraftScenario((prev) => ({
       ...prev,
@@ -3549,24 +3584,46 @@ export function App() {
                               ) : (
                                 <ul className="scenario-event-sequence__list">
                                   {relevantDevices.map((device) => {
-                                    const delay = sequenceDelayMap.get(device.id) ?? 0;
+                                    const isDeviceEnabled = sequenceDelayMap.has(device.id);
+                                    const delay = sequenceDelayMap.get(device.id);
+                                    const delayValue = Number.isFinite(delay) ? (delay as number) : 0;
                                     const deviceLabel = resolveDeviceLabel(device);
                                     return (
                                       <li
                                         key={`${eventDraft.id}-sequence-${device.id}`}
-                                        className="scenario-event-sequence__item"
+                                        className={
+                                          isDeviceEnabled
+                                            ? 'scenario-event-sequence__item'
+                                            : 'scenario-event-sequence__item scenario-event-sequence__item--disabled'
+                                        }
                                       >
                                         <div className="scenario-event-sequence__device">
                                           <strong>{deviceLabel}</strong>
                                           <span>{device.id}</span>
                                         </div>
+                                        <label className="scenario-event-sequence__toggle">
+                                          <input
+                                            type="checkbox"
+                                            checked={isDeviceEnabled}
+                                            onChange={(input) =>
+                                              handleScenarioEventDeviceToggle(
+                                                eventDraft.id,
+                                                device.id,
+                                                input.target.checked,
+                                                delayValue,
+                                              )
+                                            }
+                                          />
+                                          <span>Déclencher ce dispositif</span>
+                                        </label>
                                         <label className="scenario-event-field scenario-event-field--sequence-delay">
                                           <span>Délai (s)</span>
                                           <input
                                             type="number"
                                             min={0}
                                             step={0.1}
-                                            value={Number.isFinite(delay) ? delay : 0}
+                                            value={delayValue}
+                                            disabled={!isDeviceEnabled}
                                             onChange={(input) => {
                                               const value = Number.parseFloat(input.target.value);
                                               handleScenarioEventDeviceDelayChange(
