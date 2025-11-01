@@ -33,8 +33,8 @@ interface Snapshot {
   dasApplied: boolean;
   manualEvacuation: boolean;
   processAck: { isAcked: boolean };
-  dmLatched: Record<string, { zoneId: string }>;
-  daiActivated: Record<string, { zoneId: string }>;
+  dmLatched: Record<string, { zoneId: string; deviceId?: string }>;
+  daiActivated: Record<string, { zoneId: string; deviceId?: string }>;
 }
 
 type BoardModuleTone = 'alarm' | 'info' | 'safe' | 'warning';
@@ -167,15 +167,43 @@ function getScenarioEventTone(event: ScenarioEvent): ScenarioEventTone {
   }
 }
 
-function isScenarioEventActive(event: ScenarioEvent, snapshot: Snapshot | null): boolean {
+function isScenarioEventActive(
+  event: ScenarioEvent,
+  snapshot: Snapshot | null,
+  deviceId?: string,
+): boolean {
   if (!snapshot) {
     return true;
   }
   switch (event.type) {
     case 'DM_TRIGGER':
-      return Boolean(snapshot.dmLatched?.[event.zoneId]);
+      if (!event.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.dmLatched?.[event.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!deviceId || !state.deviceId) {
+          return true;
+        }
+        return state.deviceId === deviceId;
+      }
     case 'DAI_TRIGGER':
-      return Boolean(snapshot.daiActivated?.[event.zoneId]);
+      if (!event.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.daiActivated?.[event.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!deviceId || !state.deviceId) {
+          return true;
+        }
+        return state.deviceId === deviceId;
+      }
     case 'MANUAL_EVAC_START':
       return Boolean(snapshot.manualEvacuation);
     case 'PROCESS_ACK':
@@ -421,9 +449,33 @@ function isDeviceActive(device: SiteDevice, snapshot: Snapshot | null): boolean 
   }
   switch (device.kind) {
     case 'DM':
-      return device.zoneId ? Boolean(snapshot.dmLatched?.[device.zoneId]) : false;
+      if (!device.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.dmLatched?.[device.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!state.deviceId) {
+          return true;
+        }
+        return state.deviceId === device.id;
+      }
     case 'DAI':
-      return device.zoneId ? Boolean(snapshot.daiActivated?.[device.zoneId]) : false;
+      if (!device.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.daiActivated?.[device.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!state.deviceId) {
+          return true;
+        }
+        return state.deviceId === device.id;
+      }
     case 'DAS':
       return Boolean(snapshot.dasApplied);
     case 'UGA':
@@ -443,15 +495,21 @@ function isDeviceActionable(
     return false;
   }
   if (device.kind === 'DM' && device.zoneId) {
-    const isActive = Boolean(snapshot?.dmLatched?.[device.zoneId]);
-    if (!isActive) {
+    const state = snapshot?.dmLatched?.[device.zoneId];
+    if (!state) {
+      return false;
+    }
+    if (state.deviceId && state.deviceId !== device.id) {
       return false;
     }
     return isManualResetAllowed(manualConstraints, 'DM', device.zoneId);
   }
   if (device.kind === 'DAI' && device.zoneId) {
-    const isActive = Boolean(snapshot?.daiActivated?.[device.zoneId]);
-    if (!isActive) {
+    const state = snapshot?.daiActivated?.[device.zoneId];
+    if (!state) {
+      return false;
+    }
+    if (state.deviceId && state.deviceId !== device.id) {
       return false;
     }
     return isManualResetAllowed(manualConstraints, 'DAI', device.zoneId);
@@ -1143,7 +1201,7 @@ export function TraineeApp() {
             return;
           }
           const syntheticEvent = { ...event, zoneId } as ScenarioEvent;
-          if (!isScenarioEventActive(syntheticEvent, snapshot)) {
+          if (!isScenarioEventActive(syntheticEvent, snapshot, device?.id)) {
             return;
           }
           const zoneName = zoneDisplayMap.get(zoneId) ?? zoneId;

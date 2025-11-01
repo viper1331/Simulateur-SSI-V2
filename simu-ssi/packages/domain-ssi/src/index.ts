@@ -25,6 +25,7 @@ export interface ManualCallPointState {
   isLatched: boolean;
   lastActivatedAt?: number;
   lastResetAt?: number;
+  deviceId?: string;
 }
 
 export interface AutomaticDetectorState {
@@ -32,6 +33,7 @@ export interface AutomaticDetectorState {
   isActive: boolean;
   lastActivatedAt?: number;
   lastResetAt?: number;
+  deviceId?: string;
 }
 
 export interface DomainSnapshot {
@@ -76,9 +78,9 @@ export interface SsiDomain {
   readonly emitter: DomainEmitter;
   readonly snapshot: DomainSnapshot;
   updateConfig(config: Partial<DomainConfig>): void;
-  activateDm(zoneId: string): void;
+  activateDm(zoneId: string, metadata?: { deviceId?: string }): void;
   resetDm(zoneId: string): void;
-  activateDai(zoneId: string): void;
+  activateDai(zoneId: string, metadata?: { deviceId?: string }): void;
   resetDai(zoneId: string): void;
   acknowledgeProcess(ackedBy: string): void;
   clearProcessAck(): void;
@@ -224,14 +226,16 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       config = { ...config, ...partial };
       emitSnapshot();
     },
-    activateDm(zoneId) {
+    activateDm(zoneId, metadata) {
       const now = Date.now();
+      const deviceId = metadata?.deviceId;
       const existing = dmLatched.get(zoneId);
       const state: ManualCallPointState = {
         zoneId,
         isLatched: true,
         lastActivatedAt: now,
         lastResetAt: existing?.lastResetAt,
+        deviceId,
       };
       dmLatched.set(zoneId, state);
       log({
@@ -242,13 +246,15 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       });
       scheduleDeadline(zoneId, config.evacOnDmDelayMs);
     },
-    activateDai(zoneId) {
+    activateDai(zoneId, metadata) {
       const now = Date.now();
+      const deviceId = metadata?.deviceId;
       const entry: AutomaticDetectorState = {
         zoneId,
         isActive: true,
         lastActivatedAt: now,
         lastResetAt: daiActivated.get(zoneId)?.lastResetAt,
+        deviceId,
       };
       daiActivated.set(zoneId, entry);
       log({

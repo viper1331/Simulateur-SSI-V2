@@ -48,8 +48,11 @@ interface DomainSnapshot {
   manualEvacuation: boolean;
   manualEvacuationReason?: string;
   processAck: { isAcked: boolean };
-  dmLatched: Record<string, { zoneId: string; lastActivatedAt?: number }>;
-  daiActivated: Record<string, { zoneId: string; lastActivatedAt?: number; lastResetAt?: number }>;
+  dmLatched: Record<string, { zoneId: string; lastActivatedAt?: number; deviceId?: string }>;
+  daiActivated: Record<
+    string,
+    { zoneId: string; lastActivatedAt?: number; lastResetAt?: number; deviceId?: string }
+  >;
 }
 
 type ScenarioEventDraft = ScenarioEvent & { id: string };
@@ -336,9 +339,33 @@ function isDeviceActive(device: SiteDevice, snapshot: DomainSnapshot | null): bo
   }
   switch (device.kind) {
     case 'DM':
-      return device.zoneId ? Boolean(snapshot.dmLatched?.[device.zoneId]) : false;
+      if (!device.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.dmLatched?.[device.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!state.deviceId) {
+          return true;
+        }
+        return state.deviceId === device.id;
+      }
     case 'DAI':
-      return device.zoneId ? Boolean(snapshot.daiActivated?.[device.zoneId]) : false;
+      if (!device.zoneId) {
+        return false;
+      }
+      {
+        const state = snapshot.daiActivated?.[device.zoneId];
+        if (!state) {
+          return false;
+        }
+        if (!state.deviceId) {
+          return true;
+        }
+        return state.deviceId === device.id;
+      }
     case 'DAS':
       return Boolean(snapshot.dasApplied);
     case 'UGA':
@@ -538,19 +565,19 @@ function normalizeEventForPayload(event: ScenarioEventDraft, topology: SiteTopol
           ? 'DAI'
           : null;
       const zoneId = (event as { zoneId: string }).zoneId?.toUpperCase?.() ?? '';
-      const sequenceMap = new Map(sequence.map((entry) => [entry.deviceId, entry.delay]));
       const relatedDevices =
         deviceKind && zoneId
           ? devices.filter((device) => device.kind === deviceKind && device.zoneId?.toUpperCase() === zoneId)
           : [];
-      const enrichedSequence: ScenarioEventSequenceEntry[] = [];
-      if (relatedDevices.length > 0) {
+      const relatedDeviceIds = new Set(relatedDevices.map((device) => device.id));
+      const hasRelatedDevices = relatedDevices.length > 0;
+      const enrichedSequence = hasRelatedDevices
+        ? sequence.filter((entry) => relatedDeviceIds.has(entry.deviceId))
+        : sequence;
+      if (hasRelatedDevices && enrichedSequence.length === 0) {
         for (const device of relatedDevices) {
-          const delay = sequenceMap.get(device.id) ?? 0;
-          enrichedSequence.push({ deviceId: device.id, delay });
+          enrichedSequence.push({ deviceId: device.id, delay: 0 });
         }
-      } else {
-        enrichedSequence.push(...sequence);
       }
       enrichedSequence.sort((a, b) => a.delay - b.delay);
       return {
