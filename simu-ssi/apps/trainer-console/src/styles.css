@@ -1775,6 +1775,10 @@ kbd {
   gap: 16px;
 }
 
+.scenario-events--collapsed {
+  gap: 12px;
+}
+
 .scenario-form__topology {
   display: flex;
   flex-direction: column;
@@ -1937,8 +1941,33 @@ kbd {
 .scenario-events__header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.scenario-events__title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scenario-events__count {
+  font-size: 0.85rem;
+  color: rgba(30, 41, 59, 0.6);
+}
+
+.scenario-events__header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-events__content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .scenario-events__empty {
