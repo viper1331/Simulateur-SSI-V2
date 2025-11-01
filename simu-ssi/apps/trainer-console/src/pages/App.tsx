@@ -38,6 +38,7 @@ interface CmsiStateData {
   remainingMs?: number;
   startedAt?: number;
   zoneId?: string;
+  zoneIds?: string[];
 }
 
 interface DomainSnapshot {
@@ -79,6 +80,7 @@ interface ScenarioDraft {
 
 const CMSI_STATUS_LABELS: Record<string, string> = {
   IDLE: 'Repos',
+  FIRE_ALARM: 'Alarme feu',
   SAFE_HOLD: 'Maintien',
   EVAC_PENDING: 'Pré-alerte',
   EVAC_ACTIVE: 'Evacuation',
@@ -2603,6 +2605,9 @@ export function App() {
                   </p>
                 </div>
                 <div className="timeline-badges">
+                  {snapshot?.cmsi?.status === 'FIRE_ALARM' && (
+                    <TimelineBadge label="Alarme feu" state="pending" />
+                  )}
                   {snapshot?.cmsi?.status === 'EVAC_PENDING' && (
                     <TimelineBadge label="Pré-alerte" state="pending" remainingMs={remainingMs} />
                   )}
@@ -4432,6 +4437,7 @@ export function App() {
 function deriveTone(snapshot: DomainSnapshot | null): 'neutral' | 'warning' | 'critical' | 'success' {
   if (!snapshot) return 'neutral';
   switch (snapshot.cmsi.status) {
+    case 'FIRE_ALARM':
     case 'EVAC_PENDING':
       return 'warning';
     case 'EVAC_ACTIVE':

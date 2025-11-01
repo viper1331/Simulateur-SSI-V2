@@ -2,6 +2,7 @@ import EventEmitter from 'eventemitter3';
 
 export type CmsiState =
   | { status: 'IDLE' }
+  | { status: 'FIRE_ALARM'; zoneIds: string[]; startedAt: number; zoneId?: string }
   | { status: 'EVAC_PENDING'; zoneId: string; deadline: number }
   | { status: 'EVAC_ACTIVE'; manual: boolean; startedAt: number; zoneId?: string }
   | { status: 'EVAC_SUSPENDED'; zoneId: string; deadline: number; remainingMs: number }
@@ -300,6 +301,19 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
         enterEvacActive({ manual: false, zoneId });
       } else {
         localAudibleActive = true;
+        const zoneIds = Array.from(daiActivated.keys());
+        const wasFireAlarm = cmsi.status === 'FIRE_ALARM';
+        const startedAt = wasFireAlarm ? cmsi.startedAt : now;
+        const primaryZoneId = zoneId ?? (wasFireAlarm ? cmsi.zoneId : undefined);
+        cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId };
+        if (!wasFireAlarm) {
+          log({
+            ts: now,
+            source: 'CMSI',
+            message: 'Alarme feu signalée',
+            details: { zoneIds, event: 'FIRE_ALARM_STARTED' },
+          });
+        }
         emitSnapshot();
       }
     },
@@ -335,6 +349,19 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       log({ ts: now, source: 'SDI_DAI', message: 'Détecteur automatique réarmé', details: { zoneId, event: 'DAI_RESET' } });
       if (daiActivated.size === 0) {
         localAudibleActive = false;
+        if (cmsi.status === 'FIRE_ALARM') {
+          cmsi = { status: 'IDLE' };
+          log({
+            ts: now,
+            source: 'CMSI',
+            message: 'Alarme feu réinitialisée',
+            details: { event: 'FIRE_ALARM_CLEARED' },
+          });
+        }
+      } else if (cmsi.status === 'FIRE_ALARM') {
+        const zoneIds = Array.from(daiActivated.keys());
+        const nextZoneId = zoneIds.includes(cmsi.zoneId ?? '') ? cmsi.zoneId : zoneIds[0];
+        cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt: cmsi.startedAt, zoneId: nextZoneId };
       }
       emitSnapshot();
     },
