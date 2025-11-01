@@ -1183,6 +1183,7 @@ export function TraineeApp() {
       return [];
     }
     const activeCards: TriggeredScenarioEventCard[] = [];
+    const sequenceProgress = scenarioUiStatus.sequenceProgress ?? {};
     for (let index = 0; index <= lastIndex; index += 1) {
       const event = orderedEvents[index];
       const sequenceEntries =
@@ -1194,7 +1195,12 @@ export function TraineeApp() {
         sequenceEntries &&
         (event.type === 'DM_TRIGGER' || event.type === 'DAI_TRIGGER' || event.type === 'DM_RESET' || event.type === 'DAI_RESET')
       ) {
+        const progressKey = event.id ?? index.toString(10);
+        const executedCount = sequenceProgress[progressKey] ?? 0;
         sequenceEntries.forEach((entry, sequenceIndex) => {
+          if (sequenceIndex >= executedCount) {
+            return;
+          }
           const device = scenarioDeviceLookup.get(entry.deviceId);
           const zoneId = device?.zoneId;
           if (!zoneId) {

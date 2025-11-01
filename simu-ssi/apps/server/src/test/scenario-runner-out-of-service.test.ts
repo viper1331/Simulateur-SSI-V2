@@ -100,6 +100,7 @@ describe('ScenarioRunner out-of-service handling', () => {
         type: 'DAI_TRIGGER',
         zoneId: 'ZF1',
         offset: 0,
+        // @ts-expect-error - intentionally invalid sequence entry to ensure it is ignored
         sequence: [{ zoneId: 'ZF2', delay: 0 }],
       },
     ]);
@@ -155,6 +156,58 @@ describe('ScenarioRunner out-of-service handling', () => {
       expect(runner.state.currentEventIndex).toBe(0);
       expect(domain.activateDm).toHaveBeenCalledTimes(1);
       expect(domain.activateDm).toHaveBeenCalledWith('ZF1', { deviceId: 'dm-1' });
+
+      runner.stop('idle');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reports sequence progress as steps are executed', async () => {
+    jest.useFakeTimers();
+    try {
+      const domain = createDomainStub();
+      const runner = new ScenarioRunner(domain);
+      const scenario: ScenarioDefinition = {
+        id: 'scenario-3',
+        name: 'Séquence multi-déclencheurs',
+        events: [
+          {
+            id: 'event-1',
+            type: 'DM_TRIGGER',
+            zoneId: 'ZF1',
+            offset: 0,
+            sequence: [
+              { deviceId: 'dm-1', delay: 0 },
+              { deviceId: 'dm-2', delay: 5 },
+            ],
+          },
+        ],
+        topology: {
+          plan: undefined,
+          zones: [],
+          devices: [
+            { id: 'dm-1', kind: 'DM', zoneId: 'ZF1' },
+            { id: 'dm-2', kind: 'DM', zoneId: 'ZF1' },
+          ],
+        },
+        manualResettable: undefined,
+        evacuationAudio: undefined,
+      };
+
+      runner.run(scenario);
+
+      expect(runner.state.sequenceProgress?.['event-1']).toBe(0);
+
+      jest.advanceTimersByTime(0);
+      await Promise.resolve();
+
+      expect(runner.state.sequenceProgress?.['event-1']).toBe(1);
+
+      jest.advanceTimersByTime(5000);
+      await Promise.resolve();
+
+      expect(runner.state.sequenceProgress?.['event-1']).toBe(2);
 
       runner.stop('idle');
     } finally {
