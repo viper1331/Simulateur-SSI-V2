@@ -1440,6 +1440,24 @@ export function TraineeApp() {
               <BoardTile key={module.id} module={module} />
             ))}
           </div>
+          {triggeredScenarioEvents.length > 0 && (
+            <div className="scenario-event-feed" aria-live="polite">
+              {triggeredScenarioEvents.map((event) => (
+                <article
+                  key={event.id}
+                  className={`scenario-event-card scenario-event-card--${event.tone}`}
+                >
+                  <div className="scenario-event-card__meta">
+                    <span className="scenario-event-card__zone">Zone : {event.zoneDisplay}</span>
+                    {event.offsetLabel && (
+                      <span className="scenario-event-card__badge">{event.offsetLabel}</span>
+                    )}
+                  </div>
+                  <p className="scenario-event-card__label">{event.label}</p>
+                </article>
+              ))}
+            </div>
+          )}
           <div className="control-strip">
             {orderedControlButtons.map((button) => (
               <ControlButton
@@ -1508,24 +1526,6 @@ export function TraineeApp() {
                   );
                 })}
               </div>
-            </div>
-          )}
-          {triggeredScenarioEvents.length > 0 && (
-            <div className="scenario-event-feed" aria-live="polite">
-              {triggeredScenarioEvents.map((event) => (
-                <article
-                  key={event.id}
-                  className={`scenario-event-card scenario-event-card--${event.tone}`}
-                >
-                  <div className="scenario-event-card__meta">
-                    <span className="scenario-event-card__zone">Zone : {event.zoneDisplay}</span>
-                    {event.offsetLabel && (
-                      <span className="scenario-event-card__badge">{event.offsetLabel}</span>
-                    )}
-                  </div>
-                  <p className="scenario-event-card__label">{event.label}</p>
-                </article>
-              ))}
             </div>
           )}
         </section>
