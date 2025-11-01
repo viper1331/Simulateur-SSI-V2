@@ -302,11 +302,14 @@ export function createSsiDomain(initialConfig: DomainConfig): SsiDomain {
       } else {
         localAudibleActive = true;
         const zoneIds = Array.from(daiActivated.keys());
-        const wasFireAlarm = cmsi.status === 'FIRE_ALARM';
-        const startedAt = wasFireAlarm ? cmsi.startedAt : now;
-        const primaryZoneId = zoneId ?? (wasFireAlarm ? cmsi.zoneId : undefined);
-        cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId };
-        if (!wasFireAlarm) {
+        if (cmsi.status === 'FIRE_ALARM') {
+          const startedAt = cmsi.startedAt;
+          const primaryZoneId = zoneId ?? cmsi.zoneId;
+          cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId };
+        } else {
+          const startedAt = now;
+          const primaryZoneId = zoneId;
+          cmsi = { status: 'FIRE_ALARM', zoneIds, startedAt, zoneId: primaryZoneId };
           log({
             ts: now,
             source: 'CMSI',
