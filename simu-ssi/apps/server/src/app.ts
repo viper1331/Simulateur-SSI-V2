@@ -113,7 +113,12 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
 } {
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(
+    express.json({
+      // Increase JSON payload limit to support larger imports (e.g. bulk user upload)
+      limit: '50mb',
+    }),
+  );
   const log = httpLogger;
 
   app.use((req, res, next) => {
