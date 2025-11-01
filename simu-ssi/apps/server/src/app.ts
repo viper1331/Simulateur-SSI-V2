@@ -897,15 +897,23 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }
 
     try {
-      const device = await prisma.device.findUnique({ where: { id: deviceId } });
-      if (!device) {
+      const [device, activeTopology] = await Promise.all([
+        prisma.device.findUnique({ where: { id: deviceId } }),
+        Promise.resolve(resolveActiveTopology()),
+      ]);
+
+      const existsInTopology = Boolean(activeTopology?.devices.some((item) => item.id === deviceId));
+
+      if (!device && !existsInTopology) {
         return res.status(404).json({ error: 'DEVICE_NOT_FOUND' });
       }
 
-      const updated = await prisma.device.update({
-        where: { id: deviceId },
-        data: { outOfService: parsed.data.outOfService },
-      });
+      if (device) {
+        await prisma.device.update({
+          where: { id: deviceId },
+          data: { outOfService: parsed.data.outOfService },
+        });
+      }
 
       if (parsed.data.outOfService) {
         deviceServiceRegistry.set(deviceId, true);
@@ -921,9 +929,10 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       log.info("État hors service du dispositif mis à jour", {
         deviceId,
         outOfService: parsed.data.outOfService,
+        persisted: Boolean(device),
       });
 
-      res.json({ device: { id: updated.id, outOfService: updated.outOfService } });
+      res.json({ device: { id: deviceId, outOfService: parsed.data.outOfService } });
       broadcastActiveTopology(true);
     } catch (error) {
       log.error("Échec de la mise à jour hors service du dispositif", {
@@ -1388,8 +1397,8 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 function normalizeImprovementAreas(
-  areas: Array<{ title: string; description?: string | null }> | undefined,
-): Array<{ title: string; description?: string | null }> | undefined {
+  areas: Array<{ title: string; description?: string | null | undefined }> | undefined,
+): Array<{ title: string; description?: string }> | undefined {
   if (!areas) {
     return undefined;
   }

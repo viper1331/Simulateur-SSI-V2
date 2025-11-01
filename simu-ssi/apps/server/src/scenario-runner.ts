@@ -259,7 +259,7 @@ export class ScenarioRunner {
       status,
       scenario,
       startedAt: this.context.startedAt,
-      endedAt: status === 'completed' ? Date.now() : undefined,
+      endedAt: undefined,
       currentEventIndex: index,
       nextEvent: awaitingReset ? event : nextEvent,
       awaitingSystemReset: awaitingReset,
