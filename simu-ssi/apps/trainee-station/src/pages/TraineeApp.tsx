@@ -1099,6 +1099,14 @@ export function TraineeApp() {
     }
     return map;
   }, [scenarioUiStatus.scenario?.topology, topology]);
+  const scenarioDeviceLookup = useMemo(() => {
+    const map = new Map<string, SiteDevice>();
+    const devices = scenarioUiStatus.scenario?.topology?.devices ?? [];
+    devices.forEach((device) => {
+      map.set(device.id, device);
+    });
+    return map;
+  }, [scenarioUiStatus.scenario?.topology?.devices]);
   const triggeredScenarioEvents = useMemo<TriggeredScenarioEventCard[]>(() => {
     if (scenarioUiStatus.status !== 'running') {
       return [];
@@ -1119,6 +1127,45 @@ export function TraineeApp() {
     const activeCards: TriggeredScenarioEventCard[] = [];
     for (let index = 0; index <= lastIndex; index += 1) {
       const event = orderedEvents[index];
+      const sequenceEntries =
+        'sequence' in event && Array.isArray(event.sequence) && event.sequence.length > 0
+          ? event.sequence
+          : undefined;
+      const cardsFromSequence: TriggeredScenarioEventCard[] = [];
+      if (
+        sequenceEntries &&
+        (event.type === 'DM_TRIGGER' || event.type === 'DAI_TRIGGER' || event.type === 'DM_RESET' || event.type === 'DAI_RESET')
+      ) {
+        sequenceEntries.forEach((entry, sequenceIndex) => {
+          const device = scenarioDeviceLookup.get(entry.deviceId);
+          const zoneId = device?.zoneId;
+          if (!zoneId) {
+            return;
+          }
+          const syntheticEvent = { ...event, zoneId } as ScenarioEvent;
+          if (!isScenarioEventActive(syntheticEvent, snapshot)) {
+            return;
+          }
+          const zoneName = zoneDisplayMap.get(zoneId) ?? zoneId;
+          const zoneDisplay = zoneName && zoneName !== zoneId ? `${zoneId} · ${zoneName}` : zoneId;
+          const baseLabel = describeScenarioStep(syntheticEvent);
+          const deviceLabel = device?.label?.trim();
+          const label = deviceLabel && deviceLabel.length > 0 ? `${baseLabel} (${deviceLabel})` : baseLabel;
+          cardsFromSequence.push({
+            id:
+              event.id ??
+              `${index}-${event.type}-${entry.deviceId}-${sequenceIndex}-${event.offset + entry.delay}`,
+            label,
+            zoneDisplay,
+            offsetLabel: formatScenarioOffset(event.offset + entry.delay),
+            tone: getScenarioEventTone(event),
+          });
+        });
+      }
+      if (cardsFromSequence.length > 0) {
+        activeCards.push(...cardsFromSequence);
+        continue;
+      }
       if (!isScenarioEventActive(event, snapshot)) {
         continue;
       }
@@ -1138,7 +1185,7 @@ export function TraineeApp() {
       });
     }
     return activeCards;
-  }, [scenarioUiStatus, snapshot, zoneDisplayMap]);
+  }, [scenarioDeviceLookup, scenarioUiStatus, snapshot, zoneDisplayMap]);
 
   const handleTraineeSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     setSelectedTraineeId(event.target.value);
