@@ -165,6 +165,31 @@ function getScenarioEventTone(event: ScenarioEvent): ScenarioEventTone {
   }
 }
 
+function isScenarioEventActive(event: ScenarioEvent, snapshot: Snapshot | null): boolean {
+  if (!snapshot) {
+    return true;
+  }
+  switch (event.type) {
+    case 'DM_TRIGGER':
+      return Boolean(snapshot.dmLatched?.[event.zoneId]);
+    case 'DAI_TRIGGER':
+      return Boolean(snapshot.daiActivated?.[event.zoneId]);
+    case 'MANUAL_EVAC_START':
+      return Boolean(snapshot.manualEvacuation);
+    case 'PROCESS_ACK':
+      return Boolean(snapshot.processAck?.isAcked);
+    case 'SYSTEM_RESET':
+      return snapshot.cmsi.status !== 'IDLE';
+    case 'MANUAL_EVAC_STOP':
+    case 'DM_RESET':
+    case 'DAI_RESET':
+    case 'PROCESS_CLEAR':
+      return false;
+    default:
+      return true;
+  }
+}
+
 function isManualResetAllowed(
   constraints: ManualResetConstraints | null,
   kind: 'DM' | 'DAI',
@@ -872,6 +897,9 @@ export function TraineeApp() {
     return map;
   }, [scenarioUiStatus.scenario?.topology, topology]);
   const triggeredScenarioEvents = useMemo<TriggeredScenarioEventCard[]>(() => {
+    if (scenarioUiStatus.status !== 'running') {
+      return [];
+    }
     const scenario = scenarioUiStatus.scenario;
     if (!scenario) {
       return [];
@@ -885,7 +913,12 @@ export function TraineeApp() {
     if (lastIndex < 0) {
       return [];
     }
-    return orderedEvents.slice(0, lastIndex + 1).map((event, index) => {
+    const activeCards: TriggeredScenarioEventCard[] = [];
+    for (let index = 0; index <= lastIndex; index += 1) {
+      const event = orderedEvents[index];
+      if (!isScenarioEventActive(event, snapshot)) {
+        continue;
+      }
       const zoneId = 'zoneId' in event ? event.zoneId : null;
       const zoneName = zoneId ? zoneDisplayMap.get(zoneId) ?? zoneId : null;
       const zoneDisplay = zoneId
@@ -893,15 +926,16 @@ export function TraineeApp() {
           ? `${zoneId} · ${zoneName}`
           : zoneId
         : 'Action globale';
-      return {
+      activeCards.push({
         id: event.id ?? `${index}-${event.type}-${zoneId ?? 'none'}-${event.offset}`,
         label: describeScenarioStep(event),
         zoneDisplay,
         offsetLabel: formatScenarioOffset(event.offset),
         tone: getScenarioEventTone(event),
-      };
-    });
-  }, [scenarioUiStatus, zoneDisplayMap]);
+      });
+    }
+    return activeCards;
+  }, [scenarioUiStatus, snapshot, zoneDisplayMap]);
 
   const handleTraineeSelectChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     setSelectedTraineeId(event.target.value);
