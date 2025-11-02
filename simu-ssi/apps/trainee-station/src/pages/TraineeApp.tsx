@@ -513,6 +513,35 @@ function getDevicePosition(device: SiteDevice): { x: number; y: number } | null 
   return { x: xValue, y: yValue };
 }
 
+function listOutOfServiceDeviceIds(topology: SiteTopology): string[] {
+  return topology.devices
+    .filter((device) => Boolean(device.outOfService))
+    .map((device) => device.id);
+}
+
+function mergeOutOfServiceDevices(
+  topology: SiteTopology,
+  outOfServiceDeviceIds: Set<string>,
+): SiteTopology {
+  let mutated = false;
+  const devices = topology.devices.map((device) => {
+    const shouldBeOutOfService = outOfServiceDeviceIds.has(device.id);
+    const currentState = Boolean(device.outOfService);
+    if (currentState === shouldBeOutOfService && typeof device.outOfService === 'boolean') {
+      return device;
+    }
+    if (!shouldBeOutOfService && !currentState && device.outOfService === undefined) {
+      return device;
+    }
+    mutated = true;
+    return { ...device, outOfService: shouldBeOutOfService };
+  });
+  if (!mutated) {
+    return topology;
+  }
+  return { ...topology, devices };
+}
+
 function isDeviceActive(device: SiteDevice, snapshot: Snapshot | null): boolean {
   if (!snapshot) {
     return false;
@@ -741,6 +770,7 @@ export function TraineeApp() {
   const [activeTrainee, setActiveTrainee] = useState<UserSummary | null>(null);
   const [traineeAuthError, setTraineeAuthError] = useState<string | null>(null);
   const [traineeAuthPending, setTraineeAuthPending] = useState<boolean>(false);
+  const [outOfServiceIds, setOutOfServiceIds] = useState<string[]>([]);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
@@ -828,9 +858,13 @@ export function TraineeApp() {
       if (!parsed.success) {
         return;
       }
-      pendingTopologyRef.current = parsed.data;
+      const nextOutOfServiceIds = listOutOfServiceDeviceIds(parsed.data);
+      const outOfServiceSet = new Set(nextOutOfServiceIds);
+      const normalizedTopology = mergeOutOfServiceDevices(parsed.data, outOfServiceSet);
+      setOutOfServiceIds(nextOutOfServiceIds);
+      pendingTopologyRef.current = normalizedTopology;
       if (scenarioStatusRef.current.status === 'running' || scenarioStatusRef.current.status === 'ready') {
-        setTopology(parsed.data);
+        setTopology(normalizedTopology);
         pendingTopologyRef.current = null;
       }
     });
@@ -878,23 +912,26 @@ export function TraineeApp() {
   }, [selectedDeviceId, topology]);
 
   useEffect(() => {
+    const outOfServiceSet = new Set(outOfServiceIds);
     scenarioStatusRef.current = scenarioStatus;
     if (scenarioStatus.status === 'running' || scenarioStatus.status === 'ready') {
       if (scenarioStatus.scenario?.topology) {
-        setTopology(scenarioStatus.scenario.topology);
+        const normalized = mergeOutOfServiceDevices(scenarioStatus.scenario.topology, outOfServiceSet);
+        setTopology(normalized);
         pendingTopologyRef.current = null;
         return;
       }
       if (pendingTopologyRef.current) {
-        setTopology(pendingTopologyRef.current);
-        pendingTopologyRef.current = null;
+        const normalized = mergeOutOfServiceDevices(pendingTopologyRef.current, outOfServiceSet);
+        setTopology(normalized);
+        pendingTopologyRef.current = normalized;
         return;
       }
       setTopology(null);
       return;
     }
     setTopology(null);
-  }, [scenarioStatus]);
+  }, [outOfServiceIds, scenarioStatus]);
 
   useEffect(() => {
     sdk.getCurrentSession().then(setSessionInfo).catch(console.error);
@@ -1023,6 +1060,39 @@ export function TraineeApp() {
     [setServiceUpdateError, setSelectedDeviceId],
   );
 
+  const applyOutOfServiceChange = useCallback(
+    (deviceId: string, outOfService: boolean) => {
+      setOutOfServiceIds((prev) => {
+        const hasDevice = prev.includes(deviceId);
+        if ((outOfService && hasDevice) || (!outOfService && !hasDevice)) {
+          return prev;
+        }
+        const nextSet = new Set(prev);
+        if (outOfService) {
+          nextSet.add(deviceId);
+        } else {
+          nextSet.delete(deviceId);
+        }
+        const nextIds = Array.from(nextSet);
+        const authoritativeSet = new Set(nextIds);
+        setTopology((previous) => {
+          if (!previous) {
+            return previous;
+          }
+          return mergeOutOfServiceDevices(previous, authoritativeSet);
+        });
+        if (pendingTopologyRef.current) {
+          pendingTopologyRef.current = mergeOutOfServiceDevices(
+            pendingTopologyRef.current,
+            authoritativeSet,
+          );
+        }
+        return nextIds;
+      });
+    },
+    [setTopology],
+  );
+
   const handleDeviceServiceToggle = useCallback(
     async (deviceId: string, outOfService: boolean) => {
       if (accessLevel < 2) {
@@ -1033,6 +1103,7 @@ export function TraineeApp() {
       setServiceUpdatePending(true);
       try {
         await sdk.setDeviceServiceState(deviceId, outOfService);
+        applyOutOfServiceChange(deviceId, outOfService);
       } catch (error) {
         console.error(error);
         setServiceUpdateError("Échec de la mise à jour de l'état hors service.");
@@ -1040,7 +1111,7 @@ export function TraineeApp() {
         setServiceUpdatePending(false);
       }
     },
-    [accessLevel, sdk, setServiceUpdateError, setServiceUpdatePending],
+    [accessLevel, applyOutOfServiceChange, sdk, setServiceUpdateError, setServiceUpdatePending],
   );
 
   const handlePlanDeviceClick = useCallback(
@@ -1983,6 +2054,15 @@ export function TraineeApp() {
               </div>
             </div>
           )}
+          {planImage && topology && (
+            <OutOfServiceMap
+              planImage={planImage}
+              planName={planName}
+              devices={topology.devices}
+              selectedDeviceId={selectedDeviceId}
+              onSelectDevice={(deviceId) => handleDeviceSelection(deviceId)}
+            />
+          )}
         </section>
         <section className="side-panels">
           {orderedSidePanels.map((panel) => (
@@ -2320,6 +2400,139 @@ function BoardTile({ module }: BoardTileProps) {
       </div>
       <p className="tile-description">{module.description}</p>
     </div>
+  );
+}
+
+interface OutOfServiceMapProps {
+  planImage: string;
+  planName: string | null;
+  devices: SiteDevice[];
+  selectedDeviceId: string | null;
+  onSelectDevice: (deviceId: string) => void;
+}
+
+function OutOfServiceMap({
+  planImage,
+  planName,
+  devices,
+  selectedDeviceId,
+  onSelectDevice,
+}: OutOfServiceMapProps) {
+  const outOfServiceDevices = devices.filter((device) => device.outOfService);
+  const positioned: { device: SiteDevice; position: { x: number; y: number } }[] = [];
+  const unpositioned: SiteDevice[] = [];
+  outOfServiceDevices.forEach((device) => {
+    const position = getDevicePosition(device);
+    if (position) {
+      positioned.push({ device, position });
+    } else {
+      unpositioned.push(device);
+    }
+  });
+  const positionedIdSet = new Set(positioned.map(({ device }) => device.id));
+  const totalCount = outOfServiceDevices.length;
+  const counterLabel =
+    totalCount === 0
+      ? 'Tous les dispositifs en service'
+      : totalCount === 1
+      ? '1 dispositif neutralisé'
+      : `${totalCount} dispositifs neutralisés`;
+
+  return (
+    <section className="out-of-service-map" aria-label="Carte des dispositifs hors service">
+      <header className="out-of-service-map__header">
+        <div>
+          <h3 className="out-of-service-map__title">Carte des dispositifs hors service</h3>
+          <p className="out-of-service-map__subtitle">
+            Visualisation dynamique des équipements neutralisés sur le plan du site.
+          </p>
+        </div>
+        <span className="out-of-service-map__counter">{counterLabel}</span>
+      </header>
+      <div className="out-of-service-map__stage">
+        <img src={planImage} alt={planName ? `Plan ${planName}` : 'Plan du site'} />
+        {positioned.map(({ device, position }) => {
+          const markerLabel = DEVICE_MARKER_LABELS[device.kind] ?? device.kind;
+          const label = device.label?.trim().length ? device.label.trim() : device.id;
+          const zoneLabel = device.zoneId ? ` · Zone ${device.zoneId}` : '';
+          const title = `${markerLabel} · ${label}${zoneLabel} — hors service`;
+          const className = [
+            'out-of-service-map__marker',
+            selectedDeviceId === device.id ? 'is-selected' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <button
+              key={device.id}
+              type="button"
+              className={className}
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
+              onClick={() => onSelectDevice(device.id)}
+              title={title}
+              aria-label={title}
+            >
+              {markerLabel}
+            </button>
+          );
+        })}
+        {totalCount === 0 && (
+          <div className="out-of-service-map__empty-stage" aria-live="polite">
+            <span>Aucun dispositif hors service</span>
+          </div>
+        )}
+      </div>
+      {totalCount > 0 ? (
+        <>
+          {positioned.length === 0 && (
+            <p className="out-of-service-map__hint">
+              Aucun des dispositifs hors service n&apos;est positionné sur le plan.
+            </p>
+          )}
+          <ul className="out-of-service-map__list">
+            {outOfServiceDevices.map((device) => {
+              const markerLabel = DEVICE_MARKER_LABELS[device.kind] ?? device.kind;
+              const label = device.label?.trim().length ? device.label.trim() : device.id;
+              const zoneDisplay = device.zoneId ? `Zone ${device.zoneId}` : 'Zone non assignée';
+              const hasPosition = positionedIdSet.has(device.id);
+              const itemClassName = [
+                'out-of-service-map__list-item',
+                selectedDeviceId === device.id ? 'is-selected' : '',
+                hasPosition ? '' : 'is-unplaced',
+              ]
+                .filter(Boolean)
+                .join(' ');
+              return (
+                <li key={device.id} className={itemClassName}>
+                  <button
+                    type="button"
+                    className="out-of-service-map__list-button"
+                    onClick={() => onSelectDevice(device.id)}
+                  >
+                    <span className="out-of-service-map__list-marker">{markerLabel}</span>
+                    <span className="out-of-service-map__list-label">
+                      <strong>{label}</strong>
+                      <span className="out-of-service-map__list-zone">{zoneDisplay}</span>
+                    </span>
+                    {!hasPosition && <span className="out-of-service-map__list-note">Hors plan</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {unpositioned.length > 0 && (
+            <p className="out-of-service-map__hint">
+              Ajoutez des coordonnées aux dispositifs marqués &laquo;&nbsp;Hors plan&nbsp;&raquo; pour les
+              afficher directement sur la carte.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="out-of-service-map__hint">
+          Neutralisez un dispositif pour le retrouver immédiatement depuis cette carte dédiée.
+        </p>
+      )}
+    </section>
   );
 }
 
