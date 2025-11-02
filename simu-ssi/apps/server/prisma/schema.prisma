@@ -91,6 +91,7 @@ model EventLog {
   ts          DateTime @default(now())
   sessionId   String?
   source      String
+  message     String?
   zoneId      String?
   payloadJson String?
   session     Session? @relation(fields: [sessionId], references: [id])
