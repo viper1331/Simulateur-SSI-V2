@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from './prisma';
 import type { Prisma } from '@prisma/client';
 import { createLogger, toError } from './logger';
+import { generateSessionReport } from './report-generator';
 
 const improvementSchema = z.object({
   title: z.string().min(1),
@@ -194,6 +195,7 @@ export class SessionManager extends EventEmitter<SessionManagerEventMap> {
       },
       include: { trainee: true, trainer: true },
     });
+    await generateSessionReport(session.id);
     if (this.activeSessionId === id) {
       this.activeSessionId = null;
     }

@@ -30,10 +30,16 @@ export async function createDomainContext(options: DomainContextOptions = {}): P
 
   domain.emitter.on('events.append', async (event) => {
     try {
+      const zoneId =
+        event.details && typeof event.details.zoneId === 'string' && event.details.zoneId.trim().length > 0
+          ? event.details.zoneId.trim()
+          : undefined;
       await prisma.eventLog.create({
         data: {
           source: event.source,
+          message: event.message,
           payloadJson: event.details ? JSON.stringify(event.details) : null,
+          zoneId,
           sessionId: options.getActiveSessionId ? options.getActiveSessionId() ?? undefined : undefined,
         },
       });
