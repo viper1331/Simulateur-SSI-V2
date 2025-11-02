@@ -1970,6 +1970,10 @@ kbd {
   gap: 18px;
 }
 
+.scenario-events--collapsed .scenario-events__content {
+  display: none;
+}
+
 .scenario-events__empty {
   margin: 0;
   padding: 16px;
@@ -2064,6 +2068,10 @@ kbd {
 .scenario-event-row__content {
   display: grid;
   gap: 14px;
+}
+
+.scenario-event-row--collapsed .scenario-event-row__content {
+  display: none;
 }
 
 .scenario-event-row__summary {
@@ -2212,6 +2220,10 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.scenario-event-sequence--collapsed .scenario-event-sequence__content {
+  display: none;
 }
 
 .scenario-event-sequence--collapsed .scenario-event-sequence__summary {
