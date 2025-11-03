@@ -440,6 +440,11 @@ button {
   color: #fecaca;
 }
 
+.topology-led-screen__service.is-partial {
+  background: rgba(251, 191, 36, 0.3);
+  color: #fde68a;
+}
+
 .topology-led-screen__action {
   align-self: flex-start;
   padding: 0.45rem 1.2rem;
