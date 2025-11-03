@@ -76,6 +76,44 @@ const DEVICE_MARKER_LABELS: Record<string, string> = {
 const LOWEST_ACCESS_LEVEL = 1;
 const LOWEST_ACCESS_MESSAGE = 'Niveau 1 actif — arrêt signal sonore disponible.';
 const ACCESS_LEVEL_AUTO_RESET_DELAY_MS = 100_000;
+const DEVICE_TRIGGER_SOUND_SRC =
+  'data:audio/wav;base64,' +
+  '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';
 
 function translateScenarioStatus(
   status: ScenarioRunnerSnapshot['status'],
@@ -784,6 +822,7 @@ export function TraineeApp() {
   const pendingTopologyRef = useRef<SiteTopology | null>(null);
   const accessLevelResetTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const evacuationAudioRef = useRef<HTMLAudioElement | null>(null);
+  const deviceTriggerAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const scenarioUiStatus = useMemo<ScenarioRunnerSnapshot>(
     () =>
@@ -1221,12 +1260,60 @@ export function TraineeApp() {
     return Math.max(0, Math.floor((deadline - now) / 1000));
   })();
 
+  const hasActiveDeviceTrigger = useMemo(
+    () =>
+      Boolean(
+        (snapshot?.dmLatched && Object.keys(snapshot.dmLatched).length > 0) ||
+          (snapshot?.daiActivated && Object.keys(snapshot.daiActivated).length > 0),
+      ),
+    [snapshot?.daiActivated, snapshot?.dmLatched],
+  );
+  const shouldPlayDeviceSound = Boolean(
+    hasActiveDeviceTrigger &&
+      snapshot?.localAudibleActive &&
+      !snapshot?.ugaActive &&
+      !snapshot?.manualEvacuation,
+  );
   const anyAudible = Boolean(snapshot?.ugaActive || snapshot?.localAudibleActive);
   const localAudibleOnly = Boolean(snapshot?.localAudibleActive && !snapshot?.ugaActive);
   const scenarioAdaptation = useMemo(
     () => deriveScenarioAdaptation(scenarioUiStatus),
     [scenarioUiStatus],
   );
+  useEffect(() => {
+    const audioElement = deviceTriggerAudioRef.current;
+    if (!audioElement) {
+      return;
+    }
+    if (!shouldPlayDeviceSound) {
+      if (!audioElement.paused) {
+        audioElement.pause();
+        audioElement.currentTime = 0;
+      }
+      return;
+    }
+    if (audioElement.src !== DEVICE_TRIGGER_SOUND_SRC) {
+      audioElement.src = DEVICE_TRIGGER_SOUND_SRC;
+    }
+    audioElement.loop = true;
+    if (audioElement.paused) {
+      const playPromise = audioElement.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((error) => {
+          console.error("Impossible de lire l'effet sonore d'alarme locale.", error);
+        });
+      }
+    }
+  }, [shouldPlayDeviceSound]);
+  useEffect(() => {
+    return () => {
+      const audioElement = deviceTriggerAudioRef.current;
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.currentTime = 0;
+      }
+    };
+  }, []);
   const evacuationAudioAsset = useMemo<ScenarioAudioAsset | null>(() => {
     const scenario = scenarioUiStatus.scenario;
     if (!scenario?.evacuationAudio) {
@@ -1862,6 +1949,12 @@ export function TraineeApp() {
 
   return (
     <div className="trainee-shell">
+      <audio
+        ref={deviceTriggerAudioRef}
+        aria-hidden="true"
+        preload="auto"
+        style={{ display: 'none' }}
+      />
       <audio ref={evacuationAudioRef} aria-hidden="true" preload="auto" style={{ display: 'none' }} />
       <header className="trainee-header">
         <div className="header-identification">
