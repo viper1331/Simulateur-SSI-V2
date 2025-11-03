@@ -975,6 +975,80 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }
   });
 
+  app.post('/api/zones/:id/out-of-service', async (req, res) => {
+    const zoneId = req.params.id?.trim();
+    if (!zoneId) {
+      return res.status(400).json({ error: 'ZONE_ID_REQUIRED' });
+    }
+    const parsed = deviceServiceUpdateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+
+    try {
+      const [zone, activeTopology] = await Promise.all([
+        prisma.zone.findUnique({ where: { id: zoneId } }),
+        Promise.resolve(resolveActiveTopology()),
+      ]);
+
+      const existsInTopology = Boolean(activeTopology?.zones.some((item) => item.id === zoneId));
+
+      if (!zone && !existsInTopology) {
+        return res.status(404).json({ error: 'ZONE_NOT_FOUND' });
+      }
+
+      const [dbDevices, runtimeDevices] = await Promise.all([
+        prisma.device.findMany({ where: { zoneId } }),
+        Promise.resolve(activeTopology?.devices.filter((device) => device.zoneId === zoneId) ?? []),
+      ]);
+
+      if (dbDevices.length > 0) {
+        await prisma.device.updateMany({
+          where: { zoneId },
+          data: { outOfService: parsed.data.outOfService },
+        });
+      }
+
+      const affectedDeviceIds = new Set<string>();
+      dbDevices.forEach((device) => affectedDeviceIds.add(device.id));
+      runtimeDevices.forEach((device) => affectedDeviceIds.add(device.id));
+
+      affectedDeviceIds.forEach((deviceId) => {
+        if (parsed.data.outOfService) {
+          deviceServiceRegistry.set(deviceId, true);
+        } else {
+          deviceServiceRegistry.delete(deviceId);
+        }
+      });
+
+      if (latestTopology) {
+        latestTopology = applyOutOfServiceState(latestTopology);
+      }
+
+      lastTopologyBroadcastSignature = null;
+      log.info("État hors service de la zone mis à jour", {
+        zoneId,
+        deviceCount: affectedDeviceIds.size,
+        outOfService: parsed.data.outOfService,
+      });
+
+      res.json({
+        zone: { id: zoneId, outOfService: parsed.data.outOfService },
+        devices: Array.from(affectedDeviceIds).map((id) => ({
+          id,
+          outOfService: parsed.data.outOfService,
+        })),
+      });
+      broadcastActiveTopology(true);
+    } catch (error) {
+      log.error("Échec de la mise à jour hors service de la zone", {
+        error: toError(error),
+        zoneId,
+      });
+      res.status(500).json({ error: 'FAILED_TO_UPDATE_ZONE_STATE' });
+    }
+  });
+
   app.get('/api/events', async (req, res) => {
     const { sessionId, from, to, limit } = req.query;
     const events = await prisma.eventLog.findMany({

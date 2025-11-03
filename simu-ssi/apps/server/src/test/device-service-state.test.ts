@@ -7,11 +7,12 @@ import { createHttpServer } from '../app';
 
 jest.mock('../prisma', () => ({
   prisma: {
-    zone: { findMany: jest.fn() },
+    zone: { findMany: jest.fn(), findUnique: jest.fn() },
     device: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     siteConfig: {
       findUnique: jest.fn(),
@@ -35,8 +36,8 @@ jest.mock('../prisma', () => ({
 
 const { prisma: mockPrisma } = jest.requireMock('../prisma') as {
   prisma: {
-    zone: { findMany: jest.Mock };
-    device: { findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+    zone: { findMany: jest.Mock; findUnique: jest.Mock };
+    device: { findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock; updateMany: jest.Mock };
     siteConfig: { findUnique: jest.Mock };
     traineeLayout: { findUnique: jest.Mock; upsert: jest.Mock };
     processAck: { update: jest.Mock };
@@ -93,6 +94,7 @@ describe('POST /api/devices/:id/out-of-service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.zone.findMany.mockResolvedValue([]);
+    mockPrisma.zone.findUnique.mockResolvedValue({ id: 'Z1', label: 'Zone 1', kind: 'Habitation' });
     mockPrisma.device.findMany.mockResolvedValue([]);
     mockPrisma.siteConfig.findUnique.mockResolvedValue({
       id: 1,
@@ -105,6 +107,7 @@ describe('POST /api/devices/:id/out-of-service', () => {
     });
     mockPrisma.traineeLayout.findUnique.mockResolvedValue(null);
     mockPrisma.device.update.mockResolvedValue({ id: 'ignored', outOfService: false });
+    mockPrisma.device.updateMany.mockResolvedValue({ count: 0 });
   });
 
   it('returns success when the device only exists in the active topology', async () => {
@@ -132,5 +135,49 @@ describe('POST /api/devices/:id/out-of-service', () => {
       device: { id: runtimeDevice.id, outOfService: true },
     });
     expect(mockPrisma.device.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/zones/:id/out-of-service', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.zone.findMany.mockResolvedValue([]);
+    mockPrisma.zone.findUnique.mockResolvedValue({ id: 'Z2', label: 'Zone 2', kind: 'EHPAD' });
+    mockPrisma.device.findMany.mockResolvedValue([
+      { id: 'DEVICE-2', kind: 'DM', zoneId: 'Z2', label: null, propsJson: null, outOfService: false },
+    ]);
+    mockPrisma.device.findUnique.mockResolvedValue(null);
+    mockPrisma.siteConfig.findUnique.mockResolvedValue({
+      id: 1,
+      evacOnDAI: false,
+      evacOnDMDelayMs: 300000,
+      processAckRequired: true,
+      planName: null,
+      planImage: null,
+      planNotes: null,
+    });
+    mockPrisma.traineeLayout.findUnique.mockResolvedValue(null);
+    mockPrisma.device.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it('updates all devices within the zone', async () => {
+    const domainContext = createDomainContextStub();
+    const sessionManager = createSessionManagerStub();
+    const { app } = createHttpServer(domainContext, sessionManager);
+    await flushAsync();
+
+    const response = await request(app)
+      .post('/api/zones/Z2/out-of-service')
+      .send({ outOfService: true });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      zone: { id: 'Z2', outOfService: true },
+      devices: [{ id: 'DEVICE-2', outOfService: true }],
+    });
+    expect(mockPrisma.device.updateMany).toHaveBeenCalledWith({
+      where: { zoneId: 'Z2' },
+      data: { outOfService: true },
+    });
   });
 });

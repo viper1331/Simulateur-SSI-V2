@@ -362,6 +362,11 @@ export class SsiSdk {
     await this.post(`/api/devices/${encodedId}/out-of-service`, { outOfService });
   }
 
+  async setZoneServiceState(zoneId: string, outOfService: boolean) {
+    const encodedId = encodeURIComponent(zoneId);
+    await this.post(`/api/zones/${encodedId}/out-of-service`, { outOfService });
+  }
+
   async resetSystem() {
     await this.post('/api/system/reset');
   }

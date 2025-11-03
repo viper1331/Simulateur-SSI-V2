@@ -8,6 +8,7 @@ import {
   siteTopologySchema,
   type SiteDevice,
   type SiteTopology,
+  type SiteZone,
   type ScenarioEvent,
   type ScenarioRunnerSnapshot,
   type ScenarioAudioAsset,
@@ -759,6 +760,7 @@ export function TraineeApp() {
   const [layout, setLayout] = useState<TraineeLayoutConfig>(DEFAULT_TRAINEE_LAYOUT);
   const [topology, setTopology] = useState<SiteTopology | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [serviceUpdatePending, setServiceUpdatePending] = useState(false);
   const [serviceUpdateError, setServiceUpdateError] = useState<string | null>(null);
   const [planNotes, setPlanNotes] = useState<string[]>([]);
@@ -780,6 +782,12 @@ export function TraineeApp() {
     }
     return topology.devices.find((device) => device.id === selectedDeviceId) ?? null;
   }, [selectedDeviceId, setServiceUpdateError, topology]);
+  const selectedZone = useMemo(() => {
+    if (!selectedZoneId || !topology) {
+      return null;
+    }
+    return topology.zones.find((zone) => zone.id === selectedZoneId) ?? null;
+  }, [selectedZoneId, topology]);
   const scenarioStatusRef = useRef<ScenarioRunnerSnapshot>({ status: 'idle' });
   const pendingTopologyRef = useRef<SiteTopology | null>(null);
   const accessLevelResetTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -910,6 +918,16 @@ export function TraineeApp() {
       setServiceUpdateError(null);
     }
   }, [selectedDeviceId, topology]);
+
+  useEffect(() => {
+    if (!selectedZoneId) {
+      return;
+    }
+    if (!topology?.zones.some((zone) => zone.id === selectedZoneId)) {
+      setSelectedZoneId(null);
+      setServiceUpdateError(null);
+    }
+  }, [selectedZoneId, topology]);
 
   useEffect(() => {
     const outOfServiceSet = new Set(outOfServiceIds);
@@ -1055,23 +1073,42 @@ export function TraineeApp() {
   const handleDeviceSelection = useCallback(
     (deviceId: string | null) => {
       setServiceUpdateError(null);
+      setSelectedZoneId(null);
       setSelectedDeviceId(deviceId);
     },
-    [setServiceUpdateError, setSelectedDeviceId],
+    [setServiceUpdateError, setSelectedDeviceId, setSelectedZoneId],
   );
 
-  const applyOutOfServiceChange = useCallback(
-    (deviceId: string, outOfService: boolean) => {
+  const handleZoneSelection = useCallback(
+    (zoneId: string | null) => {
+      setServiceUpdateError(null);
+      setSelectedDeviceId(null);
+      setSelectedZoneId(zoneId);
+    },
+    [setServiceUpdateError, setSelectedDeviceId, setSelectedZoneId],
+  );
+
+  const applyOutOfServiceChanges = useCallback(
+    (changes: { deviceId: string; outOfService: boolean }[]) => {
+      if (changes.length === 0) {
+        return;
+      }
       setOutOfServiceIds((prev) => {
-        const hasDevice = prev.includes(deviceId);
-        if ((outOfService && hasDevice) || (!outOfService && !hasDevice)) {
-          return prev;
-        }
         const nextSet = new Set(prev);
-        if (outOfService) {
-          nextSet.add(deviceId);
-        } else {
-          nextSet.delete(deviceId);
+        let mutated = false;
+        changes.forEach(({ deviceId, outOfService }) => {
+          const hasDevice = nextSet.has(deviceId);
+          if (outOfService && !hasDevice) {
+            nextSet.add(deviceId);
+            mutated = true;
+          }
+          if (!outOfService && hasDevice) {
+            nextSet.delete(deviceId);
+            mutated = true;
+          }
+        });
+        if (!mutated) {
+          return prev;
         }
         const nextIds = Array.from(nextSet);
         const authoritativeSet = new Set(nextIds);
@@ -1103,7 +1140,7 @@ export function TraineeApp() {
       setServiceUpdatePending(true);
       try {
         await sdk.setDeviceServiceState(deviceId, outOfService);
-        applyOutOfServiceChange(deviceId, outOfService);
+        applyOutOfServiceChanges([{ deviceId, outOfService }]);
       } catch (error) {
         console.error(error);
         setServiceUpdateError("Échec de la mise à jour de l'état hors service.");
@@ -1111,7 +1148,46 @@ export function TraineeApp() {
         setServiceUpdatePending(false);
       }
     },
-    [accessLevel, applyOutOfServiceChange, sdk, setServiceUpdateError, setServiceUpdatePending],
+    [
+      accessLevel,
+      applyOutOfServiceChanges,
+      sdk,
+      setServiceUpdateError,
+      setServiceUpdatePending,
+    ],
+  );
+
+  const handleZoneServiceToggle = useCallback(
+    async (zoneId: string, outOfService: boolean) => {
+      if (accessLevel < 2) {
+        setServiceUpdateError('Code niveau 2 requis pour modifier l\'état hors service.');
+        return;
+      }
+      setServiceUpdateError(null);
+      setServiceUpdatePending(true);
+      try {
+        await sdk.setZoneServiceState(zoneId, outOfService);
+        const devicesInZone = topology?.devices
+          .filter((device) => device.zoneId === zoneId)
+          .map((device) => device.id);
+        if (devicesInZone && devicesInZone.length > 0) {
+          applyOutOfServiceChanges(devicesInZone.map((id) => ({ deviceId: id, outOfService })));
+        }
+      } catch (error) {
+        console.error(error);
+        setServiceUpdateError("Échec de la mise à jour de l'état hors service de la zone.");
+      } finally {
+        setServiceUpdatePending(false);
+      }
+    },
+    [
+      accessLevel,
+      applyOutOfServiceChanges,
+      sdk,
+      setServiceUpdateError,
+      setServiceUpdatePending,
+      topology?.devices,
+    ],
   );
 
   const handlePlanDeviceClick = useCallback(
@@ -1943,9 +2019,13 @@ export function TraineeApp() {
             scenarioName={scenarioUiStatus.scenario?.name ?? null}
             selectedDeviceId={selectedDeviceId}
             selectedDevice={selectedDevice}
+            selectedZoneId={selectedZoneId}
+            selectedZone={selectedZone}
             accessLevel={accessLevel}
             onSelectDevice={handleDeviceSelection}
-            onToggleOutOfService={handleDeviceServiceToggle}
+            onSelectZone={handleZoneSelection}
+            onToggleDeviceOutOfService={handleDeviceServiceToggle}
+            onToggleZoneOutOfService={handleZoneServiceToggle}
             serviceUpdatePending={serviceUpdatePending}
             serviceUpdateError={serviceUpdateError}
           />
@@ -2055,11 +2135,11 @@ export function TraineeApp() {
             </div>
           )}
           {planImage && topology && (
-            <OutOfServiceMap
-              planImage={planImage}
-              planName={planName}
-              devices={topology.devices}
-              selectedDeviceId={selectedDeviceId}
+          <OutOfServiceMap
+            planImage={planImage}
+            planName={planName}
+            devices={topology.devices}
+            selectedDeviceId={selectedDeviceId}
               onSelectDevice={(deviceId) => handleDeviceSelection(deviceId)}
             />
           )}
@@ -2092,9 +2172,13 @@ interface TopologyLedPanelProps {
   scenarioName: string | null;
   selectedDeviceId: string | null;
   selectedDevice: SiteDevice | null;
+  selectedZoneId: string | null;
+  selectedZone: SiteZone | null;
   accessLevel: number;
   onSelectDevice: (deviceId: string | null) => void;
-  onToggleOutOfService: (deviceId: string, outOfService: boolean) => void;
+  onSelectZone: (zoneId: string | null) => void;
+  onToggleDeviceOutOfService: (deviceId: string, outOfService: boolean) => void;
+  onToggleZoneOutOfService: (zoneId: string, outOfService: boolean) => void;
   serviceUpdatePending: boolean;
   serviceUpdateError: string | null;
 }
@@ -2104,9 +2188,13 @@ function TopologyLedPanel({
   scenarioName,
   selectedDeviceId,
   selectedDevice,
+  selectedZoneId,
+  selectedZone,
   accessLevel,
   onSelectDevice,
-  onToggleOutOfService,
+  onSelectZone,
+  onToggleDeviceOutOfService,
+  onToggleZoneOutOfService,
   serviceUpdatePending,
   serviceUpdateError,
 }: TopologyLedPanelProps) {
@@ -2114,6 +2202,35 @@ function TopologyLedPanel({
   const [focusedNodeId, setFocusedNodeId] = useState<string>('root');
 
   const treeData = useMemo(() => buildTopologyTree(topology, scenarioName), [topology, scenarioName]);
+
+  const zoneDeviceSummary = useMemo(() => {
+    const summary = new Map<string, { total: number; outOfService: number }>();
+    if (!topology) {
+      return summary;
+    }
+    topology.devices.forEach((device) => {
+      if (!device.zoneId) {
+        return;
+      }
+      const current = summary.get(device.zoneId) ?? { total: 0, outOfService: 0 };
+      const outOfService = device.outOfService ? current.outOfService + 1 : current.outOfService;
+      summary.set(device.zoneId, { total: current.total + 1, outOfService });
+    });
+    return summary;
+  }, [topology]);
+
+  const selectedZoneDevices = useMemo(() => {
+    if (!selectedZoneId || !topology) {
+      return [] as SiteDevice[];
+    }
+    return topology.devices.filter((device) => device.zoneId === selectedZoneId);
+  }, [selectedZoneId, topology]);
+
+  const selectedZoneOutCount = selectedZoneDevices.filter((device) => device.outOfService).length;
+  const selectedZoneOutOfService =
+    selectedZoneDevices.length > 0 && selectedZoneOutCount === selectedZoneDevices.length;
+  const selectedZonePartial =
+    selectedZoneDevices.length > 0 && selectedZoneOutCount > 0 && !selectedZoneOutOfService;
 
   useEffect(() => {
     setExpandedNodes((prev) => {
@@ -2139,6 +2256,23 @@ function TopologyLedPanel({
     });
     setFocusedNodeId(selectedDeviceId);
   }, [selectedDeviceId, treeData]);
+
+  useEffect(() => {
+    if (!selectedZoneId) {
+      return;
+    }
+    const node = treeData.nodes.get(selectedZoneId);
+    if (!node) {
+      return;
+    }
+    const ancestors = collectAncestorIds(node, treeData.nodes);
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      ancestors.forEach((ancestor) => next.add(ancestor));
+      return next;
+    });
+    setFocusedNodeId(selectedZoneId);
+  }, [selectedZoneId, treeData]);
 
   useEffect(() => {
     if (!treeData.nodes.has(focusedNodeId)) {
@@ -2171,13 +2305,21 @@ function TopologyLedPanel({
   const handleActivateNode = useCallback(
     (node: TopologyTreeNode) => {
       if (node.type === 'device') {
+        onSelectZone(null);
         onSelectDevice(node.id);
         setFocusedNodeId(node.id);
-      } else if (node.children.length > 0) {
-        handleNodeToggle(node.id);
+      } else {
+        if (node.type === 'zone') {
+          onSelectDevice(null);
+          onSelectZone(node.id);
+          setFocusedNodeId(node.id);
+        }
+        if (node.children.length > 0) {
+          handleNodeToggle(node.id);
+        }
       }
     },
-    [handleNodeToggle, onSelectDevice],
+    [handleNodeToggle, onSelectDevice, onSelectZone],
   );
 
   const handleKeyDown = useCallback(
@@ -2250,9 +2392,19 @@ function TopologyLedPanel({
       );
     }
     return visibleNodes.map((node) => {
-      const isSelected = node.type === 'device' && selectedDeviceId === node.id;
+      const isDeviceSelected = node.type === 'device' && selectedDeviceId === node.id;
+      const isZoneSelected = node.type === 'zone' && selectedZoneId === node.id;
+      const isSelected = isDeviceSelected || isZoneSelected;
       const isFocused = focusedNodeId === node.id;
-      const isOutOfService = node.device?.outOfService ?? false;
+      const zoneSummary = node.type === 'zone' ? zoneDeviceSummary.get(node.id) : undefined;
+      const zoneOutOfService = Boolean(
+        zoneSummary && zoneSummary.total > 0 && zoneSummary.outOfService === zoneSummary.total,
+      );
+      const zonePartial = Boolean(
+        zoneSummary && zoneSummary.outOfService > 0 && zoneSummary.outOfService < zoneSummary.total,
+      );
+      const isOutOfService =
+        node.type === 'device' ? node.device?.outOfService ?? false : zoneOutOfService;
       const hasChildren = node.children.length > 0;
       const className = [
         'topology-led-node',
@@ -2264,13 +2416,27 @@ function TopologyLedPanel({
         .filter(Boolean)
         .join(' ');
       const indicator = hasChildren ? (expandedNodes.has(node.id) ? '▾' : '▸') : '•';
+      const badgeLabel = (() => {
+        if (node.type === 'device' && node.device?.outOfService) {
+          return 'Hors service';
+        }
+        if (node.type === 'zone') {
+          if (zoneOutOfService) {
+            return 'Zone hors service';
+          }
+          if (zonePartial) {
+            return 'Zone partielle';
+          }
+        }
+        return null;
+      })();
       return (
         <div
           key={node.id}
           role="treeitem"
           aria-level={node.depth + 1}
           aria-expanded={hasChildren ? expandedNodes.has(node.id) : undefined}
-          aria-selected={node.type === 'device' ? isSelected : undefined}
+          aria-selected={isSelected || undefined}
           tabIndex={isFocused ? 0 : -1}
           className={className}
           style={{ paddingLeft: `${node.depth * 1.5}rem` }}
@@ -2281,19 +2447,24 @@ function TopologyLedPanel({
             {indicator}
           </span>
           <span className="topology-led-node__label">{node.label}</span>
-          {node.type === 'device' && node.device?.outOfService && (
-            <span className="topology-led-node__badge">Hors service</span>
-          )}
+          {badgeLabel && <span className="topology-led-node__badge">{badgeLabel}</span>}
         </div>
       );
     });
   };
 
-  const handleToggleClick = () => {
+  const handleDeviceToggleClick = () => {
     if (!selectedDevice) {
       return;
     }
-    onToggleOutOfService(selectedDevice.id, !selectedDevice.outOfService);
+    onToggleDeviceOutOfService(selectedDevice.id, !selectedDevice.outOfService);
+  };
+
+  const handleZoneToggleClick = () => {
+    if (!selectedZoneId) {
+      return;
+    }
+    onToggleZoneOutOfService(selectedZoneId, !selectedZoneOutOfService);
   };
 
   return (
@@ -2330,7 +2501,7 @@ function TopologyLedPanel({
             <button
               type="button"
               className="topology-led-screen__action"
-              onClick={handleToggleClick}
+              onClick={handleDeviceToggleClick}
               disabled={accessLevel < 2 || serviceUpdatePending}
             >
               {serviceUpdatePending
@@ -2346,9 +2517,61 @@ function TopologyLedPanel({
             </p>
             {serviceUpdateError && <p className="topology-led-screen__error">{serviceUpdateError}</p>}
           </>
+        ) : selectedZone ? (
+          <>
+            <div className="topology-led-screen__selection">
+              <div>
+                <span className="topology-led-screen__selection-label">Zone sélectionnée</span>
+                <strong className="topology-led-screen__selection-value">{selectedZone.label}</strong>
+                <span className="topology-led-screen__selection-zone">
+                  {selectedZone.id} · {selectedZone.kind}
+                </span>
+                {selectedZoneDevices.length > 0 && (
+                  <span className="topology-led-screen__selection-zone">
+                    {selectedZoneOutCount} / {selectedZoneDevices.length} dispositifs hors service
+                  </span>
+                )}
+              </div>
+              <span
+                className={`topology-led-screen__service ${
+                  selectedZoneOutOfService
+                    ? 'is-disabled'
+                    : selectedZonePartial
+                    ? 'is-partial'
+                    : 'is-active'
+                }`}
+              >
+                {selectedZoneOutOfService
+                  ? 'Zone hors service'
+                  : selectedZonePartial
+                  ? 'Zone partiellement hors service'
+                  : 'Zone en service'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="topology-led-screen__action"
+              onClick={handleZoneToggleClick}
+              disabled={accessLevel < 2 || serviceUpdatePending || selectedZoneDevices.length === 0}
+            >
+              {serviceUpdatePending
+                ? 'Mise à jour…'
+                : selectedZoneOutOfService
+                ? 'Remettre la zone en service'
+                : 'Mettre la zone hors service'}
+            </button>
+            <p className="topology-led-screen__hint">
+              {selectedZoneDevices.length === 0
+                ? 'Aucun dispositif n’est associé à cette zone.'
+                : accessLevel >= 2
+                ? 'Validez pour basculer l’état de service de tous les dispositifs de la zone.'
+                : 'Passez au niveau 2 pour autoriser les mises hors service.'}
+            </p>
+            {serviceUpdateError && <p className="topology-led-screen__error">{serviceUpdateError}</p>}
+          </>
         ) : (
           <p className="topology-led-screen__hint">
-            Sélectionnez un dispositif pour consulter son statut et agir sur sa mise hors service.
+            Sélectionnez un dispositif ou une zone pour consulter son statut et agir sur sa mise hors service.
           </p>
         )}
       </div>
