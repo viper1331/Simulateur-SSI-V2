@@ -6,7 +6,7 @@ Ce document décrit la première couche de sécurité serveur ajoutée au projet
 
 Mettre en place une base d'authentification non destructive pour préparer la protection des routes API et Socket.IO.
 
-Cette passe ne modifie pas encore le flux utilisateur des interfaces React. Elle fournit :
+Cette passe fournit :
 
 - un module serveur `apps/server/src/auth.ts` ;
 - une gestion de rôles `ADMIN`, `TRAINER`, `TRAINEE` ;
@@ -14,7 +14,8 @@ Cette passe ne modifie pas encore le flux utilisateur des interfaces React. Elle
 - une comparaison de tokens par hash SHA-256 et `timingSafeEqual` ;
 - un middleware Express prêt à brancher ;
 - un middleware Socket.IO prêt à brancher ;
-- des tests unitaires des décisions d'autorisation.
+- des tests unitaires des décisions d'autorisation ;
+- une commande déterministe `pnpm security:integrate-auth` pour intégrer les middlewares dans `app.ts`.
 
 ## Variables d'environnement
 
@@ -53,7 +54,42 @@ SIMU_SSI_API_TOKENS="ADMIN:change-me-admin-token,TRAINER:change-me-trainer-token
 | `/api/scenarios*` | `ADMIN`, `TRAINER`, `TRAINEE` | `ADMIN`, `TRAINER` |
 | `/api/evac*`, `/api/process*`, `/api/uga*`, `/api/sdi*`, `/api/devices*`, `/api/zones*`, `/api/system*` | `ADMIN`, `TRAINER` | `ADMIN`, `TRAINER` |
 
-## Intégration Express prévue
+## Intégration automatisée
+
+Depuis la racine `simu-ssi` :
+
+```bash
+pnpm security:integrate-auth
+```
+
+Cette commande modifie `apps/server/src/app.ts` de manière déterministe pour ajouter :
+
+```ts
+import { createApiAuthMiddleware, createSocketAuthMiddleware, getAuthConfig } from './auth';
+```
+
+puis :
+
+```ts
+const authConfig = getAuthConfig();
+app.use('/api', createApiAuthMiddleware(authConfig));
+```
+
+et après création de l'instance Socket.IO :
+
+```ts
+io.use(createSocketAuthMiddleware(authConfig));
+```
+
+Après exécution, valider impérativement :
+
+```bash
+pnpm --filter server typecheck
+pnpm --filter server test
+pnpm build
+```
+
+## Intégration manuelle équivalente
 
 Dans `apps/server/src/app.ts`, importer :
 
@@ -67,8 +103,6 @@ Puis, après `express.json(...)` et avant les routes `/api/*` :
 const authConfig = getAuthConfig();
 app.use('/api', createApiAuthMiddleware(authConfig));
 ```
-
-## Intégration Socket.IO prévue
 
 Après création de l'instance Socket.IO :
 
@@ -102,8 +136,8 @@ io(baseUrl, {
 
 ## Prochaine itération
 
-1. Brancher `createApiAuthMiddleware` dans `app.ts`.
-2. Brancher `createSocketAuthMiddleware` sur l'instance Socket.IO.
+1. Exécuter `pnpm security:integrate-auth` dans un environnement local/Codex.
+2. Valider typecheck, tests et build.
 3. Ajouter la gestion du token dans `@simu-ssi/sdk`.
 4. Ajouter une configuration front `VITE_SIMU_SSI_API_TOKEN` pour les usages de laboratoire.
 5. Remplacer ensuite les codes d'accès stockés en clair par des hashes dédiés.

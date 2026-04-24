@@ -13,7 +13,7 @@
     "typecheck": "pnpm -r typecheck",
     "prisma:generate": "pnpm --filter server run prisma:generate",
     "prisma:migrate": "pnpm --filter server run prisma:migrate",
-    "build:packages": "pnpm --filter \"./packages/*\" run build"
+    "build:packages": "pnpm --filter \"./packages/*\" run build",
+    "security:integrate-auth": "node scripts/integrate-api-auth.mjs"
   }
 }
-
