@@ -21,40 +21,28 @@ function patchFile(relativePath, patcher) {
   return true;
 }
 
-function mustReplace(source, searchValue, replaceValue, label) {
-  if (!source.includes(searchValue)) {
-    return source;
-  }
-  return source.replace(searchValue, replaceValue);
-}
-
 function patchSdk(source) {
   let out = source;
 
   if (!out.includes('export interface SsiSdkOptions')) {
-    const anchor = `export interface SessionCloseRequest {\n  notes?: string | null;\n  improvementAreas?: SessionImprovement[];\n  endedAt?: string;\n}\n\nexport class SsiSdk {`;
-    if (!out.includes(anchor)) {
-      throw new Error('Unable to insert SsiSdkOptions: SessionCloseRequest anchor not found.');
+    const classAnchor = 'export class SsiSdk {';
+    const classIndex = out.indexOf(classAnchor);
+    if (classIndex === -1) {
+      throw new Error('Unable to insert SsiSdkOptions: SsiSdk class anchor not found.');
     }
-    out = out.replace(
-      anchor,
-      `export interface SessionCloseRequest {\n  notes?: string | null;\n  improvementAreas?: SessionImprovement[];\n  endedAt?: string;\n}\n\nexport interface SsiSdkOptions {\n  apiToken?: string;\n}\n\nexport class SsiSdk {`,
-    );
+    const optionsBlock = `export interface SsiSdkOptions {\n  apiToken?: string;\n}\n\n`;
+    out = `${out.slice(0, classIndex)}${optionsBlock}${out.slice(classIndex)}`;
   }
 
-  out = mustReplace(
-    out,
-    'export class SsiSdk {\n  constructor(private readonly baseUrl: string) {}',
+  out = out.replace(
+    /export class SsiSdk \{\s*constructor\(private readonly baseUrl: string\) \{\}/,
     `export class SsiSdk {\n  private readonly apiToken?: string;\n\n  constructor(private readonly baseUrl: string, options: SsiSdkOptions = {}) {\n    this.apiToken = options.apiToken?.trim() || undefined;\n  }`,
-    'SsiSdk constructor',
   );
 
   if (!out.includes('private readonly apiToken?: string;')) {
     throw new Error('Unable to patch SsiSdk constructor with apiToken support.');
   }
 
-  // Replace direct fetch calls inside the SDK class. This keeps public method behavior unchanged
-  // while centralizing Authorization header injection in request().
   out = out.replace(/await fetch\(/g, 'await this.request(');
 
   if (!out.includes('private async request(')) {
@@ -67,7 +55,6 @@ function patchSdk(source) {
     out = `${out.slice(0, anchorIndex)}${requestHelper}${out.slice(anchorIndex)}`;
   }
 
-  // Make post() rely on the same centralized header logic without double-prefixing baseUrl.
   out = out.replace(
     /const response = await this\.request\(`\$\{this\.baseUrl\}\$\{path\}`, \{[\s\S]*?body: body \? JSON\.stringify\(body\) : undefined,\n    \}\);/,
     `const headers = new Headers();\n    if (body !== undefined) {\n      headers.set('Content-Type', 'application/json');\n    }\n    const response = await this.request(path, {\n      method: 'POST',\n      headers,\n      body: body ? JSON.stringify(body) : undefined,\n    });`,
