@@ -2719,6 +2719,18 @@ export function App() {
     setScenarioError(null);
     setScenarioFeedback(null);
     try {
+      const currentSiteConfig = config ?? (await sdk.getSiteConfig());
+      let siteConfigAdjusted = false;
+      if (currentSiteConfig.evacOnDAI) {
+        const updatedSiteConfig = await sdk.updateSiteConfig({
+          evacOnDAI: false,
+          evacOnDMDelayMs: currentSiteConfig.evacOnDMDelayMs,
+          processAckRequired: currentSiteConfig.processAckRequired,
+        });
+        setConfig(updatedSiteConfig);
+        siteConfigAdjusted = true;
+      }
+
       const payload = createL02MermozDetectionOnlyScenarioPayload();
       const existingPreset = scenarios.find((scenario) => scenario.name === MERMOZ_PRESET_SCENARIO_NAME);
       const saved = existingPreset
@@ -2728,7 +2740,9 @@ export function App() {
       setEditingScenarioId(saved.id);
       refreshScenarios();
       setScenarioFeedback(
-        existingPreset
+        siteConfigAdjusted
+          ? `${existingPreset ? 'Preset mis à jour' : 'Preset créé'} et configuration forcée en détection sans évacuation (evacOnDAI=false).`
+          : existingPreset
           ? `Preset « ${MERMOZ_PRESET_SCENARIO_NAME} » mis à jour.`
           : `Preset « ${MERMOZ_PRESET_SCENARIO_NAME} » créé.`,
       );
@@ -2739,7 +2753,7 @@ export function App() {
     } finally {
       setScenarioSaving(false);
     }
-  }, [refreshScenarios, scenarios, sdk]);
+  }, [config, refreshScenarios, scenarios, sdk]);
 
   const handleScenarioRun = async (scenarioId: string) => {
     try {
