@@ -286,6 +286,7 @@ textarea:focus-visible {
 }
 
 input[type='text'],
+input[type='number'],
 select {
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.6);
@@ -297,6 +298,7 @@ select {
 }
 
 input[type='text']:focus-visible,
+input[type='number']:focus-visible,
 select:focus-visible {
   outline: none;
   border-color: #2563eb;
@@ -607,6 +609,84 @@ select:focus-visible {
 
 .topology-publish-feedback--saving {
   color: #1d4ed8;
+}
+
+.scenario-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.scenario-admin__selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.scenario-admin__selector select {
+  flex: 1;
+  min-width: 220px;
+}
+
+.scenario-admin__description {
+  min-height: 96px;
+}
+
+.scenario-admin-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scenario-admin-event {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #f8fafc;
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scenario-admin-event__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scenario-admin-event__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scenario-admin-event__grid {
+  display: grid;
+  gap: 10px;
+}
+
+@media (min-width: 680px) {
+  .scenario-admin-event__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.scenario-admin__add-event {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.scenario-admin__add-event .field {
+  flex: 1;
+  min-width: 220px;
 }
 
 .control-sidebar {

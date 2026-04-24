@@ -9,7 +9,17 @@ import {
   useRef,
   useState,
 } from 'react';
-import { SsiSdk, siteTopologySchema, type SiteTopology, type SiteZone } from '@simu-ssi/sdk';
+import {
+  SsiSdk,
+  scenarioPayloadSchema,
+  siteTopologySchema,
+  type ScenarioDefinition,
+  type ScenarioEvent,
+  type ScenarioEventSequenceEntry,
+  type ScenarioManualResetSelection,
+  type SiteTopology,
+  type SiteZone,
+} from '@simu-ssi/sdk';
 
 export type DeviceKind = 'DM' | 'DAI' | 'DAS' | 'UGA';
 
@@ -63,6 +73,216 @@ const createDeviceId = (kind: DeviceKind) => {
   return `${kind}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
 };
 
+type ScenarioEventType = ScenarioEvent['type'];
+type ScenarioEventDraft = ScenarioEvent & { id: string };
+
+interface ScenarioDraft {
+  id: string;
+  name: string;
+  description?: string;
+  events: ScenarioEventDraft[];
+  topology?: SiteTopology;
+  manualResettable?: ScenarioManualResetSelection;
+  evacuationAudio?: ScenarioDefinition['evacuationAudio'];
+}
+
+const SCENARIO_EVENT_OPTIONS: Array<{
+  value: ScenarioEventType;
+  label: string;
+}> = [
+  { value: 'DM_TRIGGER', label: 'DM trigger' },
+  { value: 'DM_RESET', label: 'DM reset' },
+  { value: 'DAI_TRIGGER', label: 'DAI trigger' },
+  { value: 'DAI_RESET', label: 'DAI reset' },
+  { value: 'MANUAL_EVAC_START', label: 'Manual evac start' },
+  { value: 'MANUAL_EVAC_STOP', label: 'Manual evac stop' },
+  { value: 'PROCESS_ACK', label: 'Process ack' },
+  { value: 'PROCESS_CLEAR', label: 'Process clear' },
+  { value: 'SYSTEM_RESET', label: 'System reset' },
+];
+
+function createScenarioEventId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.round(Math.random() * 1000)}`;
+}
+
+function normalizeScenarioOffset(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
+function isZoneScenarioEvent(
+  event: ScenarioEventDraft,
+): event is ScenarioEventDraft & { zoneId: string; sequence?: ScenarioEventSequenceEntry[] } {
+  return (
+    event.type === 'DM_TRIGGER' ||
+    event.type === 'DM_RESET' ||
+    event.type === 'DAI_TRIGGER' ||
+    event.type === 'DAI_RESET'
+  );
+}
+
+function sanitizeSequenceEntries(sequence?: ScenarioEventSequenceEntry[]): ScenarioEventSequenceEntry[] | undefined {
+  if (!Array.isArray(sequence)) {
+    return undefined;
+  }
+  const cleaned = sequence
+    .map((entry) => ({
+      deviceId: entry.deviceId.trim(),
+      delay: normalizeScenarioOffset(entry.delay),
+    }))
+    .filter((entry) => entry.deviceId.length > 0);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function ensureScenarioDraftEvent(event: ScenarioEvent): ScenarioEventDraft {
+  const id = event.id ?? createScenarioEventId();
+  const base = {
+    ...event,
+    id,
+    offset: normalizeScenarioOffset(event.offset),
+  } as ScenarioEventDraft;
+  if (isZoneScenarioEvent(base)) {
+    const zoneEvent = { ...base } as ScenarioEventDraft & {
+      zoneId: string;
+      sequence?: ScenarioEventSequenceEntry[];
+    };
+    zoneEvent.sequence = sanitizeSequenceEntries(zoneEvent.sequence);
+    return zoneEvent;
+  }
+  return base;
+}
+
+function createScenarioDraft(source: ScenarioDefinition): ScenarioDraft {
+  return {
+    id: source.id,
+    name: source.name,
+    description: source.description,
+    events: source.events.map(ensureScenarioDraftEvent),
+    topology: source.topology,
+    manualResettable: source.manualResettable,
+    evacuationAudio: source.evacuationAudio,
+  };
+}
+
+function createScenarioEvent(type: ScenarioEventType, defaultZoneId?: string): ScenarioEventDraft {
+  const base = {
+    id: createScenarioEventId(),
+    offset: 0,
+    label: '',
+  };
+  switch (type) {
+    case 'DM_TRIGGER':
+    case 'DM_RESET':
+    case 'DAI_TRIGGER':
+    case 'DAI_RESET':
+      return {
+        ...base,
+        type,
+        zoneId: (defaultZoneId ?? '').toUpperCase(),
+      } as ScenarioEventDraft;
+    case 'MANUAL_EVAC_START':
+    case 'MANUAL_EVAC_STOP':
+      return { ...base, type, reason: '' } as ScenarioEventDraft;
+    case 'PROCESS_ACK':
+      return { ...base, type, ackedBy: 'admin' } as ScenarioEventDraft;
+    case 'PROCESS_CLEAR':
+    case 'SYSTEM_RESET':
+      return { ...base, type } as ScenarioEventDraft;
+    default:
+      return { ...base, type: 'DM_TRIGGER', zoneId: (defaultZoneId ?? '').toUpperCase() } as ScenarioEventDraft;
+  }
+}
+
+function adaptScenarioEventType(
+  event: ScenarioEventDraft,
+  nextType: ScenarioEventType,
+  defaultZoneId?: string,
+): ScenarioEventDraft {
+  const base = {
+    id: event.id,
+    offset: normalizeScenarioOffset(event.offset),
+    label: event.label,
+  };
+  const sequence = isZoneScenarioEvent(event) ? sanitizeSequenceEntries(event.sequence) : undefined;
+  switch (nextType) {
+    case 'DM_TRIGGER':
+    case 'DM_RESET':
+    case 'DAI_TRIGGER':
+    case 'DAI_RESET':
+      return {
+        ...base,
+        type: nextType,
+        zoneId: (isZoneScenarioEvent(event) ? event.zoneId : defaultZoneId ?? '').toUpperCase(),
+        sequence,
+      } as ScenarioEventDraft;
+    case 'MANUAL_EVAC_START':
+    case 'MANUAL_EVAC_STOP':
+      return {
+        ...base,
+        type: nextType,
+        reason: event.type === 'MANUAL_EVAC_START' || event.type === 'MANUAL_EVAC_STOP' ? event.reason ?? '' : '',
+      } as ScenarioEventDraft;
+    case 'PROCESS_ACK':
+      return {
+        ...base,
+        type: nextType,
+        ackedBy: event.type === 'PROCESS_ACK' ? event.ackedBy ?? 'admin' : 'admin',
+      } as ScenarioEventDraft;
+    case 'PROCESS_CLEAR':
+    case 'SYSTEM_RESET':
+      return { ...base, type: nextType } as ScenarioEventDraft;
+    default:
+      return event;
+  }
+}
+
+function normalizeScenarioEventForPayload(event: ScenarioEventDraft): ScenarioEvent {
+  const label = event.label?.trim();
+  const base = {
+    id: event.id,
+    offset: normalizeScenarioOffset(event.offset),
+    ...(label ? { label } : {}),
+  };
+
+  switch (event.type) {
+    case 'DM_TRIGGER':
+    case 'DM_RESET':
+    case 'DAI_TRIGGER':
+    case 'DAI_RESET': {
+      const sequence = sanitizeSequenceEntries(event.sequence);
+      return {
+        ...base,
+        type: event.type,
+        zoneId: event.zoneId.trim().toUpperCase(),
+        ...(sequence ? { sequence } : {}),
+      } as ScenarioEvent;
+    }
+    case 'MANUAL_EVAC_START':
+    case 'MANUAL_EVAC_STOP':
+      return {
+        ...base,
+        type: event.type,
+        ...(event.reason?.trim() ? { reason: event.reason.trim() } : {}),
+      } as ScenarioEvent;
+    case 'PROCESS_ACK':
+      return {
+        ...base,
+        type: event.type,
+        ...(event.ackedBy?.trim() ? { ackedBy: event.ackedBy.trim() } : {}),
+      } as ScenarioEvent;
+    case 'PROCESS_CLEAR':
+    case 'SYSTEM_RESET':
+      return { ...base, type: event.type } as ScenarioEvent;
+    default:
+      return { ...base, type: 'PROCESS_CLEAR' } as ScenarioEvent;
+  }
+}
+
 export function AdminStudioApp() {
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
@@ -73,6 +293,8 @@ export function AdminStudioApp() {
   const isMountedRef = useRef(true);
   const copyTimeoutRef = useRef<number | null>(null);
   const publishTimeoutRef = useRef<number | null>(null);
+  const scenarioTimeoutRef = useRef<number | null>(null);
+  const selectedScenarioIdRef = useRef('');
 
   const [planImage, setPlanImage] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string>('Aucun plan importé');
@@ -89,10 +311,22 @@ export function AdminStudioApp() {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [publishStatus, setPublishStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState('');
+  const [scenarioDraft, setScenarioDraft] = useState<ScenarioDraft | null>(null);
+  const [newScenarioEventType, setNewScenarioEventType] = useState<ScenarioEventType>('DM_TRIGGER');
+  const [isLoadingScenarios, setIsLoadingScenarios] = useState(false);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [scenarioSaveStatus, setScenarioSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [scenarioSaveError, setScenarioSaveError] = useState<string | null>(null);
 
   const hasWorkspaceContent = Boolean(planImage || devices.length > 0 || planNotes.trim().length > 0);
 
   const isDeviceKind = useCallback((value: string): value is DeviceKind => value in DEVICE_DEFINITIONS, []);
+
+  useEffect(() => {
+    selectedScenarioIdRef.current = selectedScenarioId;
+  }, [selectedScenarioId]);
 
   useEffect(() => {
     return () => {
@@ -102,6 +336,9 @@ export function AdminStudioApp() {
       }
       if (publishTimeoutRef.current) {
         window.clearTimeout(publishTimeoutRef.current);
+      }
+      if (scenarioTimeoutRef.current) {
+        window.clearTimeout(scenarioTimeoutRef.current);
       }
     };
   }, []);
@@ -135,6 +372,49 @@ export function AdminStudioApp() {
     loadTopology();
   }, [loadTopology]);
 
+  const loadScenarios = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
+    setIsLoadingScenarios(true);
+    try {
+      const fetched = await sdk.listScenarios();
+      if (!isMountedRef.current) {
+        return;
+      }
+      setScenarios(fetched);
+      setScenarioError(null);
+      const previousSelectedId = selectedScenarioIdRef.current;
+      const fallbackSelectedId =
+        (previousSelectedId && fetched.some((scenario) => scenario.id === previousSelectedId)
+          ? previousSelectedId
+          : fetched[0]?.id) ?? '';
+      setSelectedScenarioId(fallbackSelectedId);
+      setScenarioDraft((previous) => {
+        if (previous && fetched.some((scenario) => scenario.id === previous.id)) {
+          return previous;
+        }
+        const initial = fetched.find((scenario) => scenario.id === fallbackSelectedId);
+        return initial ? createScenarioDraft(initial) : null;
+      });
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : 'Impossible de charger les scenarios existants.';
+      setScenarioError(message);
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoadingScenarios(false);
+      }
+    }
+  }, [sdk]);
+
+  useEffect(() => {
+    loadScenarios();
+  }, [loadScenarios]);
+
   useEffect(() => {
     if (copyStatus === 'idle') {
       return;
@@ -158,6 +438,19 @@ export function AdminStudioApp() {
       setPublishStatus('idle');
     }, 2500);
   }, [publishStatus]);
+
+  useEffect(() => {
+    if (scenarioSaveStatus !== 'success') {
+      return;
+    }
+    if (scenarioTimeoutRef.current) {
+      window.clearTimeout(scenarioTimeoutRef.current);
+    }
+    scenarioTimeoutRef.current = window.setTimeout(() => {
+      setScenarioSaveStatus('idle');
+      setScenarioSaveError(null);
+    }, 2500);
+  }, [scenarioSaveStatus]);
 
   const handlePlanFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -542,6 +835,283 @@ export function AdminStudioApp() {
     }
   }, [hasTopologyContent, loadTopology, publishStatus, sdk, siteTopology]);
 
+  const scenarioZoneOptions = useMemo(() => {
+    const sourceZones =
+      scenarioDraft?.topology?.zones && scenarioDraft.topology.zones.length > 0
+        ? scenarioDraft.topology.zones
+        : zones;
+    return sourceZones
+      .map((zone) => ({
+        id: zone.id,
+        label: zone.label,
+        kind: zone.kind,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+  }, [scenarioDraft, zones]);
+
+  const defaultScenarioZoneId = scenarioZoneOptions[0]?.id ?? '';
+
+  const loadScenarioIntoDraft = useCallback(
+    (scenarioId: string) => {
+      const source = scenarios.find((scenario) => scenario.id === scenarioId);
+      if (!source) {
+        return;
+      }
+      setScenarioDraft(createScenarioDraft(source));
+      setScenarioSaveStatus('idle');
+      setScenarioSaveError(null);
+    },
+    [scenarios],
+  );
+
+  const handleScenarioSelectionChange = useCallback((scenarioId: string) => {
+    setSelectedScenarioId(scenarioId);
+  }, []);
+
+  const handleLoadSelectedScenario = useCallback(() => {
+    if (!selectedScenarioId) {
+      return;
+    }
+    loadScenarioIntoDraft(selectedScenarioId);
+  }, [loadScenarioIntoDraft, selectedScenarioId]);
+
+  const handleRefreshScenarios = useCallback(() => {
+    void loadScenarios();
+  }, [loadScenarios]);
+
+  const updateScenarioDraftEvent = useCallback(
+    (eventId: string, updater: (event: ScenarioEventDraft) => ScenarioEventDraft) => {
+      setScenarioDraft((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          events: previous.events.map((event) => (event.id === eventId ? updater(event) : event)),
+        };
+      });
+      setScenarioSaveStatus('idle');
+      setScenarioSaveError(null);
+    },
+    [],
+  );
+
+  const handleScenarioNameChange = useCallback((name: string) => {
+    setScenarioDraft((previous) => (previous ? { ...previous, name } : previous));
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioDescriptionChange = useCallback((description: string) => {
+    setScenarioDraft((previous) => (previous ? { ...previous, description } : previous));
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioAddEvent = useCallback(() => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        events: [...previous.events, createScenarioEvent(newScenarioEventType, defaultScenarioZoneId)],
+      };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, [defaultScenarioZoneId, newScenarioEventType]);
+
+  const handleScenarioRemoveEvent = useCallback((eventId: string) => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        events: previous.events.filter((event) => event.id !== eventId),
+      };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioDuplicateEvent = useCallback((eventId: string) => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const sourceIndex = previous.events.findIndex((event) => event.id === eventId);
+      if (sourceIndex < 0) {
+        return previous;
+      }
+      const source = previous.events[sourceIndex];
+      const duplicate = ensureScenarioDraftEvent({
+        ...source,
+        id: createScenarioEventId(),
+        offset: normalizeScenarioOffset(source.offset + 5),
+      });
+      const nextEvents = [...previous.events];
+      nextEvents.splice(sourceIndex + 1, 0, duplicate);
+      return { ...previous, events: nextEvents };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioShiftEventOffset = useCallback((eventId: string, delta: number) => {
+    updateScenarioDraftEvent(eventId, (event) => ({
+      ...event,
+      offset: normalizeScenarioOffset(event.offset + delta),
+    }));
+  }, [updateScenarioDraftEvent]);
+
+  const handleScenarioShiftAllOffsets = useCallback((delta: number) => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        events: previous.events.map((event) => ({
+          ...event,
+          offset: normalizeScenarioOffset(event.offset + delta),
+        })),
+      };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioNormalizeOffsets = useCallback(() => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const ordered = [...previous.events].sort((a, b) => a.offset - b.offset);
+      const offsetById = new Map<string, number>();
+      ordered.forEach((event, index) => {
+        offsetById.set(event.id, normalizeScenarioOffset(index * 10));
+      });
+      return {
+        ...previous,
+        events: previous.events.map((event) => ({
+          ...event,
+          offset: offsetById.get(event.id) ?? normalizeScenarioOffset(event.offset),
+        })),
+      };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioEventTypeChange = useCallback((eventId: string, type: ScenarioEventType) => {
+    updateScenarioDraftEvent(eventId, (event) => adaptScenarioEventType(event, type, defaultScenarioZoneId));
+  }, [defaultScenarioZoneId, updateScenarioDraftEvent]);
+
+  const handleScenarioEventOffsetChange = useCallback((eventId: string, value: number) => {
+    updateScenarioDraftEvent(eventId, (event) => ({
+      ...event,
+      offset: normalizeScenarioOffset(value),
+    }));
+  }, [updateScenarioDraftEvent]);
+
+  const handleScenarioEventZoneChange = useCallback((eventId: string, zoneId: string) => {
+    updateScenarioDraftEvent(eventId, (event) => {
+      if (!isZoneScenarioEvent(event)) {
+        return event;
+      }
+      return {
+        ...event,
+        zoneId: zoneId.toUpperCase(),
+      };
+    });
+  }, [updateScenarioDraftEvent]);
+
+  const handleScenarioEventReasonChange = useCallback((eventId: string, reason: string) => {
+    updateScenarioDraftEvent(eventId, (event) => {
+      if (event.type !== 'MANUAL_EVAC_START' && event.type !== 'MANUAL_EVAC_STOP') {
+        return event;
+      }
+      return { ...event, reason };
+    });
+  }, [updateScenarioDraftEvent]);
+
+  const handleScenarioEventAckedByChange = useCallback((eventId: string, ackedBy: string) => {
+    updateScenarioDraftEvent(eventId, (event) => {
+      if (event.type !== 'PROCESS_ACK') {
+        return event;
+      }
+      return { ...event, ackedBy };
+    });
+  }, [updateScenarioDraftEvent]);
+
+  const handleScenarioEventLabelChange = useCallback((eventId: string, label: string) => {
+    updateScenarioDraftEvent(eventId, (event) => ({ ...event, label }));
+  }, [updateScenarioDraftEvent]);
+
+  const handleScenarioSave = useCallback(async () => {
+    if (!scenarioDraft || scenarioSaveStatus === 'saving') {
+      return;
+    }
+    if (!scenarioDraft.name.trim()) {
+      setScenarioSaveStatus('error');
+      setScenarioSaveError('Le nom du scenario est obligatoire.');
+      return;
+    }
+    if (scenarioDraft.events.length === 0) {
+      setScenarioSaveStatus('error');
+      setScenarioSaveError('Ajoutez au moins un evenement.');
+      return;
+    }
+    setScenarioSaveStatus('saving');
+    setScenarioSaveError(null);
+    try {
+      const payload = scenarioPayloadSchema.parse({
+        name: scenarioDraft.name.trim(),
+        description: scenarioDraft.description?.trim() ? scenarioDraft.description.trim() : undefined,
+        events: scenarioDraft.events.map((event) => normalizeScenarioEventForPayload(event)),
+        topology: scenarioDraft.topology,
+        manualResettable: scenarioDraft.manualResettable,
+        evacuationAudio: scenarioDraft.evacuationAudio,
+      });
+      const updated = await sdk.updateScenario(scenarioDraft.id, payload);
+      if (!isMountedRef.current) {
+        return;
+      }
+      setScenarios((previous) =>
+        previous
+          .map((scenario) => (scenario.id === updated.id ? updated : scenario))
+          .sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+      );
+      setSelectedScenarioId(updated.id);
+      setScenarioDraft(createScenarioDraft(updated));
+      setScenarioSaveStatus('success');
+      setScenarioSaveError(null);
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Echec de la mise a jour du scenario.';
+      setScenarioSaveStatus('error');
+      setScenarioSaveError(message);
+    }
+  }, [scenarioDraft, scenarioSaveStatus, sdk]);
+
+  const scenarioSaveFeedbackMessage =
+    scenarioSaveStatus === 'success'
+      ? 'Scenario mis a jour.'
+      : scenarioSaveStatus === 'error'
+        ? scenarioSaveError ?? 'Echec de la mise a jour du scenario.'
+        : scenarioSaveStatus === 'saving'
+          ? 'Enregistrement en cours...'
+          : scenarioDraft
+            ? 'Modifiez les evenements puis enregistrez.'
+            : 'Chargez un scenario pour demarrer.';
+
   const isAddZoneDisabled = !newZoneId.trim() || !newZoneLabel.trim() || !newZoneKind.trim();
   const publishFeedbackMessage = publishStatus === 'success'
     ? 'Plan synchronisé avec les postes formateur et apprenant.'
@@ -734,6 +1304,258 @@ export function AdminStudioApp() {
                   </li>
                 ))}
               </ul>
+            )}
+          </section>
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Scenarios existants</h2>
+              <div className="topology-status">
+                {isLoadingScenarios ? <span>Chargement...</span> : null}
+                <button type="button" className="button button-ghost" onClick={handleRefreshScenarios}>
+                  Rafraichir
+                </button>
+              </div>
+            </div>
+            <p>Chargez un scenario du serveur, modifiez les evenements puis enregistrez.</p>
+            {scenarioError ? <p className="error-message">{scenarioError}</p> : null}
+            {scenarios.length === 0 ? (
+              <p className="empty-state">Aucun scenario disponible.</p>
+            ) : (
+              <div className="scenario-admin">
+                <label className="field">
+                  <span className="field-label">Scenario cible</span>
+                  <div className="scenario-admin__selector">
+                    <select
+                      value={selectedScenarioId}
+                      onChange={(event) => handleScenarioSelectionChange(event.target.value)}
+                    >
+                      {scenarios.map((scenario) => (
+                        <option key={scenario.id} value={scenario.id}>
+                          {scenario.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={handleLoadSelectedScenario}
+                      disabled={!selectedScenarioId}
+                    >
+                      Charger
+                    </button>
+                  </div>
+                </label>
+                {scenarioDraft ? (
+                  <>
+                    <label className="field">
+                      <span className="field-label">Nom du scenario</span>
+                      <input
+                        type="text"
+                        value={scenarioDraft.name}
+                        onChange={(event) => handleScenarioNameChange(event.target.value)}
+                        placeholder="Scenario detection"
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Description</span>
+                      <textarea
+                        className="scenario-admin__description"
+                        value={scenarioDraft.description ?? ''}
+                        onChange={(event) => handleScenarioDescriptionChange(event.target.value)}
+                        rows={3}
+                        placeholder="Contexte pedagogique et objectifs"
+                      />
+                    </label>
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => handleScenarioShiftAllOffsets(-5)}
+                        disabled={scenarioDraft.events.length === 0}
+                      >
+                        Offsets -5s
+                      </button>
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => handleScenarioShiftAllOffsets(5)}
+                        disabled={scenarioDraft.events.length === 0}
+                      >
+                        Offsets +5s
+                      </button>
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={handleScenarioNormalizeOffsets}
+                        disabled={scenarioDraft.events.length === 0}
+                      >
+                        Auto offset 10s
+                      </button>
+                    </div>
+                    {scenarioDraft.events.length === 0 ? (
+                      <p className="empty-state">Ce scenario ne contient aucun evenement.</p>
+                    ) : (
+                      <ul className="scenario-admin-events">
+                        {scenarioDraft.events.map((eventDraft, index) => (
+                          <li key={eventDraft.id} className="scenario-admin-event">
+                            <div className="scenario-admin-event__header">
+                              <strong>Etape {index + 1}</strong>
+                              <div className="scenario-admin-event__actions">
+                                <button
+                                  type="button"
+                                  className="button button-ghost"
+                                  onClick={() => handleScenarioShiftEventOffset(eventDraft.id, -5)}
+                                >
+                                  -5s
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button button-ghost"
+                                  onClick={() => handleScenarioShiftEventOffset(eventDraft.id, 5)}
+                                >
+                                  +5s
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button button-ghost"
+                                  onClick={() => handleScenarioDuplicateEvent(eventDraft.id)}
+                                >
+                                  Dupliquer
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button button-ghost"
+                                  onClick={() => handleScenarioRemoveEvent(eventDraft.id)}
+                                >
+                                  Supprimer
+                                </button>
+                              </div>
+                            </div>
+                            <div className="scenario-admin-event__grid">
+                              <label className="field">
+                                <span className="field-label">Type</span>
+                                <select
+                                  value={eventDraft.type}
+                                  onChange={(event) =>
+                                    handleScenarioEventTypeChange(eventDraft.id, event.target.value as ScenarioEventType)
+                                  }
+                                >
+                                  {SCENARIO_EVENT_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="field">
+                                <span className="field-label">Offset (s)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.1}
+                                  value={eventDraft.offset}
+                                  onChange={(event) =>
+                                    handleScenarioEventOffsetChange(
+                                      eventDraft.id,
+                                      Number.parseFloat(event.target.value || '0'),
+                                    )
+                                  }
+                                />
+                              </label>
+                              {isZoneScenarioEvent(eventDraft) && (
+                                <label className="field">
+                                  <span className="field-label">Zone</span>
+                                  <select
+                                    value={eventDraft.zoneId}
+                                    onChange={(event) => handleScenarioEventZoneChange(eventDraft.id, event.target.value)}
+                                  >
+                                    <option value="">Selectionner une zone</option>
+                                    {scenarioZoneOptions.map((zone) => (
+                                      <option key={zone.id} value={zone.id}>
+                                        {zone.label} ({zone.kind})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              )}
+                              {(eventDraft.type === 'MANUAL_EVAC_START' || eventDraft.type === 'MANUAL_EVAC_STOP') && (
+                                <label className="field">
+                                  <span className="field-label">Reason</span>
+                                  <input
+                                    type="text"
+                                    value={eventDraft.reason ?? ''}
+                                    onChange={(event) => handleScenarioEventReasonChange(eventDraft.id, event.target.value)}
+                                    placeholder="Cause manuelle"
+                                  />
+                                </label>
+                              )}
+                              {eventDraft.type === 'PROCESS_ACK' && (
+                                <label className="field">
+                                  <span className="field-label">Acked by</span>
+                                  <input
+                                    type="text"
+                                    value={eventDraft.ackedBy ?? ''}
+                                    onChange={(event) => handleScenarioEventAckedByChange(eventDraft.id, event.target.value)}
+                                    placeholder="admin"
+                                  />
+                                </label>
+                              )}
+                            </div>
+                            <label className="field">
+                              <span className="field-label">Label (optionnel)</span>
+                              <input
+                                type="text"
+                                value={eventDraft.label ?? ''}
+                                onChange={(event) => handleScenarioEventLabelChange(eventDraft.id, event.target.value)}
+                                placeholder="Etape incendie"
+                              />
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="scenario-admin__add-event">
+                      <label className="field">
+                        <span className="field-label">Nouveau type d'evenement</span>
+                        <select
+                          value={newScenarioEventType}
+                          onChange={(event) => setNewScenarioEventType(event.target.value as ScenarioEventType)}
+                        >
+                          {SCENARIO_EVENT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="button" className="button" onClick={handleScenarioAddEvent}>
+                        Ajouter un evenement
+                      </button>
+                    </div>
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={handleScenarioSave}
+                        disabled={scenarioSaveStatus === 'saving'}
+                      >
+                        {scenarioSaveStatus === 'saving' ? 'Enregistrement...' : 'Enregistrer le scenario'}
+                      </button>
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={handleLoadSelectedScenario}
+                        disabled={!selectedScenarioId}
+                      >
+                        Annuler les modifications
+                      </button>
+                    </div>
+                    <span className={`topology-publish-feedback topology-publish-feedback--${scenarioSaveStatus}`}>
+                      {scenarioSaveFeedbackMessage}
+                    </span>
+                  </>
+                ) : null}
+              </div>
             )}
           </section>
           <section className="panel">
