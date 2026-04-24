@@ -296,8 +296,16 @@ export interface SessionCloseRequest {
   endedAt?: string;
 }
 
+export interface SsiSdkOptions {
+  apiToken?: string;
+}
+
 export class SsiSdk {
-  constructor(private readonly baseUrl: string) {}
+  private readonly apiToken?: string;
+
+  constructor(private readonly baseUrl: string, options: SsiSdkOptions = {}) {
+    this.apiToken = options.apiToken?.trim() || undefined;
+  }
 
   async getSiteConfig(): Promise<SiteConfig> {
     const response = await this.request(`${this.baseUrl}/api/config/site`);
@@ -709,6 +717,15 @@ export class SsiSdk {
     }
     const json = await response.json();
     return topologySchema.parse(json);
+  }
+
+  private async request(pathOrUrl: string | URL, init: RequestInit = {}): Promise<Response> {
+    const url = pathOrUrl instanceof URL ? pathOrUrl.toString() : pathOrUrl.startsWith('http') ? pathOrUrl : `${this.baseUrl}${pathOrUrl}`;
+    const headers = new Headers(init.headers);
+    if (this.apiToken && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${this.apiToken}`);
+    }
+    return fetch(url, { ...init, headers });
   }
 
   private async post(path: string, body?: unknown) {
