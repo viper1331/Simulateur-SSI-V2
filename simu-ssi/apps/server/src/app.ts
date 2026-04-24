@@ -22,6 +22,7 @@ import { ScenarioRunner } from './scenario-runner';
 import { SessionManager } from './session-manager';
 import { generateImprovementAreasForSession } from './improvement-generator';
 import { createLogger, toError } from './logger';
+import { createApiAuthMiddleware, createSocketAuthMiddleware, getAuthConfig } from './auth';
 import { recordManualCallPointActivation, recordManualCallPointReset } from './manual-call-points';
 
 const siteConfigSchema = z.object({
@@ -124,6 +125,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     }),
   );
   const log = httpLogger;
+  const authConfig = getAuthConfig();
 
   app.use((req, res, next) => {
     const start = Date.now();
@@ -145,6 +147,8 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
     });
     next();
   });
+
+  app.use('/api', createApiAuthMiddleware(authConfig));
 
   const scenarioRunner = new ScenarioRunner(domainContext.domain, {
     isZoneOutOfService(kind, zoneId) {
@@ -1369,6 +1373,7 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       origin: '*',
     },
   });
+  io.use(createSocketAuthMiddleware(authConfig));
   ioRef = io;
 
   domainContext.domain.emitter.on('state.update', (snapshot) => {
