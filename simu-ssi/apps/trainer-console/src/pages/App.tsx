@@ -893,6 +893,37 @@ function createHoneywellTypeBScenarioPayload(): ScenarioPayload {
   };
 }
 
+function normalizeOffset(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
+function getEventDeviceKind(event: ScenarioEventDraft): 'DM' | 'DAI' | null {
+  if (event.type === 'DM_TRIGGER' || event.type === 'DM_RESET') {
+    return 'DM';
+  }
+  if (event.type === 'DAI_TRIGGER' || event.type === 'DAI_RESET') {
+    return 'DAI';
+  }
+  return null;
+}
+
+function getRelevantDevicesForEvent(event: ScenarioEventDraft, sourceTopology: SiteTopology | null): SiteDevice[] {
+  if (!sourceTopology || !isZoneScenarioEvent(event)) {
+    return [];
+  }
+  const zoneId = event.zoneId?.toUpperCase().trim();
+  const expectedKind = getEventDeviceKind(event);
+  if (!zoneId || !expectedKind) {
+    return [];
+  }
+  return sourceTopology.devices
+    .filter((device) => device.kind === expectedKind && device.zoneId?.toUpperCase() === zoneId)
+    .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b), 'fr'));
+}
+
 function createL02MermozDetectionOnlyScenarioPayload(): ScenarioPayload {
   return {
     name: MERMOZ_PRESET_SCENARIO_NAME,
@@ -2326,6 +2357,62 @@ export function App() {
     updateDraftEvent(eventId, (event) => ({ ...event, label }) as ScenarioEventDraft);
   };
 
+  const handleScenarioDuplicateEvent = (eventId: string) => {
+    setDraftScenario((prev) => {
+      const sourceIndex = prev.events.findIndex((event) => event.id === eventId);
+      if (sourceIndex < 0) {
+        return prev;
+      }
+      const source = prev.events[sourceIndex];
+      const duplicated = ensureDraftEvent({
+        ...source,
+        id: crypto.randomUUID(),
+        offset: normalizeOffset((Number.isFinite(source.offset) ? Number(source.offset) : 0) + 5),
+      });
+      const nextEvents = [...prev.events];
+      nextEvents.splice(sourceIndex + 1, 0, duplicated);
+      return { ...prev, events: nextEvents };
+    });
+  };
+
+  const handleScenarioShiftEventOffset = (eventId: string, delta: number) => {
+    updateDraftEvent(eventId, (event) => ({
+      ...event,
+      offset: normalizeOffset((Number.isFinite(event.offset) ? Number(event.offset) : 0) + delta),
+    }));
+  };
+
+  const handleScenarioShiftAllOffsets = (delta: number) => {
+    setDraftScenario((prev) => ({
+      ...prev,
+      events: prev.events.map((event) => ({
+        ...event,
+        offset: normalizeOffset((Number.isFinite(event.offset) ? Number(event.offset) : 0) + delta),
+      })),
+    }));
+    setScenarioError(null);
+    setScenarioFeedback(delta > 0 ? 'Tous les offsets ont été décalés de +5s.' : 'Tous les offsets ont été décalés de -5s.');
+  };
+
+  const handleScenarioNormalizeOffsets = () => {
+    setDraftScenario((prev) => {
+      const ordered = [...prev.events].sort((a, b) => a.offset - b.offset);
+      const offsets = new Map<string, number>();
+      ordered.forEach((event, index) => {
+        offsets.set(event.id, normalizeOffset(index * 10));
+      });
+      return {
+        ...prev,
+        events: prev.events.map((event) => ({
+          ...event,
+          offset: offsets.get(event.id) ?? normalizeOffset(event.offset),
+        })),
+      };
+    });
+    setScenarioError(null);
+    setScenarioFeedback('Offsets normalisés automatiquement (pas de 10s).');
+  };
+
   const handleScenarioEventDeviceDelayChange = (eventId: string, deviceId: string, delay: number) => {
     updateDraftEvent(eventId, (event) => {
       if (!isZoneScenarioEvent(event)) {
@@ -2342,6 +2429,44 @@ export function App() {
         { deviceId: sanitizedDeviceId, delay: normalizedDelay },
       ];
       return { ...event, sequence: sanitizeSequenceEntries(nextSequence) } as ScenarioEventDraft;
+    });
+  };
+
+  const handleScenarioSequenceBulkAction = (
+    eventId: string,
+    action: 'enable-all' | 'clear-all' | 'stagger',
+  ) => {
+    setDraftScenario((prev) => {
+      const sourceTopology = prev.topology ?? topology ?? null;
+      return {
+        ...prev,
+        events: prev.events.map((event) => {
+          if (event.id !== eventId || !isZoneScenarioEvent(event)) {
+            return event;
+          }
+          const devices = getRelevantDevicesForEvent(event, sourceTopology);
+          if (devices.length === 0) {
+            return event;
+          }
+          if (action === 'clear-all') {
+            return { ...event, sequence: [] } as ScenarioEventDraft;
+          }
+          if (action === 'stagger') {
+            const sequence = devices.map((device, index) => ({
+              deviceId: device.id,
+              delay: normalizeOffset(index * 5),
+            }));
+            return { ...event, sequence: sanitizeSequenceEntries(sequence) } as ScenarioEventDraft;
+          }
+          const currentSequence = sanitizeSequenceEntries(event.sequence);
+          const delayByDevice = new Map(currentSequence.map((entry) => [entry.deviceId, entry.delay]));
+          const nextSequence = devices.map((device) => ({
+            deviceId: device.id,
+            delay: normalizeOffset(delayByDevice.get(device.id) ?? 0),
+          }));
+          return { ...event, sequence: sanitizeSequenceEntries(nextSequence) } as ScenarioEventDraft;
+        }),
+      };
     });
   };
 
@@ -4134,6 +4259,30 @@ export function App() {
                       <button
                         type="button"
                         className="btn btn--ghost"
+                        onClick={() => handleScenarioShiftAllOffsets(-5)}
+                        disabled={scenarioEventCount === 0}
+                      >
+                        Offsets -5s
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => handleScenarioShiftAllOffsets(5)}
+                        disabled={scenarioEventCount === 0}
+                      >
+                        Offsets +5s
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={handleScenarioNormalizeOffsets}
+                        disabled={scenarioEventCount === 0}
+                      >
+                        Auto offset 10s
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
                         onClick={() => setScenarioEventsCollapsed((prev) => !prev)}
                         aria-expanded={!scenarioEventsCollapsed}
                         aria-controls="scenario-events-content"
@@ -4183,31 +4332,11 @@ export function App() {
                       zoneId && scenarioZoneOptions.length > 0
                         ? scenarioZoneOptions.find((option) => option.value === zoneId)
                         : undefined;
-                    const editorDevices = editorTopology?.devices ?? [];
-                    const deviceKindFilter = zoneEventDraft
-                      ? eventDraft.type === 'DM_TRIGGER' || eventDraft.type === 'DM_RESET'
-                        ? 'DM'
-                        : eventDraft.type === 'DAI_TRIGGER' || eventDraft.type === 'DAI_RESET'
-                        ? 'DAI'
-                        : null
-                      : null;
-                    const normalizedZoneId = zoneId.trim();
-                    const deviceKindLabel =
-                      deviceKindFilter === 'DM'
-                        ? 'DM'
-                        : deviceKindFilter === 'DAI'
-                        ? 'DAI'
-                        : 'FPSSI';
-                    const relevantDevices =
-                      zoneEventDraft && deviceKindFilter && normalizedZoneId
-                        ? editorDevices
-                            .filter(
-                              (device) =>
-                                device.kind === deviceKindFilter &&
-                                device.zoneId?.toUpperCase() === normalizedZoneId,
-                            )
-                            .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b)))
-                        : [];
+                    const deviceKindFilter = zoneEventDraft ? getEventDeviceKind(eventDraft) : null;
+                    const deviceKindLabel = deviceKindFilter ?? 'FPSSI';
+                    const relevantDevices = zoneEventDraft
+                      ? getRelevantDevicesForEvent(eventDraft, editorTopology)
+                      : [];
                     const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
                     const selectedDeviceCount = zoneEventDraft ? sequenceEntries.length : 0;
                     const sequenceSummaryLabel = zoneEventDraft
@@ -4324,6 +4453,32 @@ export function App() {
                                 />
                               </label>
                             )}
+                            <div className="scenario-event-quick-actions">
+                              <button
+                                type="button"
+                                className="scenario-event-quick-button"
+                                onClick={() => handleScenarioShiftEventOffset(eventDraft.id, -5)}
+                                aria-label={`Avancer l'événement ${index + 1} de 5 secondes`}
+                              >
+                                -5s
+                              </button>
+                              <button
+                                type="button"
+                                className="scenario-event-quick-button"
+                                onClick={() => handleScenarioShiftEventOffset(eventDraft.id, 5)}
+                                aria-label={`Retarder l'événement ${index + 1} de 5 secondes`}
+                              >
+                                +5s
+                              </button>
+                              <button
+                                type="button"
+                                className="scenario-event-quick-button"
+                                onClick={() => handleScenarioDuplicateEvent(eventDraft.id)}
+                                aria-label={`Dupliquer l'événement ${index + 1}`}
+                              >
+                                Dupliquer
+                              </button>
+                            </div>
                             <button
                               type="button"
                               className="scenario-event-remove"
@@ -4385,6 +4540,30 @@ export function App() {
                                 </span>
                                 <div className="scenario-event-sequence__header-actions">
                                   <span className="scenario-event-sequence__summary">{sequenceSummaryLabel}</span>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__bulk"
+                                    onClick={() => handleScenarioSequenceBulkAction(eventDraft.id, 'enable-all')}
+                                    disabled={relevantDevices.length === 0}
+                                  >
+                                    Tout activer
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__bulk"
+                                    onClick={() => handleScenarioSequenceBulkAction(eventDraft.id, 'stagger')}
+                                    disabled={relevantDevices.length === 0}
+                                  >
+                                    Échelonner 5s
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__bulk"
+                                    onClick={() => handleScenarioSequenceBulkAction(eventDraft.id, 'clear-all')}
+                                    disabled={sequenceEntries.length === 0}
+                                  >
+                                    Vider
+                                  </button>
                                   <button
                                     type="button"
                                     className="scenario-event-sequence__collapse"
