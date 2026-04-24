@@ -1,6 +1,6 @@
 {
   "name": "@simu-ssi/domain-ssi",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "main": "dist/index.cjs",
@@ -36,3 +36,4 @@
     "typescript": "^5.3.3"
   }
 }
+

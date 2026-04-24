@@ -2017,8 +2017,9 @@ export function TraineeApp() {
     },
   ];
 
-  const orderedSidePanels = orderItems(
-    sidePanelItems,
+  const accessControlPanel = sidePanelItems.find((panel) => panel.id === 'access-control') ?? null;
+  const orderedSupportPanels = orderItems(
+    sidePanelItems.filter((panel) => panel.id !== 'access-control'),
     layout.sidePanelOrder,
     layout.sidePanelHidden ?? [],
   );
@@ -2069,15 +2070,15 @@ export function TraineeApp() {
                 </select>
               </label>
               <div className="auth-form__actions">
-                <button type="submit" className="btn-auth" disabled={traineeAuthPending || traineeOptions.length === 0}>
-                  {traineeAuthPending ? 'Identification…' : 'S\'identifier'}
+                <button
+                  type="submit"
+                  className="btn-auth"
+                  disabled={traineeAuthPending || traineeOptions.length === 0}
+                >
+                  {traineeAuthPending ? 'Identification…' : "S'identifier"}
                 </button>
                 {activeTrainee && (
-                  <button
-                    type="button"
-                    className="btn-auth btn-auth--secondary"
-                    onClick={handleTraineeLogout}
-                  >
+                  <button type="button" className="btn-auth btn-auth--secondary" onClick={handleTraineeLogout}>
                     Se déconnecter
                   </button>
                 )}
@@ -2098,149 +2099,186 @@ export function TraineeApp() {
           </div>
         </div>
       </header>
-      <main className="trainee-main">
-        <section className="synoptic-panel">
-          <header className="panel-header">
-            <div>
-              <h2 className="panel-title">Synoptique CMSI</h2>
-              <p className="panel-subtitle">Visualisation des zones et actionneurs</p>
+      <main className="trainee-main trainee-main--siemens">
+        <section className="siemens-console" aria-label="Façade CMSI Siemens">
+          <div className="siemens-console__shell">
+            <div className="siemens-console__topline">
+              <span className="siemens-console__logo">SIEMENS</span>
+              <span className="siemens-console__mode">{cmsiMode}</span>
             </div>
-            <div className="panel-mode">{cmsiMode}</div>
-          </header>
-          <TopologyLedPanel
-            topology={topology}
-            scenarioName={scenarioUiStatus.scenario?.name ?? null}
-            selectedDeviceId={selectedDeviceId}
-            selectedDevice={selectedDevice}
-            selectedZoneId={selectedZoneId}
-            selectedZone={selectedZone}
-            accessLevel={accessLevel}
-            onSelectDevice={handleDeviceSelection}
-            onSelectZone={handleZoneSelection}
-            onToggleDeviceOutOfService={handleDeviceServiceToggle}
-            onToggleZoneOutOfService={handleZoneServiceToggle}
-            serviceUpdatePending={serviceUpdatePending}
-            serviceUpdateError={serviceUpdateError}
-          />
-          <div className="synoptic-board">
-            {orderedBoardModules.map((module) => (
-              <BoardTile key={module.id} module={module} />
-            ))}
-          </div>
-          {triggeredScenarioEvents.length > 0 && (
-            <div className="scenario-event-feed" aria-live="polite">
-              {triggeredScenarioEvents.map((event) => (
-                <article
-                  key={event.id}
-                  className={`scenario-event-card scenario-event-card--${event.tone}`}
-                >
-                  <div className="scenario-event-card__meta">
-                    <span className="scenario-event-card__zone">Zone : {event.zoneDisplay}</span>
-                    {event.offsetLabel && (
-                      <span className="scenario-event-card__badge">{event.offsetLabel}</span>
-                    )}
-                  </div>
-                  <p className="scenario-event-card__label">{event.label}</p>
-                </article>
-              ))}
-            </div>
-          )}
-          <div className="control-strip">
-            {orderedControlButtons.map((button) => (
-              <ControlButton
-                key={button.id}
-                label={button.label}
-                tone={button.tone}
-                onClick={button.onClick}
-                disabled={button.disabled}
-                title={button.title}
-                highlighted={button.highlighted}
-              />
-            ))}
-          </div>
-          {planImage && (
-            <div className="floor-plan" aria-label="Plan interactif du site">
-              <div className="floor-plan__header">
-                <div>
-                  <h3 className="floor-plan__title">Plan du site</h3>
-                  {planName && <p className="floor-plan__subtitle">{planName}</p>}
+            <div className="siemens-console__body">
+              <aside className="siemens-console__left">
+                <h2 className="panel-title">Indicateurs CMSI</h2>
+                <div className="synoptic-board">
+                  {orderedBoardModules.map((module) => (
+                    <BoardTile key={module.id} module={module} />
+                  ))}
                 </div>
-                <p className="floor-plan__hint">
-                  {accessLevel >= 2
-                    ? 'Cliquez sur un DM ou une DAI active pour les réarmer.'
-                    : 'Passez au niveau 2 pour réarmer depuis le plan.'}
-                </p>
+              </aside>
+              <div className="siemens-console__center">
+                <TopologyLedPanel
+                  topology={topology}
+                  scenarioName={scenarioUiStatus.scenario?.name ?? null}
+                  selectedDeviceId={selectedDeviceId}
+                  selectedDevice={selectedDevice}
+                  selectedZoneId={selectedZoneId}
+                  selectedZone={selectedZone}
+                  accessLevel={accessLevel}
+                  onSelectDevice={handleDeviceSelection}
+                  onSelectZone={handleZoneSelection}
+                  onToggleDeviceOutOfService={handleDeviceServiceToggle}
+                  onToggleZoneOutOfService={handleZoneServiceToggle}
+                  serviceUpdatePending={serviceUpdatePending}
+                  serviceUpdateError={serviceUpdateError}
+                />
+                {triggeredScenarioEvents.length > 0 && (
+                  <div className="scenario-event-feed" aria-live="polite">
+                    {triggeredScenarioEvents.map((event) => (
+                      <article key={event.id} className={`scenario-event-card scenario-event-card--${event.tone}`}>
+                        <div className="scenario-event-card__meta">
+                          <span className="scenario-event-card__zone">Zone : {event.zoneDisplay}</span>
+                          {event.offsetLabel && <span className="scenario-event-card__badge">{event.offsetLabel}</span>}
+                        </div>
+                        <p className="scenario-event-card__label">{event.label}</p>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="floor-plan__stage">
-                <img src={planImage} alt={planName ? `Plan ${planName}` : 'Plan du site'} />
-                {topology?.devices.map((device) => {
-                  const position = getDevicePosition(device);
-                  if (!position) {
-                    return null;
-                  }
-                  const markerLabel = DEVICE_MARKER_LABELS[device.kind] ?? device.kind;
-                  const deviceLabel = device.label?.trim().length ? device.label.trim() : device.id;
-                  const zoneLabel = device.zoneId ? ` (${device.zoneId})` : '';
-                  const active = isDeviceActive(device, snapshot);
-                  const actionable = isDeviceActionable(
-                    device,
-                    snapshot,
-                    accessLevel,
-                    manualResetConstraints,
-                  );
-                  const lockedByLevel = active && accessLevel < 2;
-                  const className = [
-                    'floor-plan__marker',
-                    `floor-plan__marker--${device.kind.toLowerCase()}`,
-                    active ? 'is-active' : '',
-                    actionable ? 'is-actionable' : '',
-                    device.outOfService ? 'is-out-of-service' : '',
-                    lockedByLevel ? 'is-level-locked' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ');
-                  const statusDetails: string[] = [];
-                  if (device.outOfService) {
-                    statusDetails.push('hors service');
-                  }
-                  if (lockedByLevel) {
-                    statusDetails.push('niveau 2 requis pour réarmer');
-                  }
-                  const statusSuffix =
-                    statusDetails.length > 0 ? ` — ${statusDetails.join(' · ')}` : '';
-                  const title = `${markerLabel} · ${deviceLabel}${zoneLabel}${statusSuffix}`;
-                  return (
-                    <button
-                      key={device.id}
-                      type="button"
-                      className={className}
-                      style={{ left: `${position.x}%`, top: `${position.y}%` }}
-                      onClick={() => handlePlanDeviceClick(device)}
-                      title={title}
-                      aria-label={title}
-                      disabled={!actionable}
-                    >
-                      {markerLabel}
-                    </button>
-                  );
-                })}
+              <div className="siemens-console__service-column" aria-hidden="true">
+                <div className="siemens-console__selector">
+                  <span className="siemens-console__selector-center" />
+                </div>
+                <ul className="siemens-console__lamp-list">
+                  <li>
+                    <span>Défaut</span>
+                    <span className="siemens-console__lamp siemens-console__lamp--amber" />
+                  </li>
+                  <li>
+                    <span>Évacuation</span>
+                    <span className="siemens-console__lamp siemens-console__lamp--red" />
+                  </li>
+                  <li>
+                    <span>Normal</span>
+                    <span className="siemens-console__lamp siemens-console__lamp--green" />
+                  </li>
+                </ul>
+              </div>
+              <aside className="siemens-console__right">
+                {accessControlPanel ? <Fragment>{accessControlPanel.element}</Fragment> : null}
+              </aside>
+            </div>
+            <div className="siemens-console__controls">
+              <div className="control-strip">
+                {orderedControlButtons.map((button) => (
+                  <ControlButton
+                    key={button.id}
+                    label={button.label}
+                    tone={button.tone}
+                    onClick={button.onClick}
+                    disabled={button.disabled}
+                    title={button.title}
+                    highlighted={button.highlighted}
+                  />
+                ))}
               </div>
             </div>
-          )}
-          {planImage && topology && (
-          <OutOfServiceMap
-            planImage={planImage}
-            planName={planName}
-            devices={topology.devices}
-            selectedDeviceId={selectedDeviceId}
-              onSelectDevice={(deviceId) => handleDeviceSelection(deviceId)}
-            />
-          )}
+          </div>
         </section>
-        <section className="side-panels">
-          {orderedSidePanels.map((panel) => (
-            <Fragment key={panel.id}>{panel.element}</Fragment>
-          ))}
+        <section className="siemens-support">
+          {planImage && (
+            <article className="synoptic-panel siemens-support__plan" aria-label="Cartographie opérationnelle">
+              <header className="panel-header">
+                <div>
+                  <h2 className="panel-title">Cartographie opérationnelle</h2>
+                  <p className="panel-subtitle">
+                    Plan d’intervention en temps réel pour réarmement et supervision.
+                  </p>
+                </div>
+              </header>
+              <div className="floor-plan" aria-label="Plan interactif du site">
+                <div className="floor-plan__header">
+                  <div>
+                    <h3 className="floor-plan__title">Plan du site</h3>
+                    {planName && <p className="floor-plan__subtitle">{planName}</p>}
+                  </div>
+                  <p className="floor-plan__hint">
+                    {accessLevel >= 2
+                      ? 'Cliquez sur un DM ou une DAI active pour les réarmer.'
+                      : 'Passez au niveau 2 pour réarmer depuis le plan.'}
+                  </p>
+                </div>
+                <div className="floor-plan__stage">
+                  <img src={planImage} alt={planName ? `Plan ${planName}` : 'Plan du site'} />
+                  {topology?.devices.map((device) => {
+                    const position = getDevicePosition(device);
+                    if (!position) {
+                      return null;
+                    }
+                    const markerLabel = DEVICE_MARKER_LABELS[device.kind] ?? device.kind;
+                    const deviceLabel = device.label?.trim().length ? device.label.trim() : device.id;
+                    const zoneLabel = device.zoneId ? ` (${device.zoneId})` : '';
+                    const active = isDeviceActive(device, snapshot);
+                    const actionable = isDeviceActionable(
+                      device,
+                      snapshot,
+                      accessLevel,
+                      manualResetConstraints,
+                    );
+                    const lockedByLevel = active && accessLevel < 2;
+                    const className = [
+                      'floor-plan__marker',
+                      `floor-plan__marker--${device.kind.toLowerCase()}`,
+                      active ? 'is-active' : '',
+                      actionable ? 'is-actionable' : '',
+                      device.outOfService ? 'is-out-of-service' : '',
+                      lockedByLevel ? 'is-level-locked' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ');
+                    const statusDetails: string[] = [];
+                    if (device.outOfService) {
+                      statusDetails.push('hors service');
+                    }
+                    if (lockedByLevel) {
+                      statusDetails.push('niveau 2 requis pour réarmer');
+                    }
+                    const statusSuffix =
+                      statusDetails.length > 0 ? ` — ${statusDetails.join(' · ')}` : '';
+                    const title = `${markerLabel} · ${deviceLabel}${zoneLabel}${statusSuffix}`;
+                    return (
+                      <button
+                        key={device.id}
+                        type="button"
+                        className={className}
+                        style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                        onClick={() => handlePlanDeviceClick(device)}
+                        title={title}
+                        aria-label={title}
+                        disabled={!actionable}
+                      >
+                        {markerLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {topology && (
+                <OutOfServiceMap
+                  planImage={planImage}
+                  planName={planName}
+                  devices={topology.devices}
+                  selectedDeviceId={selectedDeviceId}
+                  onSelectDevice={(deviceId) => handleDeviceSelection(deviceId)}
+                />
+              )}
+            </article>
+          )}
+          <div className="side-panels side-panels--support">
+            {orderedSupportPanels.map((panel) => (
+              <Fragment key={panel.id}>{panel.element}</Fragment>
+            ))}
+          </div>
         </section>
       </main>
       <footer className="trainee-footer">
@@ -2932,8 +2970,9 @@ function NumericKeypad({ codeBuffer, disabled, onDigit, onClear, onSubmit }: Num
                 className="keypad__key keypad__key--action"
                 onClick={onClear}
                 disabled={disabled}
+                aria-label="Effacer la saisie"
               >
-                Effacer
+                C
               </button>
             );
           }
@@ -2945,8 +2984,9 @@ function NumericKeypad({ codeBuffer, disabled, onDigit, onClear, onSubmit }: Num
                 className="keypad__key keypad__key--confirm"
                 onClick={onSubmit}
                 disabled={disabled}
+                aria-label="Valider le code"
               >
-                Valider
+                OK
               </button>
             );
           }

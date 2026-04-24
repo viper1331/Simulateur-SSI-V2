@@ -1,6 +1,6 @@
 {
   "name": "@simu-ssi/scoring",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "main": "dist/index.cjs",
@@ -31,3 +31,4 @@
     "vitest": "^1.2.2"
   }
 }
+

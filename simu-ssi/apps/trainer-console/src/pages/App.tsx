@@ -680,6 +680,435 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
 const SCENARIO_ZONE_DATALIST_ID = 'scenario-zone-options';
 const SCENARIO_EXPORT_FORMAT = 'simu-ssi/scenario@1';
 const USER_EXPORT_FORMAT = 'simu-ssi/users@1';
+const HONEYWELL_PRESET_SCENARIO_NAME = 'Preset H4YB - CMSI adressable';
+const HONEYWELL_PRESET_PLAN_IMAGE = '/presets/honeywell-type-b.png';
+const MERMOZ_PRESET_SCENARIO_NAME = 'Preset L02 Mermoz - detection sans evacuation';
+const MERMOZ_PRESET_PLAN_IMAGE = '/presets/l02-mermoz.jpg';
+
+function createHoneywellTypeBScenarioPayload(): ScenarioPayload {
+  return {
+    name: HONEYWELL_PRESET_SCENARIO_NAME,
+    description:
+      "Scénario pédagogique inspiré d'une architecture Honeywell H4YB Type B: double détection, acquittement process, évacuation manuelle puis retour à l'état de repos.",
+    topology: {
+      plan: {
+        image: HONEYWELL_PRESET_PLAN_IMAGE,
+        name: 'H4YB - CMSI adressable',
+        notes:
+          'Référence pédagogique: 99 DM max par bus, possibilité de branche bus rebouclée, 3 lignes de commande DAS à rupture / émission contrôlée, max 0.5A diffuseurs (32 diffuseurs par ligne).',
+      },
+      zones: [
+        { id: 'ZF1', label: 'Boucle DM principale', kind: 'ZF' },
+        { id: 'ZF2', label: 'Boucle DAI HE-MB', kind: 'ZF' },
+        { id: 'ZF3', label: 'Boucle DAI HE-SEC', kind: 'ZF' },
+        { id: 'ZF4', label: 'Boucle DAI HE-RB', kind: 'ZF' },
+        { id: 'ZF5', label: 'Boucle DAI HE-C', kind: 'ZF' },
+        { id: 'ZF6', label: 'Boucle DAI HE-W', kind: 'ZF' },
+        { id: 'ZF7', label: 'Boucle DAI HE-RBW', kind: 'ZF' },
+        { id: 'ZF8', label: 'Ligne diffuseurs / UGA', kind: 'ZF' },
+      ],
+      devices: [
+        {
+          id: 'dm-msa-rp325f-01',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130030',
+          props: { x: 20, y: 16 },
+        },
+        {
+          id: 'dm-msa-rp325f-02',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130031',
+          props: { x: 36, y: 16 },
+        },
+        {
+          id: 'dm-msa-rp325f-03',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130032',
+          props: { x: 52, y: 16 },
+        },
+        {
+          id: 'dm-msa-rp325f-04',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130033',
+          props: { x: 56, y: 34 },
+        },
+        {
+          id: 'dm-msa-rp325f-05',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130034',
+          props: { x: 64, y: 40 },
+        },
+        {
+          id: 'dai-he-mb',
+          kind: 'DAI',
+          zoneId: 'ZF2',
+          label: 'HE-MB A130045',
+          props: { x: 43, y: 59 },
+        },
+        {
+          id: 'dai-he-sec',
+          kind: 'DAI',
+          zoneId: 'ZF3',
+          label: 'HE-SEC A130046',
+          props: { x: 50, y: 59 },
+        },
+        {
+          id: 'dai-he-rb',
+          kind: 'DAI',
+          zoneId: 'ZF4',
+          label: 'HE-RB A130041',
+          props: { x: 57, y: 59 },
+        },
+        {
+          id: 'dai-he-c',
+          kind: 'DAI',
+          zoneId: 'ZF5',
+          label: 'HE-C A130043',
+          props: { x: 64, y: 59 },
+        },
+        {
+          id: 'dai-he-w',
+          kind: 'DAI',
+          zoneId: 'ZF6',
+          label: 'HE-W A130042',
+          props: { x: 71, y: 59 },
+        },
+        {
+          id: 'dai-he-rbw',
+          kind: 'DAI',
+          zoneId: 'ZF7',
+          label: 'HE-RBW A130044',
+          props: { x: 78, y: 59 },
+        },
+        {
+          id: 'uga-80545f',
+          kind: 'UGA',
+          zoneId: 'ZF8',
+          label: 'Module 80545F A130047',
+          props: { x: 38, y: 65 },
+        },
+        {
+          id: 'das-vmp0242',
+          kind: 'DAS',
+          zoneId: 'ZF8',
+          label: 'VMP0242/4845 A130047',
+          props: { x: 43, y: 82 },
+        },
+        {
+          id: 'das-bc242',
+          kind: 'DAS',
+          zoneId: 'ZF8',
+          label: 'BC242/484 P858015',
+          props: { x: 50, y: 82 },
+        },
+      ],
+    },
+    manualResettable: {
+      dmZones: ['ZF1'],
+      daiZones: ['ZF2', 'ZF5'],
+    },
+    events: [
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF2',
+        offset: 0,
+        label: 'Préalarme initiale sur boucle HE-MB',
+        sequence: [
+          { deviceId: 'dai-he-mb', delay: 0 },
+          { deviceId: 'dai-he-sec', delay: 4 },
+        ],
+      },
+      {
+        type: 'PROCESS_ACK',
+        offset: 25,
+        ackedBy: 'trainer',
+        label: 'Acquittement du process',
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF5',
+        offset: 55,
+        label: 'Propagation vers la boucle HE-C',
+        sequence: [
+          { deviceId: 'dai-he-c', delay: 0 },
+          { deviceId: 'dai-he-w', delay: 6 },
+        ],
+      },
+      {
+        type: 'DM_TRIGGER',
+        zoneId: 'ZF1',
+        offset: 85,
+        label: 'Déclenchement manuel principal',
+        sequence: [
+          { deviceId: 'dm-msa-rp325f-01', delay: 0 },
+          { deviceId: 'dm-msa-rp325f-03', delay: 8 },
+        ],
+      },
+      {
+        type: 'MANUAL_EVAC_START',
+        offset: 110,
+        reason: 'Ordre formateur - évacuation locale',
+        label: 'Évacuation manuelle',
+      },
+      {
+        type: 'PROCESS_CLEAR',
+        offset: 145,
+        label: 'Nettoyage de l’acquit',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF2',
+        offset: 175,
+        label: 'Réarmement boucle HE-MB',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF5',
+        offset: 205,
+        label: 'Réarmement boucle HE-C',
+      },
+      {
+        type: 'DM_RESET',
+        zoneId: 'ZF1',
+        offset: 230,
+        label: 'Réarmement DM principal',
+      },
+      {
+        type: 'MANUAL_EVAC_STOP',
+        offset: 245,
+        reason: 'Fin de manœuvre',
+        label: 'Fin évacuation manuelle',
+      },
+      {
+        type: 'SYSTEM_RESET',
+        offset: 275,
+        label: 'Retour au repos',
+      },
+    ],
+  };
+}
+
+function normalizeOffset(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
+function getEventDeviceKind(event: ScenarioEventDraft): 'DM' | 'DAI' | null {
+  if (event.type === 'DM_TRIGGER' || event.type === 'DM_RESET') {
+    return 'DM';
+  }
+  if (event.type === 'DAI_TRIGGER' || event.type === 'DAI_RESET') {
+    return 'DAI';
+  }
+  return null;
+}
+
+function getRelevantDevicesForEvent(event: ScenarioEventDraft, sourceTopology: SiteTopology | null): SiteDevice[] {
+  if (!sourceTopology || !isZoneScenarioEvent(event)) {
+    return [];
+  }
+  const zoneId = event.zoneId?.toUpperCase().trim();
+  const expectedKind = getEventDeviceKind(event);
+  if (!zoneId || !expectedKind) {
+    return [];
+  }
+  return sourceTopology.devices
+    .filter((device) => device.kind === expectedKind && device.zoneId?.toUpperCase() === zoneId)
+    .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b), 'fr'));
+}
+
+function createL02MermozDetectionOnlyScenarioPayload(): ScenarioPayload {
+  return {
+    name: MERMOZ_PRESET_SCENARIO_NAME,
+    description:
+      'Scenario incendie base sur la detection automatique DAI uniquement, sans ordre d evacuation. Le scenario simule une propagation progressive puis un retour au repos apres rearmement.',
+    topology: {
+      plan: {
+        image: MERMOZ_PRESET_PLAN_IMAGE,
+        name: 'Batiment L02 Mermoz',
+        notes:
+          'Points verts: detecteurs automatiques (DAI). Carres verts: declencheurs manuels (DM). Exercice cible: detection sans evacuation automatique.',
+      },
+      zones: [
+        { id: 'ZF1', label: 'Plateau nord', kind: 'ZF' },
+        { id: 'ZF2', label: 'Noyau central technique', kind: 'ZF' },
+        { id: 'ZF3', label: 'Aile sud-ouest', kind: 'ZF' },
+        { id: 'ZF4', label: 'Aile sud-centre', kind: 'ZF' },
+        { id: 'ZF5', label: 'Aile sud-est', kind: 'ZF' },
+        { id: 'ZF6', label: 'Bloc est compartimente', kind: 'ZF' },
+        { id: 'ZF7', label: 'Circulations et DM perimetre', kind: 'ZF' },
+      ],
+      devices: [
+        { id: 'dai-l02-n-01', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N01', props: { x: 4, y: 8 } },
+        { id: 'dai-l02-n-02', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N02', props: { x: 12, y: 8 } },
+        { id: 'dai-l02-n-03', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N03', props: { x: 20, y: 8 } },
+        { id: 'dai-l02-n-04', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N04', props: { x: 28, y: 8 } },
+        { id: 'dai-l02-n-05', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N05', props: { x: 36, y: 8 } },
+        { id: 'dai-l02-n-06', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N06', props: { x: 44, y: 8 } },
+        { id: 'dai-l02-n-07', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N07', props: { x: 52, y: 8 } },
+        { id: 'dai-l02-n-08', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N08', props: { x: 60, y: 8 } },
+        { id: 'dai-l02-n-09', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N09', props: { x: 68, y: 8 } },
+        { id: 'dai-l02-n-10', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N10', props: { x: 76, y: 8 } },
+        { id: 'dai-l02-n-11', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N11', props: { x: 84, y: 8 } },
+        { id: 'dai-l02-n-12', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N12', props: { x: 92, y: 8 } },
+
+        { id: 'dai-l02-c-01', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C01', props: { x: 28, y: 34 } },
+        { id: 'dai-l02-c-02', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C02', props: { x: 34, y: 34 } },
+        { id: 'dai-l02-c-03', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C03', props: { x: 44, y: 34 } },
+        { id: 'dai-l02-c-04', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C04', props: { x: 52, y: 34 } },
+        { id: 'dai-l02-c-05', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C05', props: { x: 60, y: 34 } },
+        { id: 'dai-l02-c-06', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C06', props: { x: 36, y: 40 } },
+        { id: 'dai-l02-c-07', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C07', props: { x: 43, y: 38 } },
+        { id: 'dai-l02-c-08', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C08', props: { x: 50, y: 38 } },
+        { id: 'dai-l02-c-09', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C09', props: { x: 58, y: 40 } },
+
+        { id: 'dai-l02-sw-01', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW01', props: { x: 6, y: 75 } },
+        { id: 'dai-l02-sw-02', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW02', props: { x: 14, y: 75 } },
+        { id: 'dai-l02-sw-03', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW03', props: { x: 22, y: 75 } },
+        { id: 'dai-l02-sw-04', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW04', props: { x: 30, y: 75 } },
+        { id: 'dai-l02-sw-05', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW05', props: { x: 20, y: 83 } },
+        { id: 'dai-l02-sw-06', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW06', props: { x: 28, y: 83 } },
+        { id: 'dai-l02-sw-07', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW07', props: { x: 36, y: 83 } },
+
+        { id: 'dai-l02-sc-01', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC01', props: { x: 38, y: 75 } },
+        { id: 'dai-l02-sc-02', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC02', props: { x: 46, y: 75 } },
+        { id: 'dai-l02-sc-03', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC03', props: { x: 54, y: 75 } },
+        { id: 'dai-l02-sc-04', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC04', props: { x: 62, y: 75 } },
+        { id: 'dai-l02-sc-05', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC05', props: { x: 44, y: 83 } },
+        { id: 'dai-l02-sc-06', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC06', props: { x: 52, y: 83 } },
+        { id: 'dai-l02-sc-07', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC07', props: { x: 60, y: 83 } },
+        { id: 'dai-l02-sc-08', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC08', props: { x: 66, y: 83 } },
+
+        { id: 'dai-l02-se-01', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE01', props: { x: 70, y: 75 } },
+        { id: 'dai-l02-se-02', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE02', props: { x: 78, y: 75 } },
+        { id: 'dai-l02-se-03', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE03', props: { x: 86, y: 75 } },
+        { id: 'dai-l02-se-04', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE04', props: { x: 94, y: 75 } },
+        { id: 'dai-l02-se-05', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE05', props: { x: 74, y: 83 } },
+        { id: 'dai-l02-se-06', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE06', props: { x: 82, y: 83 } },
+        { id: 'dai-l02-se-07', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE07', props: { x: 88, y: 83 } },
+
+        { id: 'dai-l02-e-01', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E01', props: { x: 82, y: 90 } },
+        { id: 'dai-l02-e-02', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E02', props: { x: 88, y: 90 } },
+        { id: 'dai-l02-e-03', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E03', props: { x: 94, y: 90 } },
+        { id: 'dai-l02-e-04', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E04', props: { x: 82, y: 96 } },
+        { id: 'dai-l02-e-05', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E05', props: { x: 88, y: 96 } },
+        { id: 'dai-l02-e-06', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E06', props: { x: 94, y: 96 } },
+
+        { id: 'dm-l02-01', kind: 'DM', zoneId: 'ZF7', label: 'DM P01', props: { x: 12, y: 7 } },
+        { id: 'dm-l02-02', kind: 'DM', zoneId: 'ZF7', label: 'DM P02', props: { x: 84, y: 7 } },
+        { id: 'dm-l02-03', kind: 'DM', zoneId: 'ZF7', label: 'DM P03', props: { x: 92, y: 20 } },
+        { id: 'dm-l02-04', kind: 'DM', zoneId: 'ZF7', label: 'DM P04', props: { x: 92, y: 34 } },
+        { id: 'dm-l02-05', kind: 'DM', zoneId: 'ZF7', label: 'DM P05', props: { x: 92, y: 48 } },
+        { id: 'dm-l02-06', kind: 'DM', zoneId: 'ZF7', label: 'DM P06', props: { x: 92, y: 62 } },
+        { id: 'dm-l02-07', kind: 'DM', zoneId: 'ZF7', label: 'DM P07', props: { x: 8, y: 77 } },
+        { id: 'dm-l02-08', kind: 'DM', zoneId: 'ZF7', label: 'DM P08', props: { x: 4, y: 84 } },
+        { id: 'dm-l02-09', kind: 'DM', zoneId: 'ZF7', label: 'DM P09', props: { x: 4, y: 92 } },
+        { id: 'dm-l02-10', kind: 'DM', zoneId: 'ZF7', label: 'DM P10', props: { x: 12, y: 98 } },
+        { id: 'dm-l02-11', kind: 'DM', zoneId: 'ZF7', label: 'DM P11', props: { x: 26, y: 87 } },
+        { id: 'dm-l02-12', kind: 'DM', zoneId: 'ZF7', label: 'DM P12', props: { x: 68, y: 80 } },
+        { id: 'dm-l02-13', kind: 'DM', zoneId: 'ZF7', label: 'DM P13', props: { x: 96, y: 80 } },
+        { id: 'dm-l02-14', kind: 'DM', zoneId: 'ZF7', label: 'DM P14', props: { x: 96, y: 96 } },
+      ],
+    },
+    manualResettable: {
+      dmZones: ['ZF7'],
+      daiZones: ['ZF2', 'ZF1', 'ZF4', 'ZF6'],
+    },
+    events: [
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF2',
+        offset: 0,
+        label: 'Depart de feu dans le noyau central',
+        sequence: [
+          { deviceId: 'dai-l02-c-03', delay: 0 },
+          { deviceId: 'dai-l02-c-07', delay: 4 },
+          { deviceId: 'dai-l02-c-08', delay: 9 },
+        ],
+      },
+      {
+        type: 'PROCESS_ACK',
+        offset: 35,
+        ackedBy: 'trainer',
+        label: 'Acquittement process de la detection',
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF1',
+        offset: 70,
+        label: 'Propagation de fumee sous plafond nord',
+        sequence: [
+          { deviceId: 'dai-l02-n-06', delay: 0 },
+          { deviceId: 'dai-l02-n-08', delay: 8 },
+          { deviceId: 'dai-l02-n-10', delay: 16 },
+        ],
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF4',
+        offset: 120,
+        label: 'Extension vers les circulations sud-centre',
+        sequence: [
+          { deviceId: 'dai-l02-sc-02', delay: 0 },
+          { deviceId: 'dai-l02-sc-06', delay: 10 },
+          { deviceId: 'dai-l02-sc-08', delay: 20 },
+        ],
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF6',
+        offset: 165,
+        label: 'Point chaud detecte dans le bloc est',
+        sequence: [
+          { deviceId: 'dai-l02-e-01', delay: 0 },
+          { deviceId: 'dai-l02-e-03', delay: 7 },
+          { deviceId: 'dai-l02-e-05', delay: 15 },
+        ],
+      },
+      {
+        type: 'PROCESS_CLEAR',
+        offset: 205,
+        label: "Nettoyage de l'acquit process pour la phase de retour au repos",
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF2',
+        offset: 225,
+        label: 'Rearmement detecteurs noyau central',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF1',
+        offset: 245,
+        label: 'Rearmement detecteurs plateau nord',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF4',
+        offset: 265,
+        label: 'Rearmement detecteurs sud-centre',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF6',
+        offset: 285,
+        label: 'Rearmement detecteurs bloc est',
+      },
+      {
+        type: 'SYSTEM_RESET',
+        offset: 305,
+        label: 'Retour systeme a letat de repos',
+      },
+    ],
+  };
+}
 
 function formatScenarioFileName(name: string): string {
   const slug = name
@@ -1928,6 +2357,62 @@ export function App() {
     updateDraftEvent(eventId, (event) => ({ ...event, label }) as ScenarioEventDraft);
   };
 
+  const handleScenarioDuplicateEvent = (eventId: string) => {
+    setDraftScenario((prev) => {
+      const sourceIndex = prev.events.findIndex((event) => event.id === eventId);
+      if (sourceIndex < 0) {
+        return prev;
+      }
+      const source = prev.events[sourceIndex];
+      const duplicated = ensureDraftEvent({
+        ...source,
+        id: crypto.randomUUID(),
+        offset: normalizeOffset((Number.isFinite(source.offset) ? Number(source.offset) : 0) + 5),
+      });
+      const nextEvents = [...prev.events];
+      nextEvents.splice(sourceIndex + 1, 0, duplicated);
+      return { ...prev, events: nextEvents };
+    });
+  };
+
+  const handleScenarioShiftEventOffset = (eventId: string, delta: number) => {
+    updateDraftEvent(eventId, (event) => ({
+      ...event,
+      offset: normalizeOffset((Number.isFinite(event.offset) ? Number(event.offset) : 0) + delta),
+    }));
+  };
+
+  const handleScenarioShiftAllOffsets = (delta: number) => {
+    setDraftScenario((prev) => ({
+      ...prev,
+      events: prev.events.map((event) => ({
+        ...event,
+        offset: normalizeOffset((Number.isFinite(event.offset) ? Number(event.offset) : 0) + delta),
+      })),
+    }));
+    setScenarioError(null);
+    setScenarioFeedback(delta > 0 ? 'Tous les offsets ont été décalés de +5s.' : 'Tous les offsets ont été décalés de -5s.');
+  };
+
+  const handleScenarioNormalizeOffsets = () => {
+    setDraftScenario((prev) => {
+      const ordered = [...prev.events].sort((a, b) => a.offset - b.offset);
+      const offsets = new Map<string, number>();
+      ordered.forEach((event, index) => {
+        offsets.set(event.id, normalizeOffset(index * 10));
+      });
+      return {
+        ...prev,
+        events: prev.events.map((event) => ({
+          ...event,
+          offset: offsets.get(event.id) ?? normalizeOffset(event.offset),
+        })),
+      };
+    });
+    setScenarioError(null);
+    setScenarioFeedback('Offsets normalisés automatiquement (pas de 10s).');
+  };
+
   const handleScenarioEventDeviceDelayChange = (eventId: string, deviceId: string, delay: number) => {
     updateDraftEvent(eventId, (event) => {
       if (!isZoneScenarioEvent(event)) {
@@ -1944,6 +2429,44 @@ export function App() {
         { deviceId: sanitizedDeviceId, delay: normalizedDelay },
       ];
       return { ...event, sequence: sanitizeSequenceEntries(nextSequence) } as ScenarioEventDraft;
+    });
+  };
+
+  const handleScenarioSequenceBulkAction = (
+    eventId: string,
+    action: 'enable-all' | 'clear-all' | 'stagger',
+  ) => {
+    setDraftScenario((prev) => {
+      const sourceTopology = prev.topology ?? topology ?? null;
+      return {
+        ...prev,
+        events: prev.events.map((event) => {
+          if (event.id !== eventId || !isZoneScenarioEvent(event)) {
+            return event;
+          }
+          const devices = getRelevantDevicesForEvent(event, sourceTopology);
+          if (devices.length === 0) {
+            return event;
+          }
+          if (action === 'clear-all') {
+            return { ...event, sequence: [] } as ScenarioEventDraft;
+          }
+          if (action === 'stagger') {
+            const sequence = devices.map((device, index) => ({
+              deviceId: device.id,
+              delay: normalizeOffset(index * 5),
+            }));
+            return { ...event, sequence: sanitizeSequenceEntries(sequence) } as ScenarioEventDraft;
+          }
+          const currentSequence = sanitizeSequenceEntries(event.sequence);
+          const delayByDevice = new Map(currentSequence.map((entry) => [entry.deviceId, entry.delay]));
+          const nextSequence = devices.map((device) => ({
+            deviceId: device.id,
+            delay: normalizeOffset(delayByDevice.get(device.id) ?? 0),
+          }));
+          return { ...event, sequence: sanitizeSequenceEntries(nextSequence) } as ScenarioEventDraft;
+        }),
+      };
     });
   };
 
@@ -2288,6 +2811,74 @@ export function App() {
     },
     [refreshScenarios, sdk],
   );
+
+  const handleScenarioLoadHoneywellPreset = useCallback(async () => {
+    setScenarioSaving(true);
+    setScenarioError(null);
+    setScenarioFeedback(null);
+    try {
+      const payload = createHoneywellTypeBScenarioPayload();
+      const existingPreset = scenarios.find((scenario) => scenario.name === HONEYWELL_PRESET_SCENARIO_NAME);
+      const saved = existingPreset
+        ? await sdk.updateScenario(existingPreset.id, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
+      setEditingScenarioId(saved.id);
+      refreshScenarios();
+      setScenarioFeedback(
+        existingPreset
+          ? `Preset « ${HONEYWELL_PRESET_SCENARIO_NAME} » mis à jour.`
+          : `Preset « ${HONEYWELL_PRESET_SCENARIO_NAME} » créé.`,
+      );
+    } catch (error) {
+      console.error(error);
+      setScenarioError('Impossible de charger le preset Honeywell.');
+      setScenarioFeedback(null);
+    } finally {
+      setScenarioSaving(false);
+    }
+  }, [refreshScenarios, scenarios, sdk]);
+
+  const handleScenarioLoadMermozPreset = useCallback(async () => {
+    setScenarioSaving(true);
+    setScenarioError(null);
+    setScenarioFeedback(null);
+    try {
+      const currentSiteConfig = config ?? (await sdk.getSiteConfig());
+      let siteConfigAdjusted = false;
+      if (currentSiteConfig.evacOnDAI) {
+        const updatedSiteConfig = await sdk.updateSiteConfig({
+          evacOnDAI: false,
+          evacOnDMDelayMs: currentSiteConfig.evacOnDMDelayMs,
+          processAckRequired: currentSiteConfig.processAckRequired,
+        });
+        setConfig(updatedSiteConfig);
+        siteConfigAdjusted = true;
+      }
+
+      const payload = createL02MermozDetectionOnlyScenarioPayload();
+      const existingPreset = scenarios.find((scenario) => scenario.name === MERMOZ_PRESET_SCENARIO_NAME);
+      const saved = existingPreset
+        ? await sdk.updateScenario(existingPreset.id, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
+      setEditingScenarioId(saved.id);
+      refreshScenarios();
+      setScenarioFeedback(
+        siteConfigAdjusted
+          ? `${existingPreset ? 'Preset mis à jour' : 'Preset créé'} et configuration forcée en détection sans évacuation (evacOnDAI=false).`
+          : existingPreset
+          ? `Preset « ${MERMOZ_PRESET_SCENARIO_NAME} » mis à jour.`
+          : `Preset « ${MERMOZ_PRESET_SCENARIO_NAME} » créé.`,
+      );
+    } catch (error) {
+      console.error(error);
+      setScenarioError('Impossible de charger le preset L02 Mermoz.');
+      setScenarioFeedback(null);
+    } finally {
+      setScenarioSaving(false);
+    }
+  }, [config, refreshScenarios, scenarios, sdk]);
 
   const handleScenarioRun = async (scenarioId: string) => {
     try {
@@ -3238,6 +3829,24 @@ export function App() {
                     <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
                       Nouveau
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn--preset"
+                      onClick={handleScenarioLoadHoneywellPreset}
+                      disabled={scenarioSaving}
+                      aria-busy={scenarioSaving}
+                    >
+                      {scenarioSaving ? 'Chargement…' : 'Preset H4YB'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--preset"
+                      onClick={handleScenarioLoadMermozPreset}
+                      disabled={scenarioSaving}
+                      aria-busy={scenarioSaving}
+                    >
+                      {scenarioSaving ? 'Chargement…' : 'Preset L02'}
+                    </button>
                   </div>
                   <input
                     ref={scenarioFileInputRef}
@@ -3246,6 +3855,36 @@ export function App() {
                     onChange={handleScenarioFileChange}
                     style={{ display: 'none' }}
                   />
+                </div>
+                <div className="scenario-presets">
+                  <article className="scenario-preset" aria-label="Preset Honeywell Type B">
+                    <img
+                      src={HONEYWELL_PRESET_PLAN_IMAGE}
+                      alt="Synoptique Honeywell Type B adressable"
+                      className="scenario-preset__image"
+                    />
+                    <div className="scenario-preset__content">
+                      <strong>Scénario prédéfini Honeywell Type B</strong>
+                      <p>
+                        Chaîne pédagogique prête à l&apos;emploi: détection DAI multi-zones, acquittement,
+                        évacuation manuelle et retour au repos.
+                      </p>
+                    </div>
+                  </article>
+                  <article className="scenario-preset scenario-preset--mermoz" aria-label="Preset L02 Mermoz">
+                    <img
+                      src={MERMOZ_PRESET_PLAN_IMAGE}
+                      alt="Plan batiment L02 Mermoz"
+                      className="scenario-preset__image"
+                    />
+                    <div className="scenario-preset__content">
+                      <strong>Scénario détection L02 Mermoz</strong>
+                      <p>
+                        Simulation incendie sans évacuation: progression sur détecteurs automatiques,
+                        acquittement process, réarmement séquencé puis retour au repos.
+                      </p>
+                    </div>
+                  </article>
                 </div>
                 <ul className="scenario-list">
                   {scenarios.length === 0 && <li className="scenario-list__empty">Aucun scénario enregistré.</li>}
@@ -3620,6 +4259,30 @@ export function App() {
                       <button
                         type="button"
                         className="btn btn--ghost"
+                        onClick={() => handleScenarioShiftAllOffsets(-5)}
+                        disabled={scenarioEventCount === 0}
+                      >
+                        Offsets -5s
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => handleScenarioShiftAllOffsets(5)}
+                        disabled={scenarioEventCount === 0}
+                      >
+                        Offsets +5s
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={handleScenarioNormalizeOffsets}
+                        disabled={scenarioEventCount === 0}
+                      >
+                        Auto offset 10s
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
                         onClick={() => setScenarioEventsCollapsed((prev) => !prev)}
                         aria-expanded={!scenarioEventsCollapsed}
                         aria-controls="scenario-events-content"
@@ -3669,31 +4332,11 @@ export function App() {
                       zoneId && scenarioZoneOptions.length > 0
                         ? scenarioZoneOptions.find((option) => option.value === zoneId)
                         : undefined;
-                    const editorDevices = editorTopology?.devices ?? [];
-                    const deviceKindFilter = zoneEventDraft
-                      ? eventDraft.type === 'DM_TRIGGER' || eventDraft.type === 'DM_RESET'
-                        ? 'DM'
-                        : eventDraft.type === 'DAI_TRIGGER' || eventDraft.type === 'DAI_RESET'
-                        ? 'DAI'
-                        : null
-                      : null;
-                    const normalizedZoneId = zoneId.trim();
-                    const deviceKindLabel =
-                      deviceKindFilter === 'DM'
-                        ? 'DM'
-                        : deviceKindFilter === 'DAI'
-                        ? 'DAI'
-                        : 'FPSSI';
-                    const relevantDevices =
-                      zoneEventDraft && deviceKindFilter && normalizedZoneId
-                        ? editorDevices
-                            .filter(
-                              (device) =>
-                                device.kind === deviceKindFilter &&
-                                device.zoneId?.toUpperCase() === normalizedZoneId,
-                            )
-                            .sort((a, b) => resolveDeviceLabel(a).localeCompare(resolveDeviceLabel(b)))
-                        : [];
+                    const deviceKindFilter = zoneEventDraft ? getEventDeviceKind(eventDraft) : null;
+                    const deviceKindLabel = deviceKindFilter ?? 'FPSSI';
+                    const relevantDevices = zoneEventDraft
+                      ? getRelevantDevicesForEvent(eventDraft, editorTopology)
+                      : [];
                     const sequenceDelayMap = new Map(sequenceEntries.map((entry) => [entry.deviceId, entry.delay]));
                     const selectedDeviceCount = zoneEventDraft ? sequenceEntries.length : 0;
                     const sequenceSummaryLabel = zoneEventDraft
@@ -3810,6 +4453,32 @@ export function App() {
                                 />
                               </label>
                             )}
+                            <div className="scenario-event-quick-actions">
+                              <button
+                                type="button"
+                                className="scenario-event-quick-button"
+                                onClick={() => handleScenarioShiftEventOffset(eventDraft.id, -5)}
+                                aria-label={`Avancer l'événement ${index + 1} de 5 secondes`}
+                              >
+                                -5s
+                              </button>
+                              <button
+                                type="button"
+                                className="scenario-event-quick-button"
+                                onClick={() => handleScenarioShiftEventOffset(eventDraft.id, 5)}
+                                aria-label={`Retarder l'événement ${index + 1} de 5 secondes`}
+                              >
+                                +5s
+                              </button>
+                              <button
+                                type="button"
+                                className="scenario-event-quick-button"
+                                onClick={() => handleScenarioDuplicateEvent(eventDraft.id)}
+                                aria-label={`Dupliquer l'événement ${index + 1}`}
+                              >
+                                Dupliquer
+                              </button>
+                            </div>
                             <button
                               type="button"
                               className="scenario-event-remove"
@@ -3871,6 +4540,30 @@ export function App() {
                                 </span>
                                 <div className="scenario-event-sequence__header-actions">
                                   <span className="scenario-event-sequence__summary">{sequenceSummaryLabel}</span>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__bulk"
+                                    onClick={() => handleScenarioSequenceBulkAction(eventDraft.id, 'enable-all')}
+                                    disabled={relevantDevices.length === 0}
+                                  >
+                                    Tout activer
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__bulk"
+                                    onClick={() => handleScenarioSequenceBulkAction(eventDraft.id, 'stagger')}
+                                    disabled={relevantDevices.length === 0}
+                                  >
+                                    Échelonner 5s
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="scenario-event-sequence__bulk"
+                                    onClick={() => handleScenarioSequenceBulkAction(eventDraft.id, 'clear-all')}
+                                    disabled={sequenceEntries.length === 0}
+                                  >
+                                    Vider
+                                  </button>
                                   <button
                                     type="button"
                                     className="scenario-event-sequence__collapse"
