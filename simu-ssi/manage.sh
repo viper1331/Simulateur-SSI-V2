@@ -17,17 +17,21 @@ ensure_workspace_root() {
   cd "$SCRIPT_DIR"
 }
 
+run_pnpm() {
+  corepack pnpm "$@"
+}
+
 start() {
   ensure_workspace_root
-  pnpm install
-  pnpm prisma:generate
-  pnpm dev
+  run_pnpm install
+  run_pnpm prisma:generate
+  run_pnpm dev
 }
 
 update() {
   ensure_workspace_root
-  pnpm install
-  pnpm update --latest
+  run_pnpm install
+  run_pnpm update --latest
 }
 
 case "${1:-}" in
