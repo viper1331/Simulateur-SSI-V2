@@ -70,6 +70,10 @@ function patchSdk(source) {
 function patchViteClient(source) {
   let out = source;
 
+  // Repair overly broad previous replacements that matched the "io(" suffix in names like normalizeEvacuationAudio(...).
+  out = out.replace(/normalizeEvacuationAudio\(([^\n;]*?),\s*createSocketOptions\(\)\)/g, 'normalizeEvacuationAudio($1)');
+  out = out.replace(/sanitizeAudioAsset\(([^\n;]*?),\s*createSocketOptions\(\)\)/g, 'sanitizeAudioAsset($1)');
+
   const helper = `\nfunction getConfiguredApiToken(): string | undefined {\n  const token = import.meta.env.VITE_SIMU_SSI_API_TOKEN;\n  return typeof token === 'string' && token.trim().length > 0 ? token.trim() : undefined;\n}\n\nfunction createSocketOptions() {\n  const token = getConfiguredApiToken();\n  return token ? { auth: { token } } : undefined;\n}\n`;
 
   if (!out.includes('function getConfiguredApiToken()')) {
@@ -87,7 +91,8 @@ function patchViteClient(source) {
     return `new SsiSdk(${args}, { apiToken: getConfiguredApiToken() })`;
   });
 
-  out = out.replace(/io\(([^\n)]*)\)/g, (match, args) => {
+  // Only patch real Socket.IO calls, not identifiers ending with "io".
+  out = out.replace(/(?<![A-Za-z0-9_$])io\(([^\n)]*)\)/g, (match, args) => {
     if (match.includes('createSocketOptions')) {
       return match;
     }
