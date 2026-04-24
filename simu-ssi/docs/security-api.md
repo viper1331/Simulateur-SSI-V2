@@ -4,7 +4,7 @@ Ce document décrit la première couche de sécurité serveur ajoutée au projet
 
 ## Objectif
 
-Mettre en place une base d'authentification non destructive pour préparer la protection des routes API et Socket.IO.
+Mettre en place une base d'authentification non destructive pour protéger les routes API et Socket.IO.
 
 Cette passe fournit :
 
@@ -12,10 +12,11 @@ Cette passe fournit :
 - une gestion de rôles `ADMIN`, `TRAINER`, `TRAINEE` ;
 - une authentification par token API ;
 - une comparaison de tokens par hash SHA-256 et `timingSafeEqual` ;
-- un middleware Express prêt à brancher ;
-- un middleware Socket.IO prêt à brancher ;
+- un middleware Express branché dans `app.ts` ;
+- un middleware Socket.IO branché dans `app.ts` ;
 - des tests unitaires des décisions d'autorisation ;
-- une commande déterministe `pnpm security:integrate-auth` pour intégrer les middlewares dans `app.ts`.
+- une commande déterministe `pnpm security:integrate-auth` pour intégrer les middlewares dans `app.ts` ;
+- une commande déterministe `pnpm security:integrate-client-auth` pour propager le token côté SDK/frontends.
 
 ## Variables d'environnement
 
@@ -25,13 +26,21 @@ Exemple dans `apps/server/prisma/.env.example` :
 SIMU_SSI_AUTH_REQUIRED="false"
 SIMU_SSI_API_TOKEN="change-me-admin-token"
 SIMU_SSI_API_TOKENS="ADMIN:change-me-admin-token,TRAINER:change-me-trainer-token,TRAINEE:change-me-trainee-token"
+VITE_SIMU_SSI_API_TOKEN="change-me-trainer-token"
 ```
 
-### Comportement
+### Comportement serveur
 
 - Si aucun token n'est défini et `SIMU_SSI_AUTH_REQUIRED` n'est pas `true`, la sécurité reste désactivée pour préserver le fonctionnement local.
 - Si au moins un token est défini, la sécurité s'active.
 - Si `SIMU_SSI_AUTH_REQUIRED="true"` mais qu'aucun token n'est défini, les requêtes protégées répondent `AUTH_NOT_CONFIGURED`.
+
+### Comportement client
+
+- Le SDK peut recevoir `{ apiToken }` à la construction.
+- Les frontends Vite peuvent lire `VITE_SIMU_SSI_API_TOKEN`.
+- Les requêtes HTTP envoient `Authorization: Bearer <token>`.
+- Les connexions Socket.IO envoient le token via `auth.token`.
 
 ## Rôles
 
@@ -54,31 +63,12 @@ SIMU_SSI_API_TOKENS="ADMIN:change-me-admin-token,TRAINER:change-me-trainer-token
 | `/api/scenarios*` | `ADMIN`, `TRAINER`, `TRAINEE` | `ADMIN`, `TRAINER` |
 | `/api/evac*`, `/api/process*`, `/api/uga*`, `/api/sdi*`, `/api/devices*`, `/api/zones*`, `/api/system*` | `ADMIN`, `TRAINER` | `ADMIN`, `TRAINER` |
 
-## Intégration automatisée
+## Intégration serveur automatisée
 
 Depuis la racine `simu-ssi` :
 
 ```bash
 pnpm security:integrate-auth
-```
-
-Cette commande modifie `apps/server/src/app.ts` de manière déterministe pour ajouter :
-
-```ts
-import { createApiAuthMiddleware, createSocketAuthMiddleware, getAuthConfig } from './auth';
-```
-
-puis :
-
-```ts
-const authConfig = getAuthConfig();
-app.use('/api', createApiAuthMiddleware(authConfig));
-```
-
-et après création de l'instance Socket.IO :
-
-```ts
-io.use(createSocketAuthMiddleware(authConfig));
 ```
 
 Après exécution, valider impérativement :
@@ -89,42 +79,41 @@ pnpm --filter server test
 pnpm build
 ```
 
-## Intégration manuelle équivalente
+## Intégration client automatisée
 
-Dans `apps/server/src/app.ts`, importer :
+Depuis la racine `simu-ssi` :
 
-```ts
-import { createApiAuthMiddleware, createSocketAuthMiddleware, getAuthConfig } from './auth';
+```bash
+pnpm security:integrate-client-auth
 ```
 
-Puis, après `express.json(...)` et avant les routes `/api/*` :
+Cette commande :
 
-```ts
-const authConfig = getAuthConfig();
-app.use('/api', createApiAuthMiddleware(authConfig));
-```
+- ajoute les options `{ apiToken }` au SDK ;
+- centralise les appels HTTP du SDK via une méthode `request()` ;
+- injecte automatiquement `Authorization: Bearer <token>` ;
+- ajoute la lecture de `VITE_SIMU_SSI_API_TOKEN` dans les consoles Vite ;
+- transmet le token à Socket.IO via `auth.token`.
 
-Après création de l'instance Socket.IO :
+Après exécution, valider impérativement :
 
-```ts
-io.use(createSocketAuthMiddleware(authConfig));
+```bash
+pnpm --filter @simu-ssi/sdk typecheck
+pnpm --filter trainer-console typecheck
+pnpm --filter trainee-station typecheck
+pnpm --filter admin-studio typecheck
+pnpm build
 ```
 
 ## Côté clients
 
-Les clients devront envoyer le token via :
+Les clients HTTP doivent envoyer le token via :
 
 ```http
 Authorization: Bearer <token>
 ```
 
-ou :
-
-```http
-x-api-key: <token>
-```
-
-Pour Socket.IO, le token pourra être transmis via :
+Pour Socket.IO :
 
 ```ts
 io(baseUrl, {
@@ -136,8 +125,7 @@ io(baseUrl, {
 
 ## Prochaine itération
 
-1. Exécuter `pnpm security:integrate-auth` dans un environnement local/Codex.
+1. Exécuter `pnpm security:integrate-client-auth` dans un environnement local/Codex.
 2. Valider typecheck, tests et build.
-3. Ajouter la gestion du token dans `@simu-ssi/sdk`.
-4. Ajouter une configuration front `VITE_SIMU_SSI_API_TOKEN` pour les usages de laboratoire.
-5. Remplacer ensuite les codes d'accès stockés en clair par des hashes dédiés.
+3. Corriger uniquement les éventuelles erreurs d'intégration.
+4. Remplacer ensuite les codes d'accès stockés en clair par des hashes dédiés.
