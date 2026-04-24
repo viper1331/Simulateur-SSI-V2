@@ -680,6 +680,216 @@ const SCENARIO_EVENT_OPTIONS: Array<{ value: ScenarioEvent['type']; label: strin
 const SCENARIO_ZONE_DATALIST_ID = 'scenario-zone-options';
 const SCENARIO_EXPORT_FORMAT = 'simu-ssi/scenario@1';
 const USER_EXPORT_FORMAT = 'simu-ssi/users@1';
+const HONEYWELL_PRESET_SCENARIO_NAME = 'Preset H4YB - CMSI adressable';
+const HONEYWELL_PRESET_PLAN_IMAGE = '/presets/honeywell-type-b.png';
+
+function createHoneywellTypeBScenarioPayload(): ScenarioPayload {
+  return {
+    name: HONEYWELL_PRESET_SCENARIO_NAME,
+    description:
+      "Scénario pédagogique inspiré d'une architecture Honeywell H4YB Type B: double détection, acquittement process, évacuation manuelle puis retour à l'état de repos.",
+    topology: {
+      plan: {
+        image: HONEYWELL_PRESET_PLAN_IMAGE,
+        name: 'H4YB - CMSI adressable',
+        notes:
+          'Référence pédagogique: 99 DM max par bus, possibilité de branche bus rebouclée, 3 lignes de commande DAS à rupture / émission contrôlée, max 0.5A diffuseurs (32 diffuseurs par ligne).',
+      },
+      zones: [
+        { id: 'ZF1', label: 'Boucle DM principale', kind: 'ZF' },
+        { id: 'ZF2', label: 'Boucle DAI HE-MB', kind: 'ZF' },
+        { id: 'ZF3', label: 'Boucle DAI HE-SEC', kind: 'ZF' },
+        { id: 'ZF4', label: 'Boucle DAI HE-RB', kind: 'ZF' },
+        { id: 'ZF5', label: 'Boucle DAI HE-C', kind: 'ZF' },
+        { id: 'ZF6', label: 'Boucle DAI HE-W', kind: 'ZF' },
+        { id: 'ZF7', label: 'Boucle DAI HE-RBW', kind: 'ZF' },
+        { id: 'ZF8', label: 'Ligne diffuseurs / UGA', kind: 'ZF' },
+      ],
+      devices: [
+        {
+          id: 'dm-msa-rp325f-01',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130030',
+          props: { x: 20, y: 16 },
+        },
+        {
+          id: 'dm-msa-rp325f-02',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130031',
+          props: { x: 36, y: 16 },
+        },
+        {
+          id: 'dm-msa-rp325f-03',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130032',
+          props: { x: 52, y: 16 },
+        },
+        {
+          id: 'dm-msa-rp325f-04',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130033',
+          props: { x: 56, y: 34 },
+        },
+        {
+          id: 'dm-msa-rp325f-05',
+          kind: 'DM',
+          zoneId: 'ZF1',
+          label: 'MSA-RP325F-K013-05 A130034',
+          props: { x: 64, y: 40 },
+        },
+        {
+          id: 'dai-he-mb',
+          kind: 'DAI',
+          zoneId: 'ZF2',
+          label: 'HE-MB A130045',
+          props: { x: 43, y: 59 },
+        },
+        {
+          id: 'dai-he-sec',
+          kind: 'DAI',
+          zoneId: 'ZF3',
+          label: 'HE-SEC A130046',
+          props: { x: 50, y: 59 },
+        },
+        {
+          id: 'dai-he-rb',
+          kind: 'DAI',
+          zoneId: 'ZF4',
+          label: 'HE-RB A130041',
+          props: { x: 57, y: 59 },
+        },
+        {
+          id: 'dai-he-c',
+          kind: 'DAI',
+          zoneId: 'ZF5',
+          label: 'HE-C A130043',
+          props: { x: 64, y: 59 },
+        },
+        {
+          id: 'dai-he-w',
+          kind: 'DAI',
+          zoneId: 'ZF6',
+          label: 'HE-W A130042',
+          props: { x: 71, y: 59 },
+        },
+        {
+          id: 'dai-he-rbw',
+          kind: 'DAI',
+          zoneId: 'ZF7',
+          label: 'HE-RBW A130044',
+          props: { x: 78, y: 59 },
+        },
+        {
+          id: 'uga-80545f',
+          kind: 'UGA',
+          zoneId: 'ZF8',
+          label: 'Module 80545F A130047',
+          props: { x: 38, y: 65 },
+        },
+        {
+          id: 'das-vmp0242',
+          kind: 'DAS',
+          zoneId: 'ZF8',
+          label: 'VMP0242/4845 A130047',
+          props: { x: 43, y: 82 },
+        },
+        {
+          id: 'das-bc242',
+          kind: 'DAS',
+          zoneId: 'ZF8',
+          label: 'BC242/484 P858015',
+          props: { x: 50, y: 82 },
+        },
+      ],
+    },
+    manualResettable: {
+      dmZones: ['ZF1'],
+      daiZones: ['ZF2', 'ZF5'],
+    },
+    events: [
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF2',
+        offset: 0,
+        label: 'Préalarme initiale sur boucle HE-MB',
+        sequence: [
+          { deviceId: 'dai-he-mb', delay: 0 },
+          { deviceId: 'dai-he-sec', delay: 4 },
+        ],
+      },
+      {
+        type: 'PROCESS_ACK',
+        offset: 25,
+        ackedBy: 'trainer',
+        label: 'Acquittement du process',
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF5',
+        offset: 55,
+        label: 'Propagation vers la boucle HE-C',
+        sequence: [
+          { deviceId: 'dai-he-c', delay: 0 },
+          { deviceId: 'dai-he-w', delay: 6 },
+        ],
+      },
+      {
+        type: 'DM_TRIGGER',
+        zoneId: 'ZF1',
+        offset: 85,
+        label: 'Déclenchement manuel principal',
+        sequence: [
+          { deviceId: 'dm-msa-rp325f-01', delay: 0 },
+          { deviceId: 'dm-msa-rp325f-03', delay: 8 },
+        ],
+      },
+      {
+        type: 'MANUAL_EVAC_START',
+        offset: 110,
+        reason: 'Ordre formateur - évacuation locale',
+        label: 'Évacuation manuelle',
+      },
+      {
+        type: 'PROCESS_CLEAR',
+        offset: 145,
+        label: 'Nettoyage de l’acquit',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF2',
+        offset: 175,
+        label: 'Réarmement boucle HE-MB',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF5',
+        offset: 205,
+        label: 'Réarmement boucle HE-C',
+      },
+      {
+        type: 'DM_RESET',
+        zoneId: 'ZF1',
+        offset: 230,
+        label: 'Réarmement DM principal',
+      },
+      {
+        type: 'MANUAL_EVAC_STOP',
+        offset: 245,
+        reason: 'Fin de manœuvre',
+        label: 'Fin évacuation manuelle',
+      },
+      {
+        type: 'SYSTEM_RESET',
+        offset: 275,
+        label: 'Retour au repos',
+      },
+    ],
+  };
+}
 
 function formatScenarioFileName(name: string): string {
   const slug = name
@@ -2289,6 +2499,33 @@ export function App() {
     [refreshScenarios, sdk],
   );
 
+  const handleScenarioLoadHoneywellPreset = useCallback(async () => {
+    setScenarioSaving(true);
+    setScenarioError(null);
+    setScenarioFeedback(null);
+    try {
+      const payload = createHoneywellTypeBScenarioPayload();
+      const existingPreset = scenarios.find((scenario) => scenario.name === HONEYWELL_PRESET_SCENARIO_NAME);
+      const saved = existingPreset
+        ? await sdk.updateScenario(existingPreset.id, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
+      setEditingScenarioId(saved.id);
+      refreshScenarios();
+      setScenarioFeedback(
+        existingPreset
+          ? `Preset « ${HONEYWELL_PRESET_SCENARIO_NAME} » mis à jour.`
+          : `Preset « ${HONEYWELL_PRESET_SCENARIO_NAME} » créé.`,
+      );
+    } catch (error) {
+      console.error(error);
+      setScenarioError('Impossible de charger le preset Honeywell.');
+      setScenarioFeedback(null);
+    } finally {
+      setScenarioSaving(false);
+    }
+  }, [refreshScenarios, scenarios, sdk]);
+
   const handleScenarioRun = async (scenarioId: string) => {
     try {
       const status = await sdk.runScenario(scenarioId);
@@ -3238,6 +3475,15 @@ export function App() {
                     <button type="button" className="btn btn--ghost" onClick={handleScenarioResetForm}>
                       Nouveau
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn--preset"
+                      onClick={handleScenarioLoadHoneywellPreset}
+                      disabled={scenarioSaving}
+                      aria-busy={scenarioSaving}
+                    >
+                      {scenarioSaving ? 'Chargement…' : 'Preset H4YB'}
+                    </button>
                   </div>
                   <input
                     ref={scenarioFileInputRef}
@@ -3247,6 +3493,20 @@ export function App() {
                     style={{ display: 'none' }}
                   />
                 </div>
+                <article className="scenario-preset" aria-label="Preset Honeywell Type B">
+                  <img
+                    src={HONEYWELL_PRESET_PLAN_IMAGE}
+                    alt="Synoptique Honeywell Type B adressable"
+                    className="scenario-preset__image"
+                  />
+                  <div className="scenario-preset__content">
+                    <strong>Scénario prédéfini Honeywell Type B</strong>
+                    <p>
+                      Chaîne pédagogique prête à l&apos;emploi: détection DAI multi-zones, acquittement,
+                      évacuation manuelle et retour au repos.
+                    </p>
+                  </div>
+                </article>
                 <ul className="scenario-list">
                   {scenarios.length === 0 && <li className="scenario-list__empty">Aucun scénario enregistré.</li>}
                   {scenarios.map((scenario) => {

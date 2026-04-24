@@ -77,6 +77,7 @@ const DEVICE_MARKER_LABELS: Record<string, string> = {
 const LOWEST_ACCESS_LEVEL = 1;
 const LOWEST_ACCESS_MESSAGE = 'Niveau 1 actif — arrêt signal sonore disponible.';
 const ACCESS_LEVEL_AUTO_RESET_DELAY_MS = 100_000;
+const SIEMENS_CMSI_REFERENCE_IMAGE = '/references/siemens-cmsi-reference.jpg';
 const DEVICE_TRIGGER_SOUND_SRC =
   'data:audio/wav;base64,' +
   'UklGRnoKAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YVYKAAAAADAISRAzGNUfGyfuLTw08Tn8PlBD30afSYhLlUzC' +
@@ -2038,6 +2039,10 @@ export function TraineeApp() {
             <span className="brand">Logiciel de simulation SSI</span>
             <h1 className="title">Poste Apprenant – Façade CMSI</h1>
           </div>
+          <figure className="hardware-reference">
+            <img src={SIEMENS_CMSI_REFERENCE_IMAGE} alt="Façade Siemens de référence" />
+            <figcaption>Référence visuelle Siemens</figcaption>
+          </figure>
           <div className={`scenario-chip scenario-chip--${scenarioStatus.status}`}>
             {scenarioUiStatus.scenario?.name ?? 'Scénario libre'} · {scenarioStatusLabel}
           </div>

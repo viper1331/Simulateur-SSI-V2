@@ -1649,3 +1649,321 @@ button {
     align-items: flex-start;
   }
 }
+
+/* Siemens-inspired visual refresh */
+.trainee-shell {
+  background: linear-gradient(180deg, #f5f6f8 0%, #ebedf1 52%, #e2e5eb 100%);
+}
+
+.trainee-header {
+  border-bottom: 3px solid #cfd4db;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f6f9 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 16px 28px rgba(36, 47, 66, 0.08);
+}
+
+.header-identification {
+  flex-wrap: wrap;
+  gap: 1rem 1.3rem;
+}
+
+.brand {
+  color: #6b7788;
+  letter-spacing: 0.18em;
+}
+
+.title {
+  color: #2f3f55;
+  font-weight: 700;
+}
+
+.hardware-reference {
+  margin: 0;
+  width: 168px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #cdd3dc;
+  background: #fff;
+  box-shadow: 0 10px 18px rgba(34, 42, 58, 0.12);
+}
+
+.hardware-reference img {
+  display: block;
+  width: 100%;
+  height: 108px;
+  object-fit: cover;
+}
+
+.hardware-reference figcaption {
+  padding: 0.38rem 0.58rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #4f5f74;
+  border-top: 1px solid #e3e8ef;
+}
+
+.scenario-chip {
+  border: 1px solid #c5dce6;
+  box-shadow:
+    inset 0 -2px 0 rgba(0, 0, 0, 0.08),
+    0 8px 16px rgba(34, 84, 103, 0.22);
+  background: linear-gradient(135deg, #4a8ca7, #66b3c7);
+}
+
+.scenario-chip--running {
+  background: linear-gradient(135deg, #d38d31, #ecb96a);
+}
+
+.scenario-chip--completed {
+  background: linear-gradient(135deg, #4a8e62, #66b37f);
+}
+
+.scenario-chip--stopped {
+  background: linear-gradient(135deg, #b65959, #db8b8b);
+}
+
+.synoptic-panel {
+  border: 1px solid #cfd4dc;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f6f9 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 24px 36px rgba(31, 41, 58, 0.12);
+}
+
+.panel-title {
+  color: #3f92ad;
+  letter-spacing: 0.14em;
+}
+
+.panel-subtitle {
+  color: #6a7384;
+}
+
+.panel-mode {
+  border-color: #bfd8e3;
+  background: linear-gradient(180deg, #ffffff, #eff5f7);
+  color: #3d6070;
+}
+
+.topology-led-screen {
+  background: linear-gradient(145deg, #f7f9fc, #edf1f6);
+  color: #2f3f55;
+  border: 1px solid #cfd6e1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 14px 24px rgba(30, 42, 60, 0.12);
+}
+
+.topology-led-screen__title {
+  color: #3f92ad;
+}
+
+.topology-led-screen__subtitle,
+.topology-led-screen__selection-label,
+.topology-led-screen__selection-zone,
+.topology-led-screen__hint {
+  color: #677385;
+}
+
+.topology-led-screen__selection-value {
+  color: #2f3f55;
+}
+
+.topology-led-screen__access {
+  background: linear-gradient(135deg, #5da4bc, #75b9cd);
+}
+
+.topology-led-tree {
+  background: #ffffff;
+  border-color: #d7deea;
+}
+
+.topology-led-node {
+  color: #33445d;
+}
+
+.topology-led-node:hover {
+  background: rgba(100, 148, 173, 0.14);
+}
+
+.topology-led-node.is-selected {
+  background: rgba(100, 148, 173, 0.26);
+}
+
+.board-tile {
+  background: linear-gradient(180deg, #fdfefe 0%, #f2f5f9 100%);
+  border: 1px solid #cfd6e1;
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.tile-label {
+  font-size: 0.92rem;
+  color: #425168;
+}
+
+.tile-description {
+  font-size: 0.82rem;
+  color: #5f6e82;
+}
+
+.tile-led {
+  width: 16px;
+  height: 16px;
+  border: 1px solid #b5bfcd;
+  background: radial-gradient(circle at 32% 32%, #f5f6f9, #d1d7e0);
+}
+
+.board-tile.is-active {
+  transform: translateY(-2px);
+}
+
+.board-tile.tone-alarm.is-active .tile-led {
+  background: radial-gradient(circle at 32% 32%, #fff1f1, #d94747);
+  box-shadow: 0 0 12px rgba(217, 71, 71, 0.55);
+}
+
+.board-tile.tone-info.is-active .tile-led {
+  background: radial-gradient(circle at 32% 32%, #f4fbff, #5f95b2);
+  box-shadow: 0 0 10px rgba(95, 149, 178, 0.5);
+}
+
+.board-tile.tone-safe.is-active .tile-led {
+  background: radial-gradient(circle at 32% 32%, #f5fff8, #3f9c61);
+  box-shadow: 0 0 10px rgba(63, 156, 97, 0.5);
+}
+
+.board-tile.tone-warning.is-active .tile-led {
+  background: radial-gradient(circle at 32% 32%, #fff7ec, #dca04e);
+  box-shadow: 0 0 10px rgba(220, 160, 78, 0.5);
+}
+
+.control-strip {
+  justify-content: flex-start;
+}
+
+.control-button {
+  border-radius: 8px;
+  border: 1px solid #c7cfdc;
+  background: linear-gradient(180deg, #ffffff 0%, #eef2f7 100%);
+  color: #38475f;
+  letter-spacing: 0.08em;
+  box-shadow: 0 10px 16px rgba(34, 42, 58, 0.11);
+}
+
+.control-button:hover {
+  box-shadow: 0 14px 22px rgba(34, 42, 58, 0.15);
+}
+
+.control-amber {
+  background: linear-gradient(180deg, #fff7e8 0%, #f8dfb2 100%);
+  border-color: #dbbf8a;
+}
+
+.control-blue {
+  background: linear-gradient(180deg, #eff7fb 0%, #c8e0ed 100%);
+  border-color: #9fbfce;
+}
+
+.control-green {
+  background: linear-gradient(180deg, #f0f9f3 0%, #c5e6d0 100%);
+  border-color: #9ec6ad;
+}
+
+.control-red {
+  background: linear-gradient(180deg, #fff1f1 0%, #efc4c4 100%);
+  border-color: #d4a0a0;
+}
+
+.control-purple {
+  background: linear-gradient(180deg, #f6f7fb 0%, #d7dced 100%);
+  border-color: #b4bdd6;
+  color: #3f4f66;
+}
+
+.detail-panel {
+  border-radius: 14px;
+  border: 1px solid #ced5e0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 18px 30px rgba(32, 43, 61, 0.12);
+}
+
+.access-panel {
+  background: linear-gradient(180deg, #fbfcfe 0%, #f1f4f9 100%);
+  color: #33445d;
+  border-color: #cad2de;
+}
+
+.access-panel::before {
+  display: none;
+}
+
+.led-screen {
+  font-family: 'Segoe UI', 'Roboto', sans-serif;
+  border-color: #ced8e7;
+  background: linear-gradient(180deg, #ffffff 0%, #edf3fa 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.led-screen__level {
+  color: #5d6f87;
+}
+
+.led-screen__message {
+  color: #2c3d54;
+}
+
+.led-screen__status {
+  color: #6b7d93;
+}
+
+.keypad__display {
+  border-color: #cad2de;
+  background: #ffffff;
+  color: #37475e;
+}
+
+.keypad__key {
+  border-color: #ccd4df;
+  background: linear-gradient(180deg, #ffffff 0%, #edf1f6 100%);
+  color: #33445b;
+}
+
+.keypad__key:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f6fbfe 0%, #dceaf2 100%);
+}
+
+.keypad__key--action {
+  background: linear-gradient(180deg, #fff3f3 0%, #f3d2d2 100%);
+}
+
+.keypad__key--confirm {
+  background: linear-gradient(180deg, #f2faf4 0%, #d2ebd9 100%);
+  color: #2f4f3a;
+}
+
+.access-panel__hint {
+  color: #586980;
+}
+
+@media (max-width: 1200px) {
+  .hardware-reference {
+    width: 138px;
+  }
+}
+
+@media (max-width: 700px) {
+  .header-identification {
+    align-items: flex-start;
+  }
+
+  .hardware-reference {
+    width: 100%;
+    max-width: 220px;
+  }
+}
