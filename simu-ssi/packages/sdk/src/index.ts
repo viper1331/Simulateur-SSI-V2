@@ -300,7 +300,7 @@ export class SsiSdk {
   constructor(private readonly baseUrl: string) {}
 
   async getSiteConfig(): Promise<SiteConfig> {
-    const response = await fetch(`${this.baseUrl}/api/config/site`);
+    const response = await this.request(`${this.baseUrl}/api/config/site`);
     if (!response.ok) {
       throw new Error('Failed to fetch site config');
     }
@@ -309,7 +309,7 @@ export class SsiSdk {
   }
 
   async updateSiteConfig(input: Pick<SiteConfig, 'evacOnDAI' | 'evacOnDMDelayMs' | 'processAckRequired'>): Promise<SiteConfig> {
-    const response = await fetch(`${this.baseUrl}/api/config/site`, {
+    const response = await this.request(`${this.baseUrl}/api/config/site`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -372,7 +372,7 @@ export class SsiSdk {
   }
 
   async verifyAccessCode(code: string): Promise<AccessAuthorisation> {
-    const response = await fetch(`${this.baseUrl}/api/access/verify`, {
+    const response = await this.request(`${this.baseUrl}/api/access/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
@@ -385,7 +385,7 @@ export class SsiSdk {
   }
 
   async getAccessCodes(): Promise<AccessCode[]> {
-    const response = await fetch(`${this.baseUrl}/api/access/codes`);
+    const response = await this.request(`${this.baseUrl}/api/access/codes`);
     if (!response.ok) {
       throw new Error('Failed to fetch access codes');
     }
@@ -395,7 +395,7 @@ export class SsiSdk {
   }
 
   async updateAccessCode(level: number, code: string): Promise<AccessCode> {
-    const response = await fetch(`${this.baseUrl}/api/access/codes/${level}`, {
+    const response = await this.request(`${this.baseUrl}/api/access/codes/${level}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
@@ -414,7 +414,7 @@ export class SsiSdk {
     if (role) {
       url.searchParams.set('role', role);
     }
-    const response = await fetch(url.toString());
+    const response = await this.request(url.toString());
     if (!response.ok) {
       throw new Error('Failed to fetch users');
     }
@@ -424,7 +424,7 @@ export class SsiSdk {
   }
 
   async createUser(input: UserCreateInput): Promise<UserSummary> {
-    const response = await fetch(`${this.baseUrl}/api/users`, {
+    const response = await this.request(`${this.baseUrl}/api/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -437,7 +437,7 @@ export class SsiSdk {
   }
 
   async updateUser(id: string, input: UserUpdateInput): Promise<UserSummary> {
-    const response = await fetch(`${this.baseUrl}/api/users/${id}`, {
+    const response = await this.request(`${this.baseUrl}/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -450,7 +450,7 @@ export class SsiSdk {
   }
 
   async deleteUser(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/users/${id}`, {
+    const response = await this.request(`${this.baseUrl}/api/users/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) {
@@ -462,7 +462,7 @@ export class SsiSdk {
     if (payload.users.length === 0) {
       throw new Error('No users to import');
     }
-    const response = await fetch(`${this.baseUrl}/api/users/import`, {
+    const response = await this.request(`${this.baseUrl}/api/users/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -481,7 +481,7 @@ export class SsiSdk {
     if (limit) {
       url.searchParams.set('limit', String(limit));
     }
-    const response = await fetch(url.toString());
+    const response = await this.request(url.toString());
     if (!response.ok) {
       throw new Error('Failed to fetch sessions');
     }
@@ -491,7 +491,7 @@ export class SsiSdk {
   }
 
   async getCurrentSession(): Promise<SessionSummary | null> {
-    const response = await fetch(`${this.baseUrl}/api/sessions/active`);
+    const response = await this.request(`${this.baseUrl}/api/sessions/active`);
     if (!response.ok) {
       throw new Error('Failed to fetch current session');
     }
@@ -501,7 +501,7 @@ export class SsiSdk {
   }
 
   async createSession(payload: SessionCreateRequest): Promise<SessionSummary> {
-    const response = await fetch(`${this.baseUrl}/api/sessions`, {
+    const response = await this.request(`${this.baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -514,7 +514,7 @@ export class SsiSdk {
   }
 
   async updateSession(id: string, payload: SessionUpdateRequest): Promise<SessionSummary> {
-    const response = await fetch(`${this.baseUrl}/api/sessions/${id}`, {
+    const response = await this.request(`${this.baseUrl}/api/sessions/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -527,7 +527,7 @@ export class SsiSdk {
   }
 
   async generateImprovementSuggestions(sessionId: string): Promise<SessionImprovement[]> {
-    const response = await fetch(`${this.baseUrl}/api/sessions/${sessionId}/improvement-suggestions`);
+    const response = await this.request(`${this.baseUrl}/api/sessions/${sessionId}/improvement-suggestions`);
     if (!response.ok) {
       throw new Error('Failed to generate improvement suggestions');
     }
@@ -537,7 +537,7 @@ export class SsiSdk {
   }
 
   async closeSession(id: string, payload: SessionCloseRequest = {}): Promise<SessionSummary> {
-    const response = await fetch(`${this.baseUrl}/api/sessions/${id}/close`, {
+    const response = await this.request(`${this.baseUrl}/api/sessions/${id}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -550,7 +550,7 @@ export class SsiSdk {
   }
 
   async getTraineeLayout(): Promise<TraineeLayoutConfig> {
-    const response = await fetch(`${this.baseUrl}/api/config/trainee-layout`);
+    const response = await this.request(`${this.baseUrl}/api/config/trainee-layout`);
     if (!response.ok) {
       throw new Error('Failed to fetch trainee layout');
     }
@@ -563,7 +563,7 @@ export class SsiSdk {
   }
 
   async updateTraineeLayout(layout: TraineeLayoutConfig): Promise<TraineeLayoutConfig> {
-    const response = await fetch(`${this.baseUrl}/api/config/trainee-layout`, {
+    const response = await this.request(`${this.baseUrl}/api/config/trainee-layout`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(layout),
@@ -582,7 +582,7 @@ export class SsiSdk {
   }
 
   async listScenarios(): Promise<ScenarioDefinition[]> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios`);
+    const response = await this.request(`${this.baseUrl}/api/scenarios`);
     if (!response.ok) {
       throw new Error('Failed to fetch scenarios');
     }
@@ -591,7 +591,7 @@ export class SsiSdk {
   }
 
   async getScenario(id: string): Promise<ScenarioDefinition> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}`);
+    const response = await this.request(`${this.baseUrl}/api/scenarios/${id}`);
     if (!response.ok) {
       throw new Error('Failed to fetch scenario');
     }
@@ -600,7 +600,7 @@ export class SsiSdk {
   }
 
   async getActiveScenario(): Promise<ScenarioRunnerSnapshot> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/active`);
+    const response = await this.request(`${this.baseUrl}/api/scenarios/active`);
     if (!response.ok) {
       throw new Error('Failed to fetch scenario status');
     }
@@ -609,7 +609,7 @@ export class SsiSdk {
   }
 
   async createScenario(payload: ScenarioPayload): Promise<ScenarioDefinition> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -622,7 +622,7 @@ export class SsiSdk {
   }
 
   async updateScenario(id: string, payload: ScenarioPayload): Promise<ScenarioDefinition> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -635,7 +635,7 @@ export class SsiSdk {
   }
 
   async deleteScenario(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) {
@@ -644,7 +644,7 @@ export class SsiSdk {
   }
 
   async runScenario(id: string): Promise<ScenarioRunnerSnapshot> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}/run`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios/${id}/run`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -655,7 +655,7 @@ export class SsiSdk {
   }
 
   async preloadScenario(id: string): Promise<ScenarioRunnerSnapshot> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/${id}/preload`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios/${id}/preload`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -666,7 +666,7 @@ export class SsiSdk {
   }
 
   async stopScenario(): Promise<ScenarioRunnerSnapshot> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/stop`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios/stop`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -677,7 +677,7 @@ export class SsiSdk {
   }
 
   async completeScenario(): Promise<ScenarioRunnerSnapshot> {
-    const response = await fetch(`${this.baseUrl}/api/scenarios/complete`, {
+    const response = await this.request(`${this.baseUrl}/api/scenarios/complete`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -688,7 +688,7 @@ export class SsiSdk {
   }
 
   async getTopology(): Promise<SiteTopology> {
-    const response = await fetch(`${this.baseUrl}/api/topology`);
+    const response = await this.request(`${this.baseUrl}/api/topology`);
     if (!response.ok) {
       throw new Error('Failed to fetch topology');
     }
@@ -697,7 +697,7 @@ export class SsiSdk {
   }
 
   async updateTopology(topology: SiteTopology): Promise<SiteTopology> {
-    const response = await fetch(`${this.baseUrl}/api/topology`, {
+    const response = await this.request(`${this.baseUrl}/api/topology`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(topology),
@@ -712,7 +712,7 @@ export class SsiSdk {
   }
 
   private async post(path: string, body?: unknown) {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const response = await this.request(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
