@@ -1682,6 +1682,11 @@ kbd {
   color: #0f172a;
 }
 
+.scenario-presets {
+  display: grid;
+  gap: 12px;
+}
+
 .scenario-preset {
   border-radius: 18px;
   border: 1px solid rgba(161, 116, 24, 0.28);
@@ -1717,6 +1722,25 @@ kbd {
   font-size: 0.84rem;
   line-height: 1.5;
   color: rgba(88, 64, 24, 0.86);
+}
+
+.scenario-preset--mermoz {
+  border-color: rgba(32, 101, 81, 0.28);
+  background: linear-gradient(140deg, #ecfbf7, #d9f0ea);
+  box-shadow: 0 12px 24px rgba(24, 92, 74, 0.12);
+}
+
+.scenario-preset--mermoz .scenario-preset__image {
+  background: #ffffff;
+  object-fit: contain;
+}
+
+.scenario-preset--mermoz .scenario-preset__content strong {
+  color: #0f6652;
+}
+
+.scenario-preset--mermoz .scenario-preset__content p {
+  color: rgba(18, 80, 66, 0.88);
 }
 
 .scenario-list {

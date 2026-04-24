@@ -682,6 +682,8 @@ const SCENARIO_EXPORT_FORMAT = 'simu-ssi/scenario@1';
 const USER_EXPORT_FORMAT = 'simu-ssi/users@1';
 const HONEYWELL_PRESET_SCENARIO_NAME = 'Preset H4YB - CMSI adressable';
 const HONEYWELL_PRESET_PLAN_IMAGE = '/presets/honeywell-type-b.png';
+const MERMOZ_PRESET_SCENARIO_NAME = 'Preset L02 Mermoz - detection sans evacuation';
+const MERMOZ_PRESET_PLAN_IMAGE = '/presets/l02-mermoz.jpg';
 
 function createHoneywellTypeBScenarioPayload(): ScenarioPayload {
   return {
@@ -886,6 +888,192 @@ function createHoneywellTypeBScenarioPayload(): ScenarioPayload {
         type: 'SYSTEM_RESET',
         offset: 275,
         label: 'Retour au repos',
+      },
+    ],
+  };
+}
+
+function createL02MermozDetectionOnlyScenarioPayload(): ScenarioPayload {
+  return {
+    name: MERMOZ_PRESET_SCENARIO_NAME,
+    description:
+      'Scenario incendie base sur la detection automatique DAI uniquement, sans ordre d evacuation. Le scenario simule une propagation progressive puis un retour au repos apres rearmement.',
+    topology: {
+      plan: {
+        image: MERMOZ_PRESET_PLAN_IMAGE,
+        name: 'Batiment L02 Mermoz',
+        notes:
+          'Points verts: detecteurs automatiques (DAI). Carres verts: declencheurs manuels (DM). Exercice cible: detection sans evacuation automatique.',
+      },
+      zones: [
+        { id: 'ZF1', label: 'Plateau nord', kind: 'ZF' },
+        { id: 'ZF2', label: 'Noyau central technique', kind: 'ZF' },
+        { id: 'ZF3', label: 'Aile sud-ouest', kind: 'ZF' },
+        { id: 'ZF4', label: 'Aile sud-centre', kind: 'ZF' },
+        { id: 'ZF5', label: 'Aile sud-est', kind: 'ZF' },
+        { id: 'ZF6', label: 'Bloc est compartimente', kind: 'ZF' },
+        { id: 'ZF7', label: 'Circulations et DM perimetre', kind: 'ZF' },
+      ],
+      devices: [
+        { id: 'dai-l02-n-01', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N01', props: { x: 4, y: 8 } },
+        { id: 'dai-l02-n-02', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N02', props: { x: 12, y: 8 } },
+        { id: 'dai-l02-n-03', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N03', props: { x: 20, y: 8 } },
+        { id: 'dai-l02-n-04', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N04', props: { x: 28, y: 8 } },
+        { id: 'dai-l02-n-05', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N05', props: { x: 36, y: 8 } },
+        { id: 'dai-l02-n-06', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N06', props: { x: 44, y: 8 } },
+        { id: 'dai-l02-n-07', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N07', props: { x: 52, y: 8 } },
+        { id: 'dai-l02-n-08', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N08', props: { x: 60, y: 8 } },
+        { id: 'dai-l02-n-09', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N09', props: { x: 68, y: 8 } },
+        { id: 'dai-l02-n-10', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N10', props: { x: 76, y: 8 } },
+        { id: 'dai-l02-n-11', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N11', props: { x: 84, y: 8 } },
+        { id: 'dai-l02-n-12', kind: 'DAI', zoneId: 'ZF1', label: 'DAI N12', props: { x: 92, y: 8 } },
+
+        { id: 'dai-l02-c-01', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C01', props: { x: 28, y: 34 } },
+        { id: 'dai-l02-c-02', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C02', props: { x: 34, y: 34 } },
+        { id: 'dai-l02-c-03', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C03', props: { x: 44, y: 34 } },
+        { id: 'dai-l02-c-04', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C04', props: { x: 52, y: 34 } },
+        { id: 'dai-l02-c-05', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C05', props: { x: 60, y: 34 } },
+        { id: 'dai-l02-c-06', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C06', props: { x: 36, y: 40 } },
+        { id: 'dai-l02-c-07', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C07', props: { x: 43, y: 38 } },
+        { id: 'dai-l02-c-08', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C08', props: { x: 50, y: 38 } },
+        { id: 'dai-l02-c-09', kind: 'DAI', zoneId: 'ZF2', label: 'DAI C09', props: { x: 58, y: 40 } },
+
+        { id: 'dai-l02-sw-01', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW01', props: { x: 6, y: 75 } },
+        { id: 'dai-l02-sw-02', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW02', props: { x: 14, y: 75 } },
+        { id: 'dai-l02-sw-03', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW03', props: { x: 22, y: 75 } },
+        { id: 'dai-l02-sw-04', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW04', props: { x: 30, y: 75 } },
+        { id: 'dai-l02-sw-05', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW05', props: { x: 20, y: 83 } },
+        { id: 'dai-l02-sw-06', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW06', props: { x: 28, y: 83 } },
+        { id: 'dai-l02-sw-07', kind: 'DAI', zoneId: 'ZF3', label: 'DAI SW07', props: { x: 36, y: 83 } },
+
+        { id: 'dai-l02-sc-01', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC01', props: { x: 38, y: 75 } },
+        { id: 'dai-l02-sc-02', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC02', props: { x: 46, y: 75 } },
+        { id: 'dai-l02-sc-03', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC03', props: { x: 54, y: 75 } },
+        { id: 'dai-l02-sc-04', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC04', props: { x: 62, y: 75 } },
+        { id: 'dai-l02-sc-05', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC05', props: { x: 44, y: 83 } },
+        { id: 'dai-l02-sc-06', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC06', props: { x: 52, y: 83 } },
+        { id: 'dai-l02-sc-07', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC07', props: { x: 60, y: 83 } },
+        { id: 'dai-l02-sc-08', kind: 'DAI', zoneId: 'ZF4', label: 'DAI SC08', props: { x: 66, y: 83 } },
+
+        { id: 'dai-l02-se-01', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE01', props: { x: 70, y: 75 } },
+        { id: 'dai-l02-se-02', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE02', props: { x: 78, y: 75 } },
+        { id: 'dai-l02-se-03', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE03', props: { x: 86, y: 75 } },
+        { id: 'dai-l02-se-04', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE04', props: { x: 94, y: 75 } },
+        { id: 'dai-l02-se-05', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE05', props: { x: 74, y: 83 } },
+        { id: 'dai-l02-se-06', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE06', props: { x: 82, y: 83 } },
+        { id: 'dai-l02-se-07', kind: 'DAI', zoneId: 'ZF5', label: 'DAI SE07', props: { x: 88, y: 83 } },
+
+        { id: 'dai-l02-e-01', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E01', props: { x: 82, y: 90 } },
+        { id: 'dai-l02-e-02', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E02', props: { x: 88, y: 90 } },
+        { id: 'dai-l02-e-03', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E03', props: { x: 94, y: 90 } },
+        { id: 'dai-l02-e-04', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E04', props: { x: 82, y: 96 } },
+        { id: 'dai-l02-e-05', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E05', props: { x: 88, y: 96 } },
+        { id: 'dai-l02-e-06', kind: 'DAI', zoneId: 'ZF6', label: 'DAI E06', props: { x: 94, y: 96 } },
+
+        { id: 'dm-l02-01', kind: 'DM', zoneId: 'ZF7', label: 'DM P01', props: { x: 12, y: 7 } },
+        { id: 'dm-l02-02', kind: 'DM', zoneId: 'ZF7', label: 'DM P02', props: { x: 84, y: 7 } },
+        { id: 'dm-l02-03', kind: 'DM', zoneId: 'ZF7', label: 'DM P03', props: { x: 92, y: 20 } },
+        { id: 'dm-l02-04', kind: 'DM', zoneId: 'ZF7', label: 'DM P04', props: { x: 92, y: 34 } },
+        { id: 'dm-l02-05', kind: 'DM', zoneId: 'ZF7', label: 'DM P05', props: { x: 92, y: 48 } },
+        { id: 'dm-l02-06', kind: 'DM', zoneId: 'ZF7', label: 'DM P06', props: { x: 92, y: 62 } },
+        { id: 'dm-l02-07', kind: 'DM', zoneId: 'ZF7', label: 'DM P07', props: { x: 8, y: 77 } },
+        { id: 'dm-l02-08', kind: 'DM', zoneId: 'ZF7', label: 'DM P08', props: { x: 4, y: 84 } },
+        { id: 'dm-l02-09', kind: 'DM', zoneId: 'ZF7', label: 'DM P09', props: { x: 4, y: 92 } },
+        { id: 'dm-l02-10', kind: 'DM', zoneId: 'ZF7', label: 'DM P10', props: { x: 12, y: 98 } },
+        { id: 'dm-l02-11', kind: 'DM', zoneId: 'ZF7', label: 'DM P11', props: { x: 26, y: 87 } },
+        { id: 'dm-l02-12', kind: 'DM', zoneId: 'ZF7', label: 'DM P12', props: { x: 68, y: 80 } },
+        { id: 'dm-l02-13', kind: 'DM', zoneId: 'ZF7', label: 'DM P13', props: { x: 96, y: 80 } },
+        { id: 'dm-l02-14', kind: 'DM', zoneId: 'ZF7', label: 'DM P14', props: { x: 96, y: 96 } },
+      ],
+    },
+    manualResettable: {
+      dmZones: ['ZF7'],
+      daiZones: ['ZF2', 'ZF1', 'ZF4', 'ZF6'],
+    },
+    events: [
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF2',
+        offset: 0,
+        label: 'Depart de feu dans le noyau central',
+        sequence: [
+          { deviceId: 'dai-l02-c-03', delay: 0 },
+          { deviceId: 'dai-l02-c-07', delay: 4 },
+          { deviceId: 'dai-l02-c-08', delay: 9 },
+        ],
+      },
+      {
+        type: 'PROCESS_ACK',
+        offset: 35,
+        ackedBy: 'trainer',
+        label: 'Acquittement process de la detection',
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF1',
+        offset: 70,
+        label: 'Propagation de fumee sous plafond nord',
+        sequence: [
+          { deviceId: 'dai-l02-n-06', delay: 0 },
+          { deviceId: 'dai-l02-n-08', delay: 8 },
+          { deviceId: 'dai-l02-n-10', delay: 16 },
+        ],
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF4',
+        offset: 120,
+        label: 'Extension vers les circulations sud-centre',
+        sequence: [
+          { deviceId: 'dai-l02-sc-02', delay: 0 },
+          { deviceId: 'dai-l02-sc-06', delay: 10 },
+          { deviceId: 'dai-l02-sc-08', delay: 20 },
+        ],
+      },
+      {
+        type: 'DAI_TRIGGER',
+        zoneId: 'ZF6',
+        offset: 165,
+        label: 'Point chaud detecte dans le bloc est',
+        sequence: [
+          { deviceId: 'dai-l02-e-01', delay: 0 },
+          { deviceId: 'dai-l02-e-03', delay: 7 },
+          { deviceId: 'dai-l02-e-05', delay: 15 },
+        ],
+      },
+      {
+        type: 'PROCESS_CLEAR',
+        offset: 205,
+        label: "Nettoyage de l'acquit process pour la phase de retour au repos",
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF2',
+        offset: 225,
+        label: 'Rearmement detecteurs noyau central',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF1',
+        offset: 245,
+        label: 'Rearmement detecteurs plateau nord',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF4',
+        offset: 265,
+        label: 'Rearmement detecteurs sud-centre',
+      },
+      {
+        type: 'DAI_RESET',
+        zoneId: 'ZF6',
+        offset: 285,
+        label: 'Rearmement detecteurs bloc est',
+      },
+      {
+        type: 'SYSTEM_RESET',
+        offset: 305,
+        label: 'Retour systeme a letat de repos',
       },
     ],
   };
@@ -2526,6 +2714,33 @@ export function App() {
     }
   }, [refreshScenarios, scenarios, sdk]);
 
+  const handleScenarioLoadMermozPreset = useCallback(async () => {
+    setScenarioSaving(true);
+    setScenarioError(null);
+    setScenarioFeedback(null);
+    try {
+      const payload = createL02MermozDetectionOnlyScenarioPayload();
+      const existingPreset = scenarios.find((scenario) => scenario.name === MERMOZ_PRESET_SCENARIO_NAME);
+      const saved = existingPreset
+        ? await sdk.updateScenario(existingPreset.id, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
+      setEditingScenarioId(saved.id);
+      refreshScenarios();
+      setScenarioFeedback(
+        existingPreset
+          ? `Preset « ${MERMOZ_PRESET_SCENARIO_NAME} » mis à jour.`
+          : `Preset « ${MERMOZ_PRESET_SCENARIO_NAME} » créé.`,
+      );
+    } catch (error) {
+      console.error(error);
+      setScenarioError('Impossible de charger le preset L02 Mermoz.');
+      setScenarioFeedback(null);
+    } finally {
+      setScenarioSaving(false);
+    }
+  }, [refreshScenarios, scenarios, sdk]);
+
   const handleScenarioRun = async (scenarioId: string) => {
     try {
       const status = await sdk.runScenario(scenarioId);
@@ -3484,6 +3699,15 @@ export function App() {
                     >
                       {scenarioSaving ? 'Chargement…' : 'Preset H4YB'}
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn--preset"
+                      onClick={handleScenarioLoadMermozPreset}
+                      disabled={scenarioSaving}
+                      aria-busy={scenarioSaving}
+                    >
+                      {scenarioSaving ? 'Chargement…' : 'Preset L02'}
+                    </button>
                   </div>
                   <input
                     ref={scenarioFileInputRef}
@@ -3493,20 +3717,36 @@ export function App() {
                     style={{ display: 'none' }}
                   />
                 </div>
-                <article className="scenario-preset" aria-label="Preset Honeywell Type B">
-                  <img
-                    src={HONEYWELL_PRESET_PLAN_IMAGE}
-                    alt="Synoptique Honeywell Type B adressable"
-                    className="scenario-preset__image"
-                  />
-                  <div className="scenario-preset__content">
-                    <strong>Scénario prédéfini Honeywell Type B</strong>
-                    <p>
-                      Chaîne pédagogique prête à l&apos;emploi: détection DAI multi-zones, acquittement,
-                      évacuation manuelle et retour au repos.
-                    </p>
-                  </div>
-                </article>
+                <div className="scenario-presets">
+                  <article className="scenario-preset" aria-label="Preset Honeywell Type B">
+                    <img
+                      src={HONEYWELL_PRESET_PLAN_IMAGE}
+                      alt="Synoptique Honeywell Type B adressable"
+                      className="scenario-preset__image"
+                    />
+                    <div className="scenario-preset__content">
+                      <strong>Scénario prédéfini Honeywell Type B</strong>
+                      <p>
+                        Chaîne pédagogique prête à l&apos;emploi: détection DAI multi-zones, acquittement,
+                        évacuation manuelle et retour au repos.
+                      </p>
+                    </div>
+                  </article>
+                  <article className="scenario-preset scenario-preset--mermoz" aria-label="Preset L02 Mermoz">
+                    <img
+                      src={MERMOZ_PRESET_PLAN_IMAGE}
+                      alt="Plan batiment L02 Mermoz"
+                      className="scenario-preset__image"
+                    />
+                    <div className="scenario-preset__content">
+                      <strong>Scénario détection L02 Mermoz</strong>
+                      <p>
+                        Simulation incendie sans évacuation: progression sur détecteurs automatiques,
+                        acquittement process, réarmement séquencé puis retour au repos.
+                      </p>
+                    </div>
+                  </article>
+                </div>
                 <ul className="scenario-list">
                   {scenarios.length === 0 && <li className="scenario-list__empty">Aucun scénario enregistré.</li>}
                   {scenarios.map((scenario) => {
