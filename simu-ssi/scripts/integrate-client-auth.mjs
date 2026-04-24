@@ -21,31 +21,61 @@ function patchFile(relativePath, patcher) {
   return true;
 }
 
+function mustReplace(source, searchValue, replaceValue, label) {
+  if (!source.includes(searchValue)) {
+    return source;
+  }
+  return source.replace(searchValue, replaceValue);
+}
+
 function patchSdk(source) {
   let out = source;
 
   if (!out.includes('export interface SsiSdkOptions')) {
+    const anchor = `export interface SessionCloseRequest {\n  notes?: string | null;\n  improvementAreas?: SessionImprovement[];\n  endedAt?: string;\n}\n\nexport class SsiSdk {`;
+    if (!out.includes(anchor)) {
+      throw new Error('Unable to insert SsiSdkOptions: SessionCloseRequest anchor not found.');
+    }
     out = out.replace(
-      'export interface SessionCloseRequest {\n  notes?: string | null;\n  improvementAreas?: SessionImprovement[];\n  endedAt?: string;\n}\n\nexport class SsiSdk {',
+      anchor,
       `export interface SessionCloseRequest {\n  notes?: string | null;\n  improvementAreas?: SessionImprovement[];\n  endedAt?: string;\n}\n\nexport interface SsiSdkOptions {\n  apiToken?: string;\n}\n\nexport class SsiSdk {`,
     );
   }
 
-  out = out.replace(
+  out = mustReplace(
+    out,
     'export class SsiSdk {\n  constructor(private readonly baseUrl: string) {}',
     `export class SsiSdk {\n  private readonly apiToken?: string;\n\n  constructor(private readonly baseUrl: string, options: SsiSdkOptions = {}) {\n    this.apiToken = options.apiToken?.trim() || undefined;\n  }`,
+    'SsiSdk constructor',
   );
 
-  if (!out.includes('private async request(')) {
-    out = out.replace(
-      /\n  private async post\(path: string, body\?: unknown\) \{[\s\S]*?\n  \}\n\}/,
-      `\n  private async request(pathOrUrl: string | URL, init: RequestInit = {}): Promise<Response> {\n    const url = pathOrUrl instanceof URL ? pathOrUrl.toString() : pathOrUrl.startsWith('http') ? pathOrUrl : \`\${this.baseUrl}\${pathOrUrl}\`;\n    const headers = new Headers(init.headers);\n    if (this.apiToken && !headers.has('Authorization')) {\n      headers.set('Authorization', \`Bearer \${this.apiToken}\`);\n    }\n    return fetch(url, { ...init, headers });\n  }\n\n  private async post(path: string, body?: unknown) {\n    const headers = new Headers();\n    if (body !== undefined) {\n      headers.set('Content-Type', 'application/json');\n    }\n    const response = await this.request(path, {\n      method: 'POST',\n      headers,\n      body: body ? JSON.stringify(body) : undefined,\n    });\n    if (!response.ok) {\n      throw new Error(\`Request failed: \${response.status}\`);\n    }\n  }\n}\n`,
-    );
+  if (!out.includes('private readonly apiToken?: string;')) {
+    throw new Error('Unable to patch SsiSdk constructor with apiToken support.');
   }
 
   // Replace direct fetch calls inside the SDK class. This keeps public method behavior unchanged
   // while centralizing Authorization header injection in request().
   out = out.replace(/await fetch\(/g, 'await this.request(');
+
+  if (!out.includes('private async request(')) {
+    const postAnchor = '  private async post(path: string, body?: unknown) {';
+    const anchorIndex = out.indexOf(postAnchor);
+    if (anchorIndex === -1) {
+      throw new Error('Unable to insert SDK request helper: private post() anchor not found.');
+    }
+    const requestHelper = `  private async request(pathOrUrl: string | URL, init: RequestInit = {}): Promise<Response> {\n    const url = pathOrUrl instanceof URL ? pathOrUrl.toString() : pathOrUrl.startsWith('http') ? pathOrUrl : \`${'${this.baseUrl}'}${'${pathOrUrl}'}\`;\n    const headers = new Headers(init.headers);\n    if (this.apiToken && !headers.has('Authorization')) {\n      headers.set('Authorization', \`Bearer ${'${this.apiToken}'}\`);\n    }\n    return fetch(url, { ...init, headers });\n  }\n\n`;
+    out = `${out.slice(0, anchorIndex)}${requestHelper}${out.slice(anchorIndex)}`;
+  }
+
+  // Make post() rely on the same centralized header logic without double-prefixing baseUrl.
+  out = out.replace(
+    /const response = await this\.request\(`\$\{this\.baseUrl\}\$\{path\}`, \{[\s\S]*?body: body \? JSON\.stringify\(body\) : undefined,\n    \}\);/,
+    `const headers = new Headers();\n    if (body !== undefined) {\n      headers.set('Content-Type', 'application/json');\n    }\n    const response = await this.request(path, {\n      method: 'POST',\n      headers,\n      body: body ? JSON.stringify(body) : undefined,\n    });`,
+  );
+
+  if (!out.includes('Authorization')) {
+    throw new Error('SDK request helper was not inserted correctly.');
+  }
 
   return out;
 }
