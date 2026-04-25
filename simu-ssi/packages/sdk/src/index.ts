@@ -725,7 +725,13 @@ export class SsiSdk {
     if (this.apiToken && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${this.apiToken}`);
     }
-    return fetch(url, { ...init, headers });
+    if (!headers.has('Cache-Control')) {
+      headers.set('Cache-Control', 'no-store');
+    }
+    if (!headers.has('Pragma')) {
+      headers.set('Pragma', 'no-cache');
+    }
+    return fetch(url, { ...init, headers, cache: 'no-store' });
   }
 
   private async post(path: string, body?: unknown) {
