@@ -18,6 +18,17 @@ import {
   type UserSummary,
 } from '@simu-ssi/sdk';
 
+function getConfiguredApiToken(): string | undefined {
+  const token = import.meta.env.VITE_SIMU_SSI_API_TOKEN;
+  return typeof token === 'string' && token.trim().length > 0 ? token.trim() : undefined;
+}
+
+function createSocketOptions() {
+  const token = getConfiguredApiToken();
+  return token ? { auth: { token } } : undefined;
+}
+
+
 interface CmsiStateData {
   status: string;
   manual?: boolean;
@@ -812,7 +823,7 @@ export function TraineeApp() {
   const [traineeAuthPending, setTraineeAuthPending] = useState<boolean>(false);
   const [outOfServiceIds, setOutOfServiceIds] = useState<string[]>([]);
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
-  const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
+  const sdk = useMemo(() => new SsiSdk(baseUrl, { apiToken: getConfiguredApiToken() }), [baseUrl]);
   const improvementAreas = sessionInfo?.improvementAreas ?? [];
   const selectedDevice = useMemo<SiteDevice | null>(() => {
     if (!selectedDeviceId || !topology) {
@@ -891,7 +902,7 @@ export function TraineeApp() {
   }, []);
 
   useEffect(() => {
-    const socket = io(baseUrl);
+    const socket = io(baseUrl, createSocketOptions());
     socket.on('state.update', (state: Snapshot) => setSnapshot(state));
     socket.on('scenario.update', (status: ScenarioRunnerSnapshot) => setScenarioStatus(status));
     socket.on('layout.update', (payload) => {

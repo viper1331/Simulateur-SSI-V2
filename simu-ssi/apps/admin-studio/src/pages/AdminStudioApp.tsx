@@ -22,6 +22,17 @@ import {
   type SiteZone,
 } from '@simu-ssi/sdk';
 
+function getConfiguredApiToken(): string | undefined {
+  const token = import.meta.env.VITE_SIMU_SSI_API_TOKEN;
+  return typeof token === 'string' && token.trim().length > 0 ? token.trim() : undefined;
+}
+
+function createSocketOptions() {
+  const token = getConfiguredApiToken();
+  return token ? { auth: { token } } : undefined;
+}
+
+
 export type DeviceKind = 'DM' | 'DAI' | 'DAS' | 'UGA';
 
 interface DevicePlacement {
@@ -286,7 +297,7 @@ function normalizeScenarioEventForPayload(event: ScenarioEventDraft): ScenarioEv
 
 export function AdminStudioApp() {
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
-  const sdk = useMemo(() => new SsiSdk(baseUrl), [baseUrl]);
+  const sdk = useMemo(() => new SsiSdk(baseUrl, { apiToken: getConfiguredApiToken() }), [baseUrl]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const topologyFileInputRef = useRef<HTMLInputElement | null>(null);
