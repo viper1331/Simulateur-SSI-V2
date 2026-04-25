@@ -1442,7 +1442,7 @@ export function App() {
   }, [sdk]);
 
   const refreshScenarioStatus = useCallback(() => {
-    sdk.getActiveScenario(, createSocketOptions()).then(setScenarioStatus).catch(console.error);
+    sdk.getActiveScenario().then(setScenarioStatus).catch(console.error);
   }, [sdk]);
 
   const refreshUsers = useCallback(() => {
@@ -2265,14 +2265,14 @@ export function App() {
   );
 
   const updateDraftEvent = (eventId: string, updater: (event: ScenarioEventDraft) => ScenarioEventDraft) => {
-    setDraftScenario((prev, createSocketOptions()) => ({
+    setDraftScenario((prev) => ({
       ...prev,
       events: prev.events.map((event) => (event.id === eventId ? updater(event) : event)),
     }));
   };
 
   const handleScenarioAddEvent = () => {
-    setDraftScenario((prev, createSocketOptions()) => ({
+    setDraftScenario((prev) => ({
       ...prev,
       events: [...prev.events, createDraftEvent('DM_TRIGGER', defaultScenarioZoneId)],
     }));
@@ -2286,7 +2286,7 @@ export function App() {
   };
 
   const handleScenarioRemoveEvent = (eventId: string) => {
-    setDraftScenario((prev, createSocketOptions()) => ({
+    setDraftScenario((prev) => ({
       ...prev,
       events: prev.events.filter((event) => event.id !== eventId),
     }));
@@ -2369,7 +2369,7 @@ export function App() {
   };
 
   const handleScenarioDuplicateEvent = (eventId: string) => {
-    setDraftScenario((prev, createSocketOptions()) => {
+    setDraftScenario((prev) => {
       const sourceIndex = prev.events.findIndex((event) => event.id === eventId);
       if (sourceIndex < 0) {
         return prev;
@@ -2394,7 +2394,7 @@ export function App() {
   };
 
   const handleScenarioShiftAllOffsets = (delta: number) => {
-    setDraftScenario((prev, createSocketOptions()) => ({
+    setDraftScenario((prev) => ({
       ...prev,
       events: prev.events.map((event) => ({
         ...event,
@@ -2406,7 +2406,7 @@ export function App() {
   };
 
   const handleScenarioNormalizeOffsets = () => {
-    setDraftScenario((prev, createSocketOptions()) => {
+    setDraftScenario((prev) => {
       const ordered = [...prev.events].sort((a, b) => a.offset - b.offset);
       const offsets = new Map<string, number>();
       ordered.forEach((event, index) => {
@@ -2447,7 +2447,7 @@ export function App() {
     eventId: string,
     action: 'enable-all' | 'clear-all' | 'stagger',
   ) => {
-    setDraftScenario((prev, createSocketOptions()) => {
+    setDraftScenario((prev) => {
       const sourceTopology = prev.topology ?? topology ?? null;
       return {
         ...prev,
@@ -2517,7 +2517,7 @@ export function App() {
   };
 
   const handleScenarioManualResetModeChange = (mode: 'all' | 'custom') => {
-    setDraftScenario((prev, createSocketOptions()) => ({
+    setDraftScenario((prev) => ({
       ...prev,
       manualResetMode: mode,
       manualResettable: normalizeManualResetSelection(prev.manualResettable),
@@ -2525,7 +2525,7 @@ export function App() {
   };
 
   const handleScenarioManualResetToggle = (kind: 'DM' | 'DAI', zoneId: string) => {
-    setDraftScenario((prev, createSocketOptions()) => {
+    setDraftScenario((prev) => {
       const normalized = zoneId.toUpperCase();
       const selection = normalizeManualResetSelection(prev.manualResettable);
       const currentList = kind === 'DM' ? selection.dmZones : selection.daiZones;
@@ -2585,7 +2585,7 @@ export function App() {
           };
           reader.readAsDataURL(file);
         });
-        setDraftScenario((prev, createSocketOptions()) => {
+        setDraftScenario((prev) => {
           const previous = prev.evacuationAudio ?? {};
           const asset: ScenarioAudioAsset = { name: file.name, dataUrl };
           const next = {
@@ -2617,7 +2617,7 @@ export function App() {
   const handleScenarioEvacuationAudioClear = useCallback(
     (kind: 'automatic' | 'manual') => {
       let removed = false;
-      setDraftScenario((prev, createSocketOptions()) => {
+      setDraftScenario((prev) => {
         if (!prev.evacuationAudio?.[kind]) {
           return prev;
         }
@@ -2643,11 +2643,11 @@ export function App() {
   );
 
   const handleScenarioNameChange = (name: string) => {
-    setDraftScenario((prev, createSocketOptions()) => ({ ...prev, name }));
+    setDraftScenario((prev) => ({ ...prev, name }));
   };
 
   const handleScenarioDescriptionChange = (description: string) => {
-    setDraftScenario((prev, createSocketOptions()) => ({ ...prev, description }));
+    setDraftScenario((prev) => ({ ...prev, description }));
   };
 
   const handleScenarioAttachTopology = useCallback(() => {
@@ -2656,18 +2656,18 @@ export function App() {
       setScenarioFeedback(null);
       return;
     }
-    setDraftScenario((prev, createSocketOptions()) => ({ ...prev, topology: cloneTopology(topology) }));
+    setDraftScenario((prev) => ({ ...prev, topology: cloneTopology(topology) }));
     setScenarioError(null);
     setScenarioFeedback('Plan interactif associé au scénario.');
   }, [topology]);
 
   const handleScenarioDetachTopology = useCallback(() => {
-    setDraftScenario((prev, createSocketOptions()) => ({ ...prev, topology: null }));
+    setDraftScenario((prev) => ({ ...prev, topology: null }));
     setScenarioFeedback('Plan interactif détaché du scénario.');
   }, []);
 
   const handleScenarioResetForm = () => {
-    setDraftScenario(createEmptyScenarioDraft(, createSocketOptions()));
+    setDraftScenario(createEmptyScenarioDraft());
     setEditingScenarioId(null);
     setScenarioError(null);
     setScenarioFeedback(null);
@@ -2679,20 +2679,20 @@ export function App() {
       setScenarioFeedback(null);
 
       if (scenario.topology?.plan?.image) {
-        setDraftScenario(scenarioDefinitionToDraft(scenario, createSocketOptions()));
+        setDraftScenario(scenarioDefinitionToDraft(scenario));
         setEditingScenarioId(scenario.id);
         return;
       }
 
       setScenarioLoadingId(scenario.id);
       try {
-        const detailed = await sdk.getScenario(scenario.id, createSocketOptions());
-        setDraftScenario(scenarioDefinitionToDraft(detailed, createSocketOptions()));
+        const detailed = await sdk.getScenario(scenario.id);
+        setDraftScenario(scenarioDefinitionToDraft(detailed));
         setEditingScenarioId(detailed.id);
         setScenarios((prev) => prev.map((entry) => (entry.id === detailed.id ? detailed : entry)));
       } catch (error) {
         console.error(error);
-        setDraftScenario(scenarioDefinitionToDraft(scenario, createSocketOptions()));
+        setDraftScenario(scenarioDefinitionToDraft(scenario));
         setEditingScenarioId(scenario.id);
         setScenarioError('Impossible de récupérer le plan associé au scénario sélectionné.');
       } finally {
@@ -2705,7 +2705,7 @@ export function App() {
   const handleScenarioDelete = async (scenarioId: string) => {
     setScenarioDeleting(scenarioId);
     try {
-      await sdk.deleteScenario(scenarioId, createSocketOptions());
+      await sdk.deleteScenario(scenarioId);
       if (editingScenarioId === scenarioId) {
         handleScenarioResetForm();
       }
@@ -2736,9 +2736,9 @@ export function App() {
       const payload = draftToPayload(draftScenario, topology);
       const wasEditing = Boolean(editingScenarioId);
       const saved = editingScenarioId
-        ? await sdk.updateScenario(editingScenarioId, payload, createSocketOptions())
-        : await sdk.createScenario(payload, createSocketOptions());
-      setDraftScenario(scenarioDefinitionToDraft(saved, createSocketOptions()));
+        ? await sdk.updateScenario(editingScenarioId, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
       setEditingScenarioId(saved.id);
       refreshScenarios();
       setScenarioFeedback(wasEditing ? 'Scénario mis à jour.' : 'Scénario créé.');
@@ -2806,8 +2806,8 @@ export function App() {
         if (sanitized.events.length === 0) {
           throw new Error('SCENARIO_EVENTS_MISSING');
         }
-        const created = await sdk.createScenario(sanitized, createSocketOptions());
-        setDraftScenario(scenarioDefinitionToDraft(created, createSocketOptions()));
+        const created = await sdk.createScenario(sanitized);
+        setDraftScenario(scenarioDefinitionToDraft(created));
         setEditingScenarioId(created.id);
         refreshScenarios();
         setScenarioFeedback(`Scénario « ${created.name} » importé avec succès.`);
@@ -2831,9 +2831,9 @@ export function App() {
       const payload = createHoneywellTypeBScenarioPayload();
       const existingPreset = scenarios.find((scenario) => scenario.name === HONEYWELL_PRESET_SCENARIO_NAME);
       const saved = existingPreset
-        ? await sdk.updateScenario(existingPreset.id, payload, createSocketOptions())
-        : await sdk.createScenario(payload, createSocketOptions());
-      setDraftScenario(scenarioDefinitionToDraft(saved, createSocketOptions()));
+        ? await sdk.updateScenario(existingPreset.id, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
       setEditingScenarioId(saved.id);
       refreshScenarios();
       setScenarioFeedback(
@@ -2870,9 +2870,9 @@ export function App() {
       const payload = createL02MermozDetectionOnlyScenarioPayload();
       const existingPreset = scenarios.find((scenario) => scenario.name === MERMOZ_PRESET_SCENARIO_NAME);
       const saved = existingPreset
-        ? await sdk.updateScenario(existingPreset.id, payload, createSocketOptions())
-        : await sdk.createScenario(payload, createSocketOptions());
-      setDraftScenario(scenarioDefinitionToDraft(saved, createSocketOptions()));
+        ? await sdk.updateScenario(existingPreset.id, payload)
+        : await sdk.createScenario(payload);
+      setDraftScenario(scenarioDefinitionToDraft(saved));
       setEditingScenarioId(saved.id);
       refreshScenarios();
       setScenarioFeedback(
@@ -2893,7 +2893,7 @@ export function App() {
 
   const handleScenarioRun = async (scenarioId: string) => {
     try {
-      const status = await sdk.runScenario(scenarioId, createSocketOptions());
+      const status = await sdk.runScenario(scenarioId);
       setScenarioStatus(status);
     } catch (error) {
       console.error(error);
@@ -2903,7 +2903,7 @@ export function App() {
   const handleScenarioPreload = async (scenarioId: string) => {
     setScenarioPreloadingId(scenarioId);
     try {
-      const status = await sdk.preloadScenario(scenarioId, createSocketOptions());
+      const status = await sdk.preloadScenario(scenarioId);
       setScenarioStatus(status);
     } catch (error) {
       console.error(error);
@@ -2914,7 +2914,7 @@ export function App() {
 
   const handleScenarioStop = async () => {
     try {
-      const status = await sdk.stopScenario(, createSocketOptions());
+      const status = await sdk.stopScenario();
       setScenarioStatus(status);
     } catch (error) {
       console.error(error);
@@ -2923,7 +2923,7 @@ export function App() {
 
   const handleScenarioComplete = async () => {
     try {
-      const status = await sdk.completeScenario(, createSocketOptions());
+      const status = await sdk.completeScenario();
       setScenarioStatus(status);
     } catch (error) {
       console.error(error);
