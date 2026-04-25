@@ -1,7 +1,7 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { DomainContext } from './state';
@@ -47,6 +47,18 @@ const accessCodeUpdateSchema = z.object({
 const accessCodeVerifySchema = z.object({
   code: z.string().max(32),
 });
+
+function hashAccessCode(code: string): string {
+  return createHash('sha256').update(code, 'utf8').digest('hex');
+}
+
+function formatAccessCode(row: { level: number; codeHash: string | null; updatedAt: Date | string }) {
+  return {
+    level: Number(row.level),
+    code: row.codeHash ? '••••' : 'Non configuré',
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+}
 
 const userRoleSchema = z.enum(['TRAINER', 'TRAINEE']);
 
@@ -722,14 +734,8 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
   });
 
   app.get('/api/access/codes', async (_req, res) => {
-    const rows = await prisma.$queryRaw<Array<{ level: number; code: string; updatedAt: string }>>`
-      SELECT level, code, updatedAt FROM "AccessCode" ORDER BY level ASC
-    `;
-    const codes = rows.map((row: { level: number; code: string; updatedAt: string }) => ({
-      level: Number(row.level),
-      code: row.code,
-      updatedAt: new Date(row.updatedAt).toISOString(),
-    }));
+    const rows = await prisma.accessCode.findMany({ orderBy: { level: 'asc' } });
+    const codes = rows.map(formatAccessCode);
     log.debug("Codes d'accès renvoyés", { count: codes.length });
     res.json({ codes });
   });
@@ -744,30 +750,24 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       return res.status(400).json({ error: parsed.error.message });
     }
     const code = parsed.data.code.trim();
-    const duplicates = await prisma.$queryRaw<Array<{ level: number }>>`
-      SELECT level FROM "AccessCode" WHERE code = ${code} AND level != ${level} LIMIT 1
-    `;
-    if (duplicates.length > 0) {
+    const codeHash = hashAccessCode(code);
+    const duplicate = await prisma.accessCode.findFirst({
+      where: {
+        codeHash,
+        level: { not: level },
+      },
+      select: { level: true },
+    });
+    if (duplicate) {
       return res.status(409).json({ error: 'CODE_ALREADY_IN_USE' });
     }
-    await prisma.$executeRaw`
-      INSERT INTO "AccessCode" ("level", "code", "updatedAt") VALUES (${level}, ${code}, CURRENT_TIMESTAMP)
-      ON CONFLICT("level") DO UPDATE SET "code" = excluded."code", "updatedAt" = CURRENT_TIMESTAMP
-    `;
-    const [record] = await prisma.$queryRaw<Array<{ level: number; code: string; updatedAt: string }>>`
-      SELECT level, code, updatedAt FROM "AccessCode" WHERE level = ${level}
-    `;
-    if (!record) {
-      return res.status(500).json({ error: 'ACCESS_CODE_NOT_FOUND' });
-    }
-    log.info("Code d'accès mis à jour", { level });
-    res.json({
-      code: {
-        level: Number(record.level),
-        code: record.code,
-        updatedAt: new Date(record.updatedAt).toISOString(),
-      },
+    const record = await prisma.accessCode.upsert({
+      where: { level },
+      update: { codeHash },
+      create: { level, codeHash },
     });
+    log.info("Code d'accès mis à jour", { level });
+    res.json({ code: formatAccessCode(record) });
   });
 
   app.post('/api/access/verify', async (req, res) => {
@@ -780,14 +780,15 @@ export function createHttpServer(domainContext: DomainContext, sessionManager: S
       log.debug("Vérification du code d'accès accordée par défaut");
       return res.json({ level: 1, allowed: true, label: 'Accès niveau 1 actif — arrêt signal sonore disponible.' });
     }
-    const rows = await prisma.$queryRaw<Array<{ level: number }>>`
-      SELECT level FROM "AccessCode" WHERE code = ${input} LIMIT 1
-    `;
-    if (rows.length === 0) {
+    const record = await prisma.accessCode.findFirst({
+      where: { codeHash: hashAccessCode(input) },
+      select: { level: true },
+    });
+    if (!record) {
       log.debug("Code d'accès refusé", { reason: 'unknown-code' });
       return res.json({ level: null, allowed: false, label: 'Code invalide — niveau courant conservé.' });
     }
-    const level = Number(rows[0].level);
+    const level = Number(record.level);
     if (level >= 3) {
       log.debug("Code d'accès refusé", { reason: 'level-3', level });
       return res.json({ level, allowed: false, label: 'Niveau 3 réservé au technicien de maintenance.' });
