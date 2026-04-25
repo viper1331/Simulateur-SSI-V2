@@ -106,6 +106,7 @@ function patchViteClient(source) {
     return `new SsiSdk(${args}, { apiToken: getConfiguredApiToken() })`;
   });
 
+  // Only patch real Socket.IO calls, not identifiers ending with "io".
   out = out.replace(/(?<![A-Za-z0-9_$])io\(([^\n)]*)\)/g, (match, args) => {
     if (match.includes('createSocketOptions')) {
       return match;

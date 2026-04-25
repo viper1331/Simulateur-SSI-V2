@@ -649,7 +649,7 @@ function normalizeEventForPayload(event: ScenarioEventDraft, topology: SiteTopol
 }
 
 function draftToPayload(draft: ScenarioDraft, fallbackTopology: SiteTopology | null): ScenarioPayload {
-  const evacuationAudio = normalizeEvacuationAudio(draft.evacuationAudio, createSocketOptions());
+  const evacuationAudio = normalizeEvacuationAudio(draft.evacuationAudio);
   const sourceTopology = draft.topology ?? fallbackTopology ?? undefined;
   return {
     name: draft.name.trim(),
@@ -672,7 +672,7 @@ function scenarioDefinitionToDraft(definition: ScenarioDefinition): ScenarioDraf
     events: definition.events.map(ensureDraftEvent),
     manualResetMode: definition.manualResettable ? 'custom' : 'all',
     manualResettable: normalizeManualResetSelection(definition.manualResettable),
-    evacuationAudio: normalizeEvacuationAudio(definition.evacuationAudio, createSocketOptions()) ?? undefined,
+    evacuationAudio: normalizeEvacuationAudio(definition.evacuationAudio) ?? undefined,
   };
 }
 
@@ -2624,7 +2624,7 @@ export function App() {
         removed = true;
         const remaining = { ...prev.evacuationAudio } as ScenarioEvacuationAudio;
         delete (remaining as Record<'automatic' | 'manual', ScenarioAudioAsset | undefined>)[kind];
-        const normalized = normalizeEvacuationAudio(remaining, createSocketOptions());
+        const normalized = normalizeEvacuationAudio(remaining);
         return {
           ...prev,
           evacuationAudio: normalized ?? undefined,

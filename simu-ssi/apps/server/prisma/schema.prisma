@@ -20,7 +20,7 @@ model SiteConfig {
 
 model AccessCode {
   level     Int      @id
-  code      String   @unique
+  codeHash  String?
   updatedAt DateTime @updatedAt
 }
 
@@ -55,11 +55,11 @@ model Zone {
 }
 
 model Device {
-  id        String @id
-  kind      String
-  zoneId    String?
-  label     String?
-  propsJson String?
+  id           String  @id
+  kind         String
+  zoneId       String?
+  label        String?
+  propsJson    String?
   outOfService Boolean @default(false)
 }
 
@@ -70,20 +70,20 @@ model Scenario {
 }
 
 model Session {
-  id             String   @id @default(uuid())
-  name           String
-  mode           String   @default("libre")
-  objective      String?
-  notes          String?
+  id              String     @id @default(uuid())
+  name            String
+  mode            String     @default("libre")
+  objective       String?
+  notes           String?
   improvementJson String?
-  trainerId      String?
-  traineeId      String?
-  startedAt      DateTime @default(now())
-  endedAt        DateTime?
-  trainer        User?    @relation("TrainerSessions", fields: [trainerId], references: [id])
-  trainee        User?    @relation("TraineeSessions", fields: [traineeId], references: [id])
-  scores         Score[]
-  events         EventLog[]
+  trainerId       String?
+  traineeId       String?
+  startedAt       DateTime   @default(now())
+  endedAt         DateTime?
+  trainer         User?      @relation("TrainerSessions", fields: [trainerId], references: [id])
+  trainee         User?      @relation("TraineeSessions", fields: [traineeId], references: [id])
+  scores          Score[]
+  events          EventLog[]
 }
 
 model EventLog {
@@ -98,7 +98,7 @@ model EventLog {
 }
 
 model Score {
-  id         Int      @id @default(autoincrement())
+  id         Int     @id @default(autoincrement())
   sessionId  String
   userId     String?
   rubricJson String
