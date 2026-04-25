@@ -1,0 +1,40 @@
+name: Apply client auth patch to all apps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-client-auth-all-apps.yml
+      - simu-ssi/scripts/fix-client-auth-all-apps.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply client auth patch
+        working-directory: simu-ssi
+        run: node scripts/fix-client-auth-all-apps.mjs
+
+      - name: Commit patch result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add simu-ssi/apps/trainer-console/src/pages/App.tsx
+          git add simu-ssi/apps/trainee-station/src/pages/TraineeApp.tsx
+          git add simu-ssi/apps/admin-studio/src/pages/AdminStudioApp.tsx
+          git commit -m "fix: propagate API token to all client apps"
+          git push
