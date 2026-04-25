@@ -67,8 +67,27 @@ function patchSdk(source) {
   return out;
 }
 
-function patchViteClient(source) {
+function cleanupFalseSocketOptionReplacements(source) {
   let out = source;
+
+  out = out.replace(/,\s*createSocketOptions\(\)\)\s*=>/g, ') =>');
+  out = out.replace(/\(prev,\s*createSocketOptions\(\)\)/g, '(prev)');
+  out = out.replace(/\((scenario|detailed|saved|created|sanitized|payload),\s*createSocketOptions\(\)\)/g, '($1)');
+  out = out.replace(/\(editingScenarioId,\s*payload,\s*createSocketOptions\(\)\)/g, '(editingScenarioId, payload)');
+  out = out.replace(/\(existingPreset\.id,\s*payload,\s*createSocketOptions\(\)\)/g, '(existingPreset.id, payload)');
+  out = out.replace(/\(scenario\.id,\s*createSocketOptions\(\)\)/g, '(scenario.id)');
+  out = out.replace(/\(scenarioId,\s*createSocketOptions\(\)\)/g, '(scenarioId)');
+  out = out.replace(/\(,\s*createSocketOptions\(\)\)/g, '()');
+  out = out.replace(/normalizeEvacuationAudio\(([^\n;]*?),\s*createSocketOptions\(\)\)/g, 'normalizeEvacuationAudio($1)');
+  out = out.replace(/sanitizeAudioAsset\(([^\n;]*?),\s*createSocketOptions\(\)\)/g, 'sanitizeAudioAsset($1)');
+  out = out.replace(/sdk\.([A-Za-z0-9_]+)\(([^\n;]*?),\s*createSocketOptions\(\)\)/g, 'sdk.$1($2)');
+  out = out.replace(/setDraftScenario\(([^\n;]*?),\s*createSocketOptions\(\)\)/g, 'setDraftScenario($1)');
+
+  return out;
+}
+
+function patchViteClient(source) {
+  let out = cleanupFalseSocketOptionReplacements(source);
 
   const helper = `\nfunction getConfiguredApiToken(): string | undefined {\n  const token = import.meta.env.VITE_SIMU_SSI_API_TOKEN;\n  return typeof token === 'string' && token.trim().length > 0 ? token.trim() : undefined;\n}\n\nfunction createSocketOptions() {\n  const token = getConfiguredApiToken();\n  return token ? { auth: { token } } : undefined;\n}\n`;
 
@@ -87,14 +106,14 @@ function patchViteClient(source) {
     return `new SsiSdk(${args}, { apiToken: getConfiguredApiToken() })`;
   });
 
-  out = out.replace(/io\(([^\n)]*)\)/g, (match, args) => {
+  out = out.replace(/(?<![A-Za-z0-9_$])io\(([^\n)]*)\)/g, (match, args) => {
     if (match.includes('createSocketOptions')) {
       return match;
     }
     return `io(${args}, createSocketOptions())`;
   });
 
-  return out;
+  return cleanupFalseSocketOptionReplacements(out);
 }
 
 const changed = [
