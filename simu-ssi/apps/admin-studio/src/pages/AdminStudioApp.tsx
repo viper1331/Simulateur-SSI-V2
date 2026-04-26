@@ -314,6 +314,7 @@ export function AdminStudioApp() {
   const publishTimeoutRef = useRef<number | null>(null);
   const scenarioTimeoutRef = useRef<number | null>(null);
   const selectedScenarioIdRef = useRef('');
+  const loadedScenarioTopologyRef = useRef<string | null>(null);
 
   const [planImage, setPlanImage] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string>('Aucun plan importé');
@@ -754,6 +755,23 @@ export function AdminStudioApp() {
     [isDeviceKind],
   );
 
+  useEffect(() => {
+    const scenario = selectedScenarioId
+      ? scenarios.find((item) => item.id === selectedScenarioId)
+      : null;
+    if (!scenario) {
+      loadedScenarioTopologyRef.current = null;
+      return;
+    }
+    if (loadedScenarioTopologyRef.current === scenario.id) {
+      return;
+    }
+    loadedScenarioTopologyRef.current = scenario.id;
+    if (scenario.topology) {
+      applyImportedTopology(scenario.topology);
+    }
+  }, [applyImportedTopology, scenarios, selectedScenarioId]);
+
   const handleTopologyImportClick = useCallback(() => {
     topologyFileInputRef.current?.click();
   }, []);
@@ -880,6 +898,23 @@ export function AdminStudioApp() {
 
   const hasTopologyContent = siteTopology.zones.length > 0 || siteTopology.devices.length > 0;
   const siteTopologyJson = useMemo(() => JSON.stringify(siteTopology, null, 2), [siteTopology]);
+
+  useEffect(() => {
+    const hasEditableScenarioTopology =
+      Boolean(planImage) ||
+      planNotes.trim().length > 0 ||
+      siteTopology.zones.length > 0 ||
+      siteTopology.devices.length > 0;
+    if (!hasEditableScenarioTopology) {
+      return;
+    }
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return { ...previous, topology: siteTopology };
+    });
+  }, [planImage, planNotes, siteTopology]);
 
   const handleDownloadTopology = useCallback(() => {
     if (!hasTopologyContent) {
