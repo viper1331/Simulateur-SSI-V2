@@ -1,0 +1,38 @@
+name: Apply admin mounted ref patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-admin-mounted-ref.yml
+      - simu-ssi/scripts/fix-admin-mounted-ref.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply admin mounted ref patch
+        working-directory: simu-ssi
+        run: node scripts/fix-admin-mounted-ref.mjs
+
+      - name: Commit patch result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add simu-ssi/apps/admin-studio/src/pages/AdminStudioApp.tsx
+          git commit -m "fix: reset admin studio mounted ref on mount"
+          git push
