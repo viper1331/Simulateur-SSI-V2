@@ -85,6 +85,17 @@ const createDeviceId = (kind: DeviceKind) => {
   return `${kind}-${Date.now()}-${Math.round(Math.random() * 1000)}`;
 };
 
+function getFallbackDeviceCoordinates(index: number, total: number) {
+  const columns = Math.max(1, Math.ceil(Math.sqrt(total)));
+  const rows = Math.max(1, Math.ceil(total / columns));
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  return {
+    xPercent: parseFloat((((column + 1) / (columns + 1)) * 100).toFixed(2)),
+    yPercent: parseFloat((((row + 1) / (rows + 1)) * 100).toFixed(2)),
+  };
+}
+
 type ScenarioEventType = ScenarioEvent['type'];
 type ScenarioEventDraft = ScenarioEvent & { id: string };
 
@@ -706,8 +717,15 @@ export function AdminStudioApp() {
       const warnings: string[] = [];
       const deviceCounts: Record<DeviceKind, number> = { DM: 0, DAI: 0, DAS: 0, UGA: 0 };
 
+      const sourceDevices = topology.devices ?? [];
+      const unplacedDevices = sourceDevices.filter((device) => {
+        const coordinates = (device.props?.coordinates as { xPercent?: number; yPercent?: number } | undefined) ?? {};
+        return typeof coordinates.xPercent !== 'number' || typeof coordinates.yPercent !== 'number';
+      });
+      let unplacedIndex = 0;
+
       const importedDevices: DevicePlacement[] = [];
-      for (const device of topology.devices ?? []) {
+      for (const device of sourceDevices) {
         if (!isDeviceKind(device.kind)) {
           warnings.push(`Dispositif «\u00a0${device.id}\u00a0» ignoré (type «\u00a0${device.kind}\u00a0» non géré).`);
           continue;
@@ -729,12 +747,17 @@ export function AdminStudioApp() {
           warnings.push(`Dispositif «\u00a0${device.id}\u00a0» placé provisoirement au centre du plan (coordonnées manquantes).`);
         }
 
+        const fallbackCoordinates =
+          xPercent === undefined || yPercent === undefined
+            ? getFallbackDeviceCoordinates(unplacedIndex++, unplacedDevices.length)
+            : null;
+
         importedDevices.push({
           id: device.id,
           kind: device.kind,
           label,
-          xPercent: typeof xPercent === 'number' ? xPercent : 50,
-          yPercent: typeof yPercent === 'number' ? yPercent : 50,
+          xPercent: typeof xPercent === 'number' ? xPercent : fallbackCoordinates?.xPercent ?? 50,
+          yPercent: typeof yPercent === 'number' ? yPercent : fallbackCoordinates?.yPercent ?? 50,
           zoneId,
         });
       }
