@@ -348,6 +348,7 @@ export function AdminStudioApp() {
   }, [selectedScenarioId]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       if (copyTimeoutRef.current) {
