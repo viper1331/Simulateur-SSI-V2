@@ -1,0 +1,38 @@
+name: Apply SDK nullable scenario fields patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-sdk-nullable-scenario-fields.yml
+      - simu-ssi/scripts/fix-sdk-nullable-scenario-fields.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply SDK nullable scenario fields patch
+        working-directory: simu-ssi
+        run: node scripts/fix-sdk-nullable-scenario-fields.mjs
+
+      - name: Commit patch result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add simu-ssi/packages/sdk/src/index.ts
+          git commit -m "fix: accept nullable scenario fields in SDK"
+          git push
