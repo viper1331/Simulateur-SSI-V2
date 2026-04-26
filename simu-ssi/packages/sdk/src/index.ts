@@ -35,7 +35,7 @@ const topologySchema = z.object({
   devices: z.array(siteDeviceSchema),
 });
 
-const scenarioTopologySchema = topologySchema.optional();
+const scenarioTopologySchema = topologySchema.nullish().transform((value) => value ?? undefined);
 
 export const scenarioManualResetSelectionSchema = z.object({
   dmZones: z.array(z.string().min(1)).default([]),
@@ -52,7 +52,7 @@ const scenarioEvacuationAudioInnerSchema = z.object({
   manual: scenarioAudioAssetSchema.optional(),
 });
 
-export const scenarioEvacuationAudioSchema = scenarioEvacuationAudioInnerSchema.optional();
+export const scenarioEvacuationAudioSchema = scenarioEvacuationAudioInnerSchema.nullish().transform((value) => value ?? undefined);
 
 const scenarioEventBaseSchema = z.object({
   id: z.string().uuid().optional(),
@@ -88,7 +88,7 @@ export const scenarioDefinitionSchema = z.object({
   description: z.string().optional(),
   events: z.array(scenarioEventSchema),
   topology: scenarioTopologySchema,
-  manualResettable: scenarioManualResetSelectionSchema.optional(),
+  manualResettable: scenarioManualResetSelectionSchema.nullish().transform((value) => value ?? undefined),
   evacuationAudio: scenarioEvacuationAudioSchema,
 });
 
@@ -97,7 +97,7 @@ export const scenarioPayloadSchema = z.object({
   description: z.string().optional(),
   events: z.array(scenarioEventSchema).min(1),
   topology: scenarioTopologySchema,
-  manualResettable: scenarioManualResetSelectionSchema.optional(),
+  manualResettable: scenarioManualResetSelectionSchema.nullish().transform((value) => value ?? undefined),
   evacuationAudio: scenarioEvacuationAudioSchema,
 });
 
