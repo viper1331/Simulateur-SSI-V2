@@ -717,11 +717,6 @@ export function AdminStudioApp() {
         const xPercent = typeof coordinates.xPercent === 'number' ? coordinates.xPercent : undefined;
         const yPercent = typeof coordinates.yPercent === 'number' ? coordinates.yPercent : undefined;
 
-        if (xPercent === undefined || yPercent === undefined) {
-          warnings.push(`Dispositif «\u00a0${device.id}\u00a0» ignoré (coordonnées manquantes).`);
-          continue;
-        }
-
         deviceCounts[device.kind] += 1;
         const fallbackLabel = `${DEVICE_DEFINITIONS[device.kind].shortLabel} ${deviceCounts[device.kind]}`;
         const label = device.label?.trim().length ? device.label.trim() : fallbackLabel;
@@ -730,13 +725,16 @@ export function AdminStudioApp() {
         if (device.zoneId && !zoneId) {
           warnings.push(`Zone «\u00a0${device.zoneId}\u00a0» introuvable pour le dispositif «\u00a0${device.id}\u00a0».`);
         }
+        if (xPercent === undefined || yPercent === undefined) {
+          warnings.push(`Dispositif «\u00a0${device.id}\u00a0» placé provisoirement au centre du plan (coordonnées manquantes).`);
+        }
 
         importedDevices.push({
           id: device.id,
           kind: device.kind,
           label,
-          xPercent,
-          yPercent,
+          xPercent: typeof xPercent === 'number' ? xPercent : 50,
+          yPercent: typeof yPercent === 'number' ? yPercent : 50,
           zoneId,
         });
       }
