@@ -376,14 +376,25 @@ select:focus-visible {
   justify-content: center;
   box-shadow: 0 18px 22px rgba(15, 23, 42, 0.25);
   pointer-events: auto;
-  cursor: pointer;
+  cursor: grab;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  touch-action: manipulation;
+  touch-action: none;
+  user-select: none;
+}
+
+.device-marker[data-dragging='true'] {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.04);
+  box-shadow: 0 22px 30px rgba(15, 23, 42, 0.32);
 }
 
 .device-marker:hover {
   transform: translate(-50%, -52%);
   box-shadow: 0 24px 32px rgba(15, 23, 42, 0.28);
+}
+
+.device-marker[data-dragging='true']:hover {
+  transform: translate(-50%, -50%) scale(1.04);
 }
 
 .device-marker:focus-visible {

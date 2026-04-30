@@ -349,6 +349,14 @@ export function AdminStudioApp() {
     y: number;
     fromInteractiveTarget: boolean;
   } | null>(null);
+  const markerDragRef = useRef<{
+    pointerId: number;
+    deviceId: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const skipMarkerClickRef = useRef(false);
   const skipClickRef = useRef(false);
   const isMountedRef = useRef(true);
   const copyTimeoutRef = useRef<number | null>(null);
@@ -380,6 +388,7 @@ export function AdminStudioApp() {
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [scenarioSaveStatus, setScenarioSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [scenarioSaveError, setScenarioSaveError] = useState<string | null>(null);
+  const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
 
   const hasWorkspaceContent = Boolean(planImage || devices.length > 0 || planNotes.trim().length > 0);
 
@@ -393,6 +402,10 @@ export function AdminStudioApp() {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      pointerDownRef.current = null;
+      markerDragRef.current = null;
+      skipClickRef.current = false;
+      skipMarkerClickRef.current = false;
       if (copyTimeoutRef.current) {
         window.clearTimeout(copyTimeoutRef.current);
       }
@@ -568,19 +581,42 @@ export function AdminStudioApp() {
     setIsDragging(false);
   }, []);
 
+  const resolvePercentCoordinates = useCallback(
+    (clientX: number, clientY: number, clampToBounds: boolean) => {
+      const imageEl = imageRef.current;
+      if (!imageEl) {
+        return null;
+      }
+      const rect = imageEl.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+      }
+
+      let x = (clientX - rect.left) / rect.width;
+      let y = (clientY - rect.top) / rect.height;
+
+      if (!clampToBounds && (Number.isNaN(x) || Number.isNaN(y) || x < 0 || x > 1 || y < 0 || y > 1)) {
+        return null;
+      }
+
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+
+      return {
+        xPercent: parseFloat((x * 100).toFixed(2)),
+        yPercent: parseFloat((y * 100).toFixed(2)),
+      };
+    },
+    [],
+  );
+
   const placeDeviceAtCoordinates = useCallback(
     (clientX: number, clientY: number) => {
       if (!planImage || !selectedKind) {
         return;
       }
-      const imageEl = imageRef.current;
-      if (!imageEl) {
-        return;
-      }
-      const rect = imageEl.getBoundingClientRect();
-      const x = (clientX - rect.left) / rect.width;
-      const y = (clientY - rect.top) / rect.height;
-      if (Number.isNaN(x) || Number.isNaN(y) || x < 0 || x > 1 || y < 0 || y > 1) {
+      const coordinates = resolvePercentCoordinates(clientX, clientY, false);
+      if (!coordinates) {
         return;
       }
       setDevices((previous) => {
@@ -589,13 +625,34 @@ export function AdminStudioApp() {
           id: createDeviceId(selectedKind),
           label: `${DEVICE_DEFINITIONS[selectedKind].shortLabel} ${nextIndex}`,
           kind: selectedKind,
-          xPercent: parseFloat((x * 100).toFixed(2)),
-          yPercent: parseFloat((y * 100).toFixed(2)),
+          xPercent: coordinates.xPercent,
+          yPercent: coordinates.yPercent,
         };
         return [...previous, newDevice];
       });
     },
-    [planImage, selectedKind],
+    [planImage, resolvePercentCoordinates, selectedKind],
+  );
+
+  const moveDeviceAtCoordinates = useCallback(
+    (deviceId: string, clientX: number, clientY: number) => {
+      const coordinates = resolvePercentCoordinates(clientX, clientY, true);
+      if (!coordinates) {
+        return;
+      }
+      setDevices((previous) =>
+        previous.map((device) =>
+          device.id === deviceId
+            ? {
+                ...device,
+                xPercent: coordinates.xPercent,
+                yPercent: coordinates.yPercent,
+              }
+            : device,
+        ),
+      );
+    },
+    [resolvePercentCoordinates],
   );
 
   const handleStagePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
@@ -677,6 +734,91 @@ export function AdminStudioApp() {
     },
     [placeDeviceAtCoordinates],
   );
+
+  const handleMarkerPointerDown = useCallback(
+    (event: PointerEvent<HTMLButtonElement>, deviceId: string) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+      }
+      event.stopPropagation();
+      markerDragRef.current = {
+        pointerId: event.pointerId,
+        deviceId,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+      };
+      setDraggingDeviceId(deviceId);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore failures on browsers that do not support pointer capture.
+      }
+    },
+    [],
+  );
+
+  const handleMarkerPointerMove = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      const dragging = markerDragRef.current;
+      if (!dragging || dragging.pointerId !== event.pointerId) {
+        return;
+      }
+      event.stopPropagation();
+      const moveDistance = Math.hypot(event.clientX - dragging.startX, event.clientY - dragging.startY);
+      if (moveDistance > 3) {
+        dragging.moved = true;
+      }
+      moveDeviceAtCoordinates(dragging.deviceId, event.clientX, event.clientY);
+    },
+    [moveDeviceAtCoordinates],
+  );
+
+  const handleMarkerPointerUp = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      const dragging = markerDragRef.current;
+      if (!dragging || dragging.pointerId !== event.pointerId) {
+        return;
+      }
+      event.stopPropagation();
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      const moveDistance = Math.hypot(event.clientX - dragging.startX, event.clientY - dragging.startY);
+      const moved = dragging.moved || moveDistance > 3;
+      markerDragRef.current = null;
+      setDraggingDeviceId((current) => (current === dragging.deviceId ? null : current));
+      if (moved) {
+        skipMarkerClickRef.current = true;
+      }
+      moveDeviceAtCoordinates(dragging.deviceId, event.clientX, event.clientY);
+    },
+    [moveDeviceAtCoordinates],
+  );
+
+  const handleMarkerPointerCancel = useCallback((event: PointerEvent<HTMLButtonElement>) => {
+    const dragging = markerDragRef.current;
+    if (!dragging || dragging.pointerId !== event.pointerId) {
+      return;
+    }
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    markerDragRef.current = null;
+    setDraggingDeviceId((current) => (current === dragging.deviceId ? null : current));
+    skipMarkerClickRef.current = true;
+  }, []);
+
+  const handleMarkerClick = useCallback((event: MouseEvent<HTMLButtonElement>, kind: DeviceKind) => {
+    event.stopPropagation();
+    if (skipMarkerClickRef.current) {
+      skipMarkerClickRef.current = false;
+      event.preventDefault();
+      return;
+    }
+    setSelectedKind(kind);
+  }, []);
 
   const handleRemoveDevice = useCallback((id: string) => {
     setDevices((previous) => previous.filter((device) => device.id !== id));
@@ -1353,11 +1495,13 @@ export function AdminStudioApp() {
                       type="button"
                       className="device-marker"
                       style={markerStyle(device)}
+                      data-dragging={draggingDeviceId === device.id ? 'true' : 'false'}
                       title={`${device.label} — ${formatCoordinate(device.xPercent)}, ${formatCoordinate(device.yPercent)}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setSelectedKind(device.kind);
-                      }}
+                      onPointerDown={(event) => handleMarkerPointerDown(event, device.id)}
+                      onPointerMove={handleMarkerPointerMove}
+                      onPointerUp={handleMarkerPointerUp}
+                      onPointerCancel={handleMarkerPointerCancel}
+                      onClick={(event) => handleMarkerClick(event, device.kind)}
                     >
                       {device.kind}
                     </button>
@@ -1384,7 +1528,7 @@ export function AdminStudioApp() {
             {planImage
               ? selectedKind
                 ? `Touchez ou cliquez sur le plan pour placer un ${DEVICE_DEFINITIONS[selectedKind].label.toLowerCase()}.`
-                : 'Sélectionnez un type de dispositif dans la palette pour commencer le placement.'
+                : 'Sélectionnez un type dans la palette pour placer, ou glissez un dispositif existant pour le déplacer.'
               : "Importez un plan pour activer l'espace de travail."}
           </p>
         </section>
