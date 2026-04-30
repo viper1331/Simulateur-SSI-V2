@@ -96,6 +96,36 @@ function getFallbackDeviceCoordinates(index: number, total: number) {
   };
 }
 
+function normalizePercent(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
+function extractDeviceCoordinates(device: SiteTopology['devices'][number]): {
+  xPercent?: number;
+  yPercent?: number;
+} {
+  const props = (device.props as Record<string, unknown> | undefined) ?? {};
+  const coordinates = (props.coordinates as { xPercent?: unknown; yPercent?: unknown } | undefined) ?? {};
+
+  const fromCoordinatesX = normalizePercent(coordinates.xPercent);
+  const fromCoordinatesY = normalizePercent(coordinates.yPercent);
+
+  if (typeof fromCoordinatesX === 'number' && typeof fromCoordinatesY === 'number') {
+    return { xPercent: fromCoordinatesX, yPercent: fromCoordinatesY };
+  }
+
+  const fromLegacyX = normalizePercent(props.x);
+  const fromLegacyY = normalizePercent(props.y);
+
+  return {
+    xPercent: typeof fromCoordinatesX === 'number' ? fromCoordinatesX : fromLegacyX,
+    yPercent: typeof fromCoordinatesY === 'number' ? fromCoordinatesY : fromLegacyY,
+  };
+}
+
 type ScenarioEventType = ScenarioEvent['type'];
 type ScenarioEventDraft = ScenarioEvent & { id: string };
 
@@ -719,7 +749,7 @@ export function AdminStudioApp() {
 
       const sourceDevices = topology.devices ?? [];
       const unplacedDevices = sourceDevices.filter((device) => {
-        const coordinates = (device.props?.coordinates as { xPercent?: number; yPercent?: number } | undefined) ?? {};
+        const coordinates = extractDeviceCoordinates(device);
         return typeof coordinates.xPercent !== 'number' || typeof coordinates.yPercent !== 'number';
       });
       let unplacedIndex = 0;
@@ -731,7 +761,7 @@ export function AdminStudioApp() {
           continue;
         }
 
-        const coordinates = (device.props?.coordinates as { xPercent?: number; yPercent?: number } | undefined) ?? {};
+        const coordinates = extractDeviceCoordinates(device);
         const xPercent = typeof coordinates.xPercent === 'number' ? coordinates.xPercent : undefined;
         const yPercent = typeof coordinates.yPercent === 'number' ? coordinates.yPercent : undefined;
 
