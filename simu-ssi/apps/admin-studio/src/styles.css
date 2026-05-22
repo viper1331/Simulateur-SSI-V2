@@ -716,6 +716,10 @@ select:focus-visible {
   color: #1d4ed8;
 }
 
+.scenario-admin__feedback--importing {
+  color: #1d4ed8;
+}
+
 .scenario-admin__dirty {
   font-size: 0.85rem;
   color: #b45309;

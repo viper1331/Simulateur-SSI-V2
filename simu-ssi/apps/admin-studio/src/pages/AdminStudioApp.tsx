@@ -12,12 +12,14 @@ import {
 } from 'react';
 import {
   SsiSdk,
+  scenarioDefinitionSchema,
   scenarioPayloadSchema,
   siteTopologySchema,
   type ScenarioDefinition,
   type ScenarioEvent,
   type ScenarioEventSequenceEntry,
   type ScenarioManualResetSelection,
+  type ScenarioPayload,
   type SiteTopology,
   type SiteZone,
 } from '@simu-ssi/sdk';
@@ -178,6 +180,44 @@ const SCENARIO_EVENT_FILTER_OPTIONS: Array<{
   value: ScenarioEventTypeFilter;
   label: string;
 }> = [{ value: 'ALL', label: 'Tous les types' }, ...SCENARIO_EVENT_OPTIONS];
+
+const SCENARIO_EXPORT_FORMAT = 'simu-ssi/scenario@1';
+
+function formatScenarioFileName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? `${slug}.scenario.json` : 'scenario.scenario.json';
+}
+
+function extractScenarioPayload(data: unknown): ScenarioPayload | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const root = data as Record<string, unknown>;
+  const candidate = 'scenario' in root ? root.scenario : data;
+  const payloadResult = scenarioPayloadSchema.safeParse(candidate);
+  if (payloadResult.success) {
+    return payloadResult.data;
+  }
+  const definitionResult = scenarioDefinitionSchema.safeParse(candidate);
+  if (definitionResult.success) {
+    const { id: _ignored, ...rest } = definitionResult.data;
+    return {
+      name: rest.name,
+      description: rest.description,
+      events: rest.events,
+      topology: rest.topology,
+      ...(rest.manualResettable ? { manualResettable: rest.manualResettable } : {}),
+      ...(rest.evacuationAudio ? { evacuationAudio: rest.evacuationAudio } : {}),
+    };
+  }
+  return null;
+}
 
 function createScenarioEventId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -415,6 +455,7 @@ export function AdminStudioApp() {
   const sdk = useMemo(() => new SsiSdk(baseUrl, { apiToken: getConfiguredApiToken() }), [baseUrl]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const scenarioFileInputRef = useRef<HTMLInputElement | null>(null);
   const topologyFileInputRef = useRef<HTMLInputElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const pointerDownRef = useRef<{
@@ -438,6 +479,7 @@ export function AdminStudioApp() {
   const scenarioTimeoutRef = useRef<number | null>(null);
   const scenarioCloneTimeoutRef = useRef<number | null>(null);
   const scenarioDeleteTimeoutRef = useRef<number | null>(null);
+  const scenarioImportTimeoutRef = useRef<number | null>(null);
   const selectedScenarioIdRef = useRef('');
   const loadedScenarioTopologyRef = useRef<string | null>(null);
   const hasHydratedWorkspaceRef = useRef(false);
@@ -470,6 +512,8 @@ export function AdminStudioApp() {
   const [scenarioCloneError, setScenarioCloneError] = useState<string | null>(null);
   const [scenarioDeleteStatus, setScenarioDeleteStatus] = useState<'idle' | 'deleting' | 'success' | 'error'>('idle');
   const [scenarioDeleteError, setScenarioDeleteError] = useState<string | null>(null);
+  const [scenarioImportStatus, setScenarioImportStatus] = useState<'idle' | 'importing' | 'success' | 'error'>('idle');
+  const [scenarioImportError, setScenarioImportError] = useState<string | null>(null);
   const [scenarioEventSearchQuery, setScenarioEventSearchQuery] = useState('');
   const [scenarioEventTypeFilter, setScenarioEventTypeFilter] = useState<ScenarioEventTypeFilter>('ALL');
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
@@ -667,6 +711,9 @@ export function AdminStudioApp() {
       if (scenarioDeleteTimeoutRef.current) {
         window.clearTimeout(scenarioDeleteTimeoutRef.current);
       }
+      if (scenarioImportTimeoutRef.current) {
+        window.clearTimeout(scenarioImportTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -804,6 +851,19 @@ export function AdminStudioApp() {
       setScenarioDeleteError(null);
     }, 3500);
   }, [scenarioDeleteStatus]);
+
+  useEffect(() => {
+    if (scenarioImportStatus === 'idle') {
+      return;
+    }
+    if (scenarioImportTimeoutRef.current) {
+      window.clearTimeout(scenarioImportTimeoutRef.current);
+    }
+    scenarioImportTimeoutRef.current = window.setTimeout(() => {
+      setScenarioImportStatus('idle');
+      setScenarioImportError(null);
+    }, 3500);
+  }, [scenarioImportStatus]);
 
   useEffect(() => {
     if (!hasHydratedWorkspaceRef.current || typeof window === 'undefined') {
@@ -1510,6 +1570,8 @@ export function AdminStudioApp() {
       setScenarioCloneError(null);
       setScenarioDeleteStatus('idle');
       setScenarioDeleteError(null);
+      setScenarioImportStatus('idle');
+      setScenarioImportError(null);
       setScenarioEventSearchQuery('');
       setScenarioEventTypeFilter('ALL');
     },
@@ -1538,6 +1600,136 @@ export function AdminStudioApp() {
   const handleRefreshScenarios = useCallback(() => {
     void loadScenarios();
   }, [loadScenarios]);
+
+  const handleScenarioExport = useCallback(() => {
+    if (!selectedScenarioId) {
+      setScenarioImportStatus('error');
+      setScenarioImportError('Selectionnez un scenario avant export.');
+      return;
+    }
+    const source = scenarioDraft && scenarioDraft.id === selectedScenarioId
+      ? scenarioDraft
+      : scenarios.find((scenario) => scenario.id === selectedScenarioId);
+    if (!source) {
+      setScenarioImportStatus('error');
+      setScenarioImportError('Scenario introuvable pour export.');
+      return;
+    }
+
+    try {
+      const payload = scenarioPayloadSchema.parse({
+        name: source.name.trim(),
+        description: source.description?.trim() ? source.description.trim() : undefined,
+        events: normalizeScenarioEventsForPayload(source.events),
+        topology: source.topology,
+        manualResettable: source.manualResettable,
+        evacuationAudio: source.evacuationAudio,
+      });
+      const exportPayload = {
+        format: SCENARIO_EXPORT_FORMAT,
+        exportedAt: new Date().toISOString(),
+        source: { id: selectedScenarioId },
+        scenario: payload,
+      };
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = formatScenarioFileName(source.name);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setScenarioImportStatus('success');
+      setScenarioImportError('Scenario exporte.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Echec de lexport du scenario.';
+      setScenarioImportStatus('error');
+      setScenarioImportError(message);
+    }
+  }, [scenarioDraft, scenarios, selectedScenarioId]);
+
+  const handleScenarioImportClick = useCallback(() => {
+    if (!selectedScenarioId) {
+      setScenarioImportStatus('error');
+      setScenarioImportError('Selectionnez un scenario cible avant import.');
+      return;
+    }
+    scenarioFileInputRef.current?.click();
+  }, [scenarioFileInputRef, selectedScenarioId]);
+
+  const handleScenarioFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      if (!scenarioDraft) {
+        setScenarioImportStatus('error');
+        setScenarioImportError('Chargez un scenario avant import.');
+        event.target.value = '';
+        return;
+      }
+      if (scenarioDraftIsDirty) {
+        const overwriteConfirmed = window.confirm(
+          'Le brouillon courant sera remplace par le fichier importe. Continuer ?',
+        );
+        if (!overwriteConfirmed) {
+          event.target.value = '';
+          return;
+        }
+      }
+
+      setScenarioImportStatus('importing');
+      setScenarioImportError(null);
+      setScenarioSaveStatus('idle');
+      setScenarioSaveError(null);
+      setScenarioCloneStatus('idle');
+      setScenarioCloneError(null);
+      setScenarioDeleteStatus('idle');
+      setScenarioDeleteError(null);
+
+      try {
+        const text = await file.text();
+        const parsed = extractScenarioPayload(JSON.parse(text));
+        if (!parsed) {
+          throw new Error('Format de fichier scenario invalide.');
+        }
+        if (!parsed.name.trim()) {
+          throw new Error('Le scenario importe doit avoir un nom.');
+        }
+        if (parsed.events.length === 0) {
+          throw new Error('Le scenario importe doit contenir au moins un evenement.');
+        }
+
+        setScenarioDraft((previous) => {
+          if (!previous) {
+            return previous;
+          }
+          return {
+            ...previous,
+            name: parsed.name.trim(),
+            description: parsed.description?.trim() ? parsed.description.trim() : undefined,
+            events: parsed.events.map((scenarioEvent) => ensureScenarioDraftEvent(scenarioEvent)),
+            topology: parsed.topology,
+            manualResettable: parsed.manualResettable,
+            evacuationAudio: parsed.evacuationAudio,
+          };
+        });
+        setScenarioEventSearchQuery('');
+        setScenarioEventTypeFilter('ALL');
+        setScenarioImportStatus('success');
+        setScenarioImportError('Scenario importe dans le brouillon courant. Pensez a enregistrer.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Import impossible.';
+        setScenarioImportStatus('error');
+        setScenarioImportError(message);
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [scenarioDraft, scenarioDraftIsDirty],
+  );
 
   const updateScenarioDraftEvent = useCallback(
     (eventId: string, updater: (event: ScenarioEventDraft) => ScenarioEventDraft) => {
@@ -1668,6 +1860,8 @@ export function AdminStudioApp() {
     setScenarioCloneError(null);
     setScenarioDeleteStatus('idle');
     setScenarioDeleteError(null);
+    setScenarioImportStatus('idle');
+    setScenarioImportError(null);
 
     try {
       const payload = scenarioPayloadSchema.parse({
@@ -1724,6 +1918,8 @@ export function AdminStudioApp() {
     setScenarioSaveError(null);
     setScenarioCloneStatus('idle');
     setScenarioCloneError(null);
+    setScenarioImportStatus('idle');
+    setScenarioImportError(null);
 
     try {
       await sdk.deleteScenario(selectedScenarioId);
@@ -1879,6 +2075,8 @@ export function AdminStudioApp() {
     setScenarioCloneError(null);
     setScenarioDeleteStatus('idle');
     setScenarioDeleteError(null);
+    setScenarioImportStatus('idle');
+    setScenarioImportError(null);
     try {
       const payload = buildScenarioPayloadFromDraft(scenarioDraft);
       const updated = await sdk.updateScenario(scenarioDraft.id, payload);
@@ -1923,6 +2121,15 @@ export function AdminStudioApp() {
         ? scenarioDeleteError ?? 'Echec de la suppression du scenario.'
         : scenarioDeleteStatus === 'deleting'
           ? 'Suppression en cours...'
+          : '';
+
+  const scenarioImportFeedbackMessage =
+    scenarioImportStatus === 'success'
+      ? scenarioImportError ?? 'Import termine.'
+      : scenarioImportStatus === 'error'
+        ? scenarioImportError ?? 'Echec de limport du scenario.'
+        : scenarioImportStatus === 'importing'
+          ? 'Import en cours...'
           : '';
 
   const scenarioSaveFeedbackMessage =
@@ -2221,6 +2428,22 @@ export function AdminStudioApp() {
                       </button>
                       <button
                         type="button"
+                        className="button button-ghost"
+                        onClick={handleScenarioExport}
+                        disabled={!selectedScenarioId}
+                      >
+                        Exporter
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-ghost"
+                        onClick={handleScenarioImportClick}
+                        disabled={!selectedScenarioId || scenarioImportStatus === 'importing'}
+                      >
+                        {scenarioImportStatus === 'importing' ? 'Import...' : 'Importer'}
+                      </button>
+                      <button
+                        type="button"
                         className="button button-ghost scenario-admin__danger"
                         onClick={handleScenarioDelete}
                         disabled={!selectedScenarioId || scenarioDeleteStatus === 'deleting'}
@@ -2240,6 +2463,18 @@ export function AdminStudioApp() {
                     {scenarioDeleteFeedbackMessage}
                   </span>
                 ) : null}
+                {scenarioImportStatus !== 'idle' ? (
+                  <span className={`scenario-admin__feedback scenario-admin__feedback--${scenarioImportStatus}`}>
+                    {scenarioImportFeedbackMessage}
+                  </span>
+                ) : null}
+                <input
+                  ref={scenarioFileInputRef}
+                  type="file"
+                  accept=".json,.scenario.json,application/json"
+                  className="visually-hidden"
+                  onChange={handleScenarioFileChange}
+                />
                 {scenarioDraft ? (
                   <>
                     <label className="field">
