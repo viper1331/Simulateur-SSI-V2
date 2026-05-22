@@ -86,6 +86,7 @@ const DEVICE_DEFINITIONS: Record<
 
 const DEVICE_ORDER: DeviceKind[] = ['DM', 'DAI', 'DAS', 'UGA'];
 const WORKSPACE_DRAFT_STORAGE_KEY = 'simu-ssi/admin-studio/workspace-draft/v1';
+const SCENARIO_DRAFT_STORAGE_KEY = 'simu-ssi/admin-studio/scenario-draft/v1';
 const DEFAULT_DEVICE_VISIBILITY: Record<DeviceKind, boolean> = {
   DM: true,
   DAI: true,
@@ -159,6 +160,19 @@ interface ScenarioDraft {
   manualResettable?: ScenarioManualResetSelection;
   evacuationAudio?: ScenarioDefinition['evacuationAudio'];
 }
+
+interface ScenarioDraftStorageEntry {
+  id: string;
+  name: string;
+  description?: string;
+  events: ScenarioEventDraft[];
+  topology?: SiteTopology;
+  manualResettable?: ScenarioManualResetSelection;
+  evacuationAudio?: ScenarioDefinition['evacuationAudio'];
+  updatedAt: number;
+}
+
+type ScenarioDraftStorageMap = Record<string, ScenarioDraftStorageEntry>;
 
 const SCENARIO_EVENT_OPTIONS: Array<{
   value: ScenarioEventType;
@@ -284,6 +298,189 @@ function createScenarioDraft(source: ScenarioDefinition): ScenarioDraft {
     topology: source.topology,
     manualResettable: source.manualResettable,
     evacuationAudio: source.evacuationAudio,
+  };
+}
+
+function isKnownScenarioEventType(value: unknown): value is ScenarioEventType {
+  return (
+    value === 'DM_TRIGGER' ||
+    value === 'DM_RESET' ||
+    value === 'DAI_TRIGGER' ||
+    value === 'DAI_RESET' ||
+    value === 'MANUAL_EVAC_START' ||
+    value === 'MANUAL_EVAC_STOP' ||
+    value === 'PROCESS_ACK' ||
+    value === 'PROCESS_CLEAR' ||
+    value === 'SYSTEM_RESET'
+  );
+}
+
+function sanitizeScenarioDraftEvent(value: unknown): ScenarioEventDraft | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  if (!isKnownScenarioEventType(raw.type)) {
+    return null;
+  }
+
+  const id = typeof raw.id === 'string' && raw.id.trim().length > 0 ? raw.id.trim() : createScenarioEventId();
+  const offset = normalizeScenarioOffset(typeof raw.offset === 'number' ? raw.offset : 0);
+  const label = typeof raw.label === 'string' ? raw.label : '';
+
+  if (raw.type === 'DM_TRIGGER' || raw.type === 'DM_RESET' || raw.type === 'DAI_TRIGGER' || raw.type === 'DAI_RESET') {
+    const sequence = Array.isArray(raw.sequence)
+      ? raw.sequence
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object') {
+              return null;
+            }
+            const record = entry as Record<string, unknown>;
+            const deviceId = typeof record.deviceId === 'string' ? record.deviceId.trim() : '';
+            if (!deviceId) {
+              return null;
+            }
+            return {
+              deviceId,
+              delay: normalizeScenarioOffset(typeof record.delay === 'number' ? record.delay : 0),
+            } satisfies ScenarioEventSequenceEntry;
+          })
+          .filter((entry): entry is ScenarioEventSequenceEntry => Boolean(entry))
+      : undefined;
+    return ensureScenarioDraftEvent({
+      id,
+      type: raw.type,
+      offset,
+      label,
+      zoneId: typeof raw.zoneId === 'string' ? raw.zoneId.trim().toUpperCase() : '',
+      ...(sequence && sequence.length > 0 ? { sequence } : {}),
+    } as ScenarioEvent);
+  }
+
+  if (raw.type === 'MANUAL_EVAC_START' || raw.type === 'MANUAL_EVAC_STOP') {
+    return ensureScenarioDraftEvent({
+      id,
+      type: raw.type,
+      offset,
+      label,
+      ...(typeof raw.reason === 'string' ? { reason: raw.reason } : {}),
+    } as ScenarioEvent);
+  }
+
+  if (raw.type === 'PROCESS_ACK') {
+    return ensureScenarioDraftEvent({
+      id,
+      type: raw.type,
+      offset,
+      label,
+      ...(typeof raw.ackedBy === 'string' ? { ackedBy: raw.ackedBy } : {}),
+    } as ScenarioEvent);
+  }
+
+  return ensureScenarioDraftEvent({
+    id,
+    type: raw.type,
+    offset,
+    label,
+  } as ScenarioEvent);
+}
+
+function readScenarioDraftStorage(): ScenarioDraftStorageMap {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+  const rawStorage = window.localStorage.getItem(SCENARIO_DRAFT_STORAGE_KEY);
+  if (!rawStorage) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(rawStorage) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
+    }
+    const entries: ScenarioDraftStorageMap = {};
+    for (const [scenarioId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== 'object') {
+        continue;
+      }
+      const record = value as Record<string, unknown>;
+      const id = typeof record.id === 'string' && record.id.trim().length > 0 ? record.id.trim() : scenarioId;
+      const name = typeof record.name === 'string' ? record.name : '';
+      const description = typeof record.description === 'string' ? record.description : undefined;
+      const events = Array.isArray(record.events)
+        ? record.events
+            .map((event) => sanitizeScenarioDraftEvent(event))
+            .filter((event): event is ScenarioEventDraft => Boolean(event))
+        : [];
+      const topologyCandidate =
+        record.topology == null
+          ? undefined
+          : siteTopologySchema.safeParse(record.topology).success
+            ? siteTopologySchema.parse(record.topology)
+            : undefined;
+      const manualResettableCandidate =
+        record.manualResettable && typeof record.manualResettable === 'object'
+          ? record.manualResettable as ScenarioManualResetSelection
+          : undefined;
+      const evacuationAudioCandidate =
+        record.evacuationAudio && typeof record.evacuationAudio === 'object'
+          ? record.evacuationAudio as ScenarioDefinition['evacuationAudio']
+          : undefined;
+      entries[scenarioId] = {
+        id,
+        name,
+        description,
+        events,
+        topology: topologyCandidate,
+        manualResettable: manualResettableCandidate,
+        evacuationAudio: evacuationAudioCandidate,
+        updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now(),
+      };
+    }
+    return entries;
+  } catch {
+    return {};
+  }
+}
+
+function writeScenarioDraftStorage(entries: ScenarioDraftStorageMap) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const keys = Object.keys(entries);
+  if (keys.length === 0) {
+    window.localStorage.removeItem(SCENARIO_DRAFT_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(SCENARIO_DRAFT_STORAGE_KEY, JSON.stringify(entries));
+}
+
+function clearScenarioDraftStorageEntry(scenarioId: string) {
+  if (!scenarioId) {
+    return;
+  }
+  const entries = readScenarioDraftStorage();
+  if (!entries[scenarioId]) {
+    return;
+  }
+  delete entries[scenarioId];
+  writeScenarioDraftStorage(entries);
+}
+
+function createScenarioDraftFromStorageEntry(
+  entry: ScenarioDraftStorageEntry,
+  fallback: ScenarioDraft,
+): ScenarioDraft {
+  return {
+    id: fallback.id,
+    name: typeof entry.name === 'string' ? entry.name : fallback.name,
+    description: typeof entry.description === 'string' ? entry.description : fallback.description,
+    events: Array.isArray(entry.events)
+      ? entry.events.map((event) => ensureScenarioDraftEvent(event))
+      : fallback.events,
+    topology: entry.topology ?? fallback.topology,
+    manualResettable: entry.manualResettable ?? fallback.manualResettable,
+    evacuationAudio: entry.evacuationAudio ?? fallback.evacuationAudio,
   };
 }
 
@@ -480,6 +677,7 @@ export function AdminStudioApp() {
   const scenarioCloneTimeoutRef = useRef<number | null>(null);
   const scenarioDeleteTimeoutRef = useRef<number | null>(null);
   const scenarioImportTimeoutRef = useRef<number | null>(null);
+  const scenarioRestoreTimeoutRef = useRef<number | null>(null);
   const selectedScenarioIdRef = useRef('');
   const loadedScenarioTopologyRef = useRef<string | null>(null);
   const hasHydratedWorkspaceRef = useRef(false);
@@ -514,6 +712,7 @@ export function AdminStudioApp() {
   const [scenarioDeleteError, setScenarioDeleteError] = useState<string | null>(null);
   const [scenarioImportStatus, setScenarioImportStatus] = useState<'idle' | 'importing' | 'success' | 'error'>('idle');
   const [scenarioImportError, setScenarioImportError] = useState<string | null>(null);
+  const [scenarioRestoreMessage, setScenarioRestoreMessage] = useState<string | null>(null);
   const [scenarioEventSearchQuery, setScenarioEventSearchQuery] = useState('');
   const [scenarioEventTypeFilter, setScenarioEventTypeFilter] = useState<ScenarioEventTypeFilter>('ALL');
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
@@ -714,6 +913,9 @@ export function AdminStudioApp() {
       if (scenarioImportTimeoutRef.current) {
         window.clearTimeout(scenarioImportTimeoutRef.current);
       }
+      if (scenarioRestoreTimeoutRef.current) {
+        window.clearTimeout(scenarioRestoreTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -866,6 +1068,18 @@ export function AdminStudioApp() {
   }, [scenarioImportStatus]);
 
   useEffect(() => {
+    if (!scenarioRestoreMessage) {
+      return;
+    }
+    if (scenarioRestoreTimeoutRef.current) {
+      window.clearTimeout(scenarioRestoreTimeoutRef.current);
+    }
+    scenarioRestoreTimeoutRef.current = window.setTimeout(() => {
+      setScenarioRestoreMessage(null);
+    }, 3500);
+  }, [scenarioRestoreMessage]);
+
+  useEffect(() => {
     if (!hasHydratedWorkspaceRef.current || typeof window === 'undefined') {
       return;
     }
@@ -885,6 +1099,31 @@ export function AdminStudioApp() {
     };
     window.localStorage.setItem(WORKSPACE_DRAFT_STORAGE_KEY, JSON.stringify(payload));
   }, [devices, planImage, planName, planNotes, zones]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !scenarioDraft?.id) {
+      return;
+    }
+    const entries = readScenarioDraftStorage();
+    if (!scenarioDraftIsDirty) {
+      if (entries[scenarioDraft.id]) {
+        delete entries[scenarioDraft.id];
+        writeScenarioDraftStorage(entries);
+      }
+      return;
+    }
+    entries[scenarioDraft.id] = {
+      id: scenarioDraft.id,
+      name: scenarioDraft.name,
+      description: scenarioDraft.description,
+      events: scenarioDraft.events.map((event) => ensureScenarioDraftEvent(event)),
+      topology: scenarioDraft.topology,
+      manualResettable: scenarioDraft.manualResettable,
+      evacuationAudio: scenarioDraft.evacuationAudio,
+      updatedAt: Date.now(),
+    };
+    writeScenarioDraftStorage(entries);
+  }, [scenarioDraft, scenarioDraftIsDirty]);
 
   const handlePlanFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -1563,7 +1802,17 @@ export function AdminStudioApp() {
       if (!source) {
         return;
       }
-      setScenarioDraft(createScenarioDraft(source));
+      const baseDraft = createScenarioDraft(source);
+      const storedEntries = readScenarioDraftStorage();
+      const storedDraft = storedEntries[scenarioId];
+      if (storedDraft) {
+        setScenarioDraft(createScenarioDraftFromStorageEntry(storedDraft, baseDraft));
+        const restoredAt = new Date(storedDraft.updatedAt).toLocaleTimeString('fr-FR');
+        setScenarioRestoreMessage(`Brouillon local restaure (${restoredAt}).`);
+      } else {
+        setScenarioDraft(baseDraft);
+        setScenarioRestoreMessage(null);
+      }
       setScenarioSaveStatus('idle');
       setScenarioSaveError(null);
       setScenarioCloneStatus('idle');
@@ -1682,6 +1931,7 @@ export function AdminStudioApp() {
 
       setScenarioImportStatus('importing');
       setScenarioImportError(null);
+      setScenarioRestoreMessage(null);
       setScenarioSaveStatus('idle');
       setScenarioSaveError(null);
       setScenarioCloneStatus('idle');
@@ -1858,6 +2108,7 @@ export function AdminStudioApp() {
 
     setScenarioCloneStatus('saving');
     setScenarioCloneError(null);
+    setScenarioRestoreMessage(null);
     setScenarioDeleteStatus('idle');
     setScenarioDeleteError(null);
     setScenarioImportStatus('idle');
@@ -1914,6 +2165,7 @@ export function AdminStudioApp() {
 
     setScenarioDeleteStatus('deleting');
     setScenarioDeleteError(null);
+    setScenarioRestoreMessage(null);
     setScenarioSaveStatus('idle');
     setScenarioSaveError(null);
     setScenarioCloneStatus('idle');
@@ -1926,6 +2178,7 @@ export function AdminStudioApp() {
       if (!isMountedRef.current) {
         return;
       }
+      clearScenarioDraftStorageEntry(selectedScenarioId);
       const remainingScenarios = scenarios
         .filter((scenario) => scenario.id !== selectedScenarioId)
         .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
@@ -2071,6 +2324,7 @@ export function AdminStudioApp() {
     }
     setScenarioSaveStatus('saving');
     setScenarioSaveError(null);
+    setScenarioRestoreMessage(null);
     setScenarioCloneStatus('idle');
     setScenarioCloneError(null);
     setScenarioDeleteStatus('idle');
@@ -2088,6 +2342,7 @@ export function AdminStudioApp() {
           .map((scenario) => (scenario.id === updated.id ? updated : scenario))
           .sort((a, b) => a.name.localeCompare(b.name, 'fr')),
       );
+      clearScenarioDraftStorageEntry(updated.id);
       setSelectedScenarioId(updated.id);
       setScenarioDraft(createScenarioDraft(updated));
       setScenarioSaveStatus('success');
@@ -2466,6 +2721,11 @@ export function AdminStudioApp() {
                 {scenarioImportStatus !== 'idle' ? (
                   <span className={`scenario-admin__feedback scenario-admin__feedback--${scenarioImportStatus}`}>
                     {scenarioImportFeedbackMessage}
+                  </span>
+                ) : null}
+                {scenarioRestoreMessage ? (
+                  <span className="scenario-admin__feedback scenario-admin__feedback--success">
+                    {scenarioRestoreMessage}
                   </span>
                 ) : null}
                 <input
