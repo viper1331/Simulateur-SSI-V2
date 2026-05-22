@@ -105,6 +105,12 @@ body {
   color: #0f172a;
 }
 
+.panel-tip {
+  margin: -6px 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
 .plan-panel {
   gap: 12px;
 }
@@ -124,6 +130,42 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
+}
+
+.plan-visibility {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.plan-visibility__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.plan-visibility__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-visibility__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(248, 250, 252, 0.95);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.plan-visibility__toggle input {
+  margin: 0;
 }
 
 .plan-stage {

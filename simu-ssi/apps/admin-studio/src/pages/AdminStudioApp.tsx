@@ -44,6 +44,14 @@ interface DevicePlacement {
   zoneId?: string;
 }
 
+interface WorkspaceDraftPayload {
+  planImage: string | null;
+  planName: string;
+  planNotes: string;
+  devices: DevicePlacement[];
+  zones: SiteZone[];
+}
+
 const DEVICE_DEFINITIONS: Record<
   DeviceKind,
   { label: string; shortLabel: string; description: string; color: string }
@@ -75,8 +83,19 @@ const DEVICE_DEFINITIONS: Record<
 };
 
 const DEVICE_ORDER: DeviceKind[] = ['DM', 'DAI', 'DAS', 'UGA'];
+const WORKSPACE_DRAFT_STORAGE_KEY = 'simu-ssi/admin-studio/workspace-draft/v1';
+const DEFAULT_DEVICE_VISIBILITY: Record<DeviceKind, boolean> = {
+  DM: true,
+  DAI: true,
+  DAS: true,
+  UGA: true,
+};
 
 const formatCoordinate = (value: number) => `${value.toFixed(1)}%`;
+
+function isKnownDeviceKind(value: unknown): value is DeviceKind {
+  return value === 'DM' || value === 'DAI' || value === 'DAS' || value === 'UGA';
+}
 
 const createDeviceId = (kind: DeviceKind) => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -364,6 +383,8 @@ export function AdminStudioApp() {
   const scenarioTimeoutRef = useRef<number | null>(null);
   const selectedScenarioIdRef = useRef('');
   const loadedScenarioTopologyRef = useRef<string | null>(null);
+  const hasHydratedWorkspaceRef = useRef(false);
+  const skipInitialScenarioTopologyApplyRef = useRef(false);
 
   const [planImage, setPlanImage] = useState<string | null>(null);
   const [planName, setPlanName] = useState<string>('Aucun plan importé');
@@ -389,14 +410,131 @@ export function AdminStudioApp() {
   const [scenarioSaveStatus, setScenarioSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [scenarioSaveError, setScenarioSaveError] = useState<string | null>(null);
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
+  const [visibleDeviceKinds, setVisibleDeviceKinds] = useState<Record<DeviceKind, boolean>>(
+    DEFAULT_DEVICE_VISIBILITY,
+  );
 
   const hasWorkspaceContent = Boolean(planImage || devices.length > 0 || planNotes.trim().length > 0);
 
   const isDeviceKind = useCallback((value: string): value is DeviceKind => value in DEVICE_DEFINITIONS, []);
 
+  const normalizedDeviceSearchQuery = useMemo(
+    () => deviceSearchQuery.trim().toLowerCase(),
+    [deviceSearchQuery],
+  );
+
+  const visibleDevices = useMemo(() => {
+    return devices.filter((device) => {
+      if (!visibleDeviceKinds[device.kind]) {
+        return false;
+      }
+      if (!normalizedDeviceSearchQuery) {
+        return true;
+      }
+      const searchHaystack = [device.label, device.id, device.kind, device.zoneId ?? '']
+        .join(' ')
+        .toLowerCase();
+      return searchHaystack.includes(normalizedDeviceSearchQuery);
+    });
+  }, [devices, normalizedDeviceSearchQuery, visibleDeviceKinds]);
+
   useEffect(() => {
     selectedScenarioIdRef.current = selectedScenarioId;
   }, [selectedScenarioId]);
+
+  useEffect(() => {
+    if (hasHydratedWorkspaceRef.current) {
+      return;
+    }
+    hasHydratedWorkspaceRef.current = true;
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const rawDraft = window.localStorage.getItem(WORKSPACE_DRAFT_STORAGE_KEY);
+    if (!rawDraft) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(rawDraft) as Partial<WorkspaceDraftPayload> | null;
+      if (!parsed || typeof parsed !== 'object') {
+        return;
+      }
+
+      const draftPlanImage = typeof parsed.planImage === 'string' && parsed.planImage.trim().length > 0
+        ? parsed.planImage
+        : null;
+      const draftPlanName = typeof parsed.planName === 'string' && parsed.planName.trim().length > 0
+        ? parsed.planName
+        : draftPlanImage
+          ? 'Plan importé'
+          : 'Aucun plan importé';
+      const draftPlanNotes = typeof parsed.planNotes === 'string' ? parsed.planNotes : '';
+
+      const draftZones = Array.isArray(parsed.zones)
+        ? parsed.zones
+            .map((zone) => ({
+              id: typeof zone?.id === 'string' ? zone.id.trim() : '',
+              label: typeof zone?.label === 'string' ? zone.label.trim() : '',
+              kind: typeof zone?.kind === 'string' ? zone.kind.trim() : '',
+            }))
+            .filter((zone): zone is SiteZone => zone.id.length > 0 && zone.label.length > 0 && zone.kind.length > 0)
+        : [];
+
+      const zoneIds = new Set(draftZones.map((zone) => zone.id));
+      const draftDevices = Array.isArray(parsed.devices)
+        ? parsed.devices
+            .map((device) => {
+              if (!device || typeof device !== 'object' || !isKnownDeviceKind((device as DevicePlacement).kind)) {
+                return null;
+              }
+              const id = typeof (device as DevicePlacement).id === 'string' ? (device as DevicePlacement).id.trim() : '';
+              if (!id) {
+                return null;
+              }
+              const labelCandidate = typeof (device as DevicePlacement).label === 'string' ? (device as DevicePlacement).label.trim() : '';
+              const xPercent = normalizePercent((device as DevicePlacement).xPercent);
+              const yPercent = normalizePercent((device as DevicePlacement).yPercent);
+              if (typeof xPercent !== 'number' || typeof yPercent !== 'number') {
+                return null;
+              }
+              const zoneIdCandidate =
+                typeof (device as DevicePlacement).zoneId === 'string' ? (device as DevicePlacement).zoneId : undefined;
+              return {
+                id,
+                kind: (device as DevicePlacement).kind,
+                label: labelCandidate || id,
+                xPercent,
+                yPercent,
+                zoneId: zoneIdCandidate && zoneIds.has(zoneIdCandidate) ? zoneIdCandidate : undefined,
+              } as DevicePlacement;
+            })
+            .filter((device): device is DevicePlacement => Boolean(device))
+        : [];
+
+      const hasDraftContent =
+        draftPlanImage !== null || draftDevices.length > 0 || draftPlanNotes.trim().length > 0 || draftZones.length > 0;
+      if (!hasDraftContent) {
+        return;
+      }
+
+      skipInitialScenarioTopologyApplyRef.current = true;
+      setPlanImage(draftPlanImage);
+      setPlanName(draftPlanName);
+      setPlanNotes(draftPlanNotes);
+      setZones(draftZones);
+      setDevices(draftDevices);
+      setSelectedKind(null);
+      setVisibleDeviceKinds(DEFAULT_DEVICE_VISIBILITY);
+      setDeviceSearchQuery('');
+      setIsDragging(false);
+      setCopyStatus('idle');
+      setPublishStatus('idle');
+      setPublishError(null);
+    } catch {
+      window.localStorage.removeItem(WORKSPACE_DRAFT_STORAGE_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -527,6 +665,27 @@ export function AdminStudioApp() {
     }, 2500);
   }, [scenarioSaveStatus]);
 
+  useEffect(() => {
+    if (!hasHydratedWorkspaceRef.current || typeof window === 'undefined') {
+      return;
+    }
+    const hasDraftContent =
+      planImage !== null || devices.length > 0 || planNotes.trim().length > 0 || zones.length > 0;
+    if (!hasDraftContent) {
+      window.localStorage.removeItem(WORKSPACE_DRAFT_STORAGE_KEY);
+      return;
+    }
+
+    const payload: WorkspaceDraftPayload = {
+      planImage,
+      planName,
+      planNotes,
+      devices,
+      zones,
+    };
+    window.localStorage.setItem(WORKSPACE_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  }, [devices, planImage, planName, planNotes, zones]);
+
   const handlePlanFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Le fichier doit être une image (PNG, JPG, SVG, …).');
@@ -539,6 +698,8 @@ export function AdminStudioApp() {
       setDevices([]);
       setPlanNotes('');
       setSelectedKind(null);
+      setVisibleDeviceKinds(DEFAULT_DEVICE_VISIBILITY);
+      setDeviceSearchQuery('');
       setIsDragging(false);
     };
     reader.onerror = () => {
@@ -820,6 +981,14 @@ export function AdminStudioApp() {
     setSelectedKind(kind);
   }, []);
 
+  const handleToggleDeviceVisibility = useCallback((kind: DeviceKind) => {
+    setVisibleDeviceKinds((previous) => ({ ...previous, [kind]: !previous[kind] }));
+  }, []);
+
+  const handleShowAllDeviceKinds = useCallback(() => {
+    setVisibleDeviceKinds(DEFAULT_DEVICE_VISIBILITY);
+  }, []);
+
   const handleRemoveDevice = useCallback((id: string) => {
     setDevices((previous) => previous.filter((device) => device.id !== id));
   }, []);
@@ -856,6 +1025,8 @@ export function AdminStudioApp() {
     setPlanNotes('');
     setDevices([]);
     setSelectedKind(null);
+    setVisibleDeviceKinds(DEFAULT_DEVICE_VISIBILITY);
+    setDeviceSearchQuery('');
     setIsDragging(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -936,6 +1107,8 @@ export function AdminStudioApp() {
 
       setDevices(importedDevices);
       setSelectedKind(null);
+      setVisibleDeviceKinds(DEFAULT_DEVICE_VISIBILITY);
+      setDeviceSearchQuery('');
       setIsDragging(false);
       setCopyStatus('idle');
       setPublishStatus('idle');
@@ -957,6 +1130,11 @@ export function AdminStudioApp() {
       return;
     }
     if (loadedScenarioTopologyRef.current === scenario.id) {
+      return;
+    }
+    if (skipInitialScenarioTopologyApplyRef.current) {
+      loadedScenarioTopologyRef.current = scenario.id;
+      skipInitialScenarioTopologyApplyRef.current = false;
       return;
     }
     loadedScenarioTopologyRef.current = scenario.id;
@@ -1473,6 +1651,24 @@ export function AdminStudioApp() {
               {planName}
             </span>
           </div>
+          <div className="plan-visibility">
+            <span className="plan-visibility__label">Afficher</span>
+            <div className="plan-visibility__toggles">
+              {DEVICE_ORDER.map((kind) => (
+                <label key={kind} className={`plan-visibility__toggle plan-visibility__toggle--${kind.toLowerCase()}`}>
+                  <input
+                    type="checkbox"
+                    checked={visibleDeviceKinds[kind]}
+                    onChange={() => handleToggleDeviceVisibility(kind)}
+                  />
+                  <span>{kind}</span>
+                </label>
+              ))}
+            </div>
+            <button type="button" className="button button-ghost" onClick={handleShowAllDeviceKinds}>
+              Tout afficher
+            </button>
+          </div>
           <div
             className={`plan-stage${planImage ? '' : ' plan-stage--empty'}${isDragging ? ' plan-stage--dragging' : ''}`}
             onPointerDown={handleStagePointerDown}
@@ -1489,7 +1685,7 @@ export function AdminStudioApp() {
               <div className="plan-image-wrapper">
                 <img ref={imageRef} src={planImage} alt={`Plan ${planName}`} />
                 <div className="plan-overlay">
-                  {devices.map((device) => (
+                  {visibleDevices.map((device) => (
                     <button
                       key={device.id}
                       type="button"
@@ -1539,6 +1735,7 @@ export function AdminStudioApp() {
               Chargez un plan d'évacuation (PNG, JPG ou SVG). L'import d'un nouveau plan réinitialise la liste des
               dispositifs.
             </p>
+            <p className="panel-tip">Brouillon sauvegardé automatiquement sur ce navigateur.</p>
             <div className="button-row">
               <button type="button" className="button button-primary" onClick={handleImportClick}>
                 Choisir un plan
@@ -1590,12 +1787,28 @@ export function AdminStudioApp() {
             </div>
           </section>
           <section className="panel">
-            <h2>Dispositifs placés</h2>
+            <div className="panel-header">
+              <h2>Dispositifs placés</h2>
+              <span className="plan-name">
+                {visibleDevices.length} / {devices.length}
+              </span>
+            </div>
+            <label className="field">
+              <span className="field-label">Recherche</span>
+              <input
+                type="text"
+                value={deviceSearchQuery}
+                onChange={(event) => setDeviceSearchQuery(event.target.value)}
+                placeholder="ID, libellé, type ou zone"
+              />
+            </label>
             {devices.length === 0 ? (
               <p className="empty-state">Aucun dispositif pour le moment.</p>
+            ) : visibleDevices.length === 0 ? (
+              <p className="empty-state">Aucun dispositif ne correspond aux filtres ou à la recherche.</p>
             ) : (
               <ul className="device-list">
-                {devices.map((device) => (
+                {visibleDevices.map((device) => (
                   <li key={device.id} className="device-list__item">
                     <div className="device-list__info">
                       <div className="device-list__meta">
