@@ -690,6 +690,11 @@ select:focus-visible {
   gap: 8px;
 }
 
+.scenario-admin__danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.35);
+}
+
 .scenario-admin__feedback {
   font-size: 0.85rem;
   color: #475569;
@@ -707,9 +712,30 @@ select:focus-visible {
   color: #1d4ed8;
 }
 
+.scenario-admin__feedback--deleting {
+  color: #1d4ed8;
+}
+
 .scenario-admin__dirty {
   font-size: 0.85rem;
   color: #b45309;
+}
+
+.scenario-admin__event-tools {
+  display: grid;
+  gap: 10px;
+}
+
+.scenario-admin__event-tools-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.scenario-admin__event-counter {
+  font-size: 0.85rem;
+  color: #475569;
 }
 
 .scenario-admin__description {

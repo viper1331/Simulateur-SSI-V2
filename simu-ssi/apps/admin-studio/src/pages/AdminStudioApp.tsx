@@ -172,6 +172,12 @@ const SCENARIO_EVENT_OPTIONS: Array<{
   { value: 'PROCESS_CLEAR', label: 'Process clear' },
   { value: 'SYSTEM_RESET', label: 'System reset' },
 ];
+type ScenarioEventTypeFilter = 'ALL' | ScenarioEventType;
+
+const SCENARIO_EVENT_FILTER_OPTIONS: Array<{
+  value: ScenarioEventTypeFilter;
+  label: string;
+}> = [{ value: 'ALL', label: 'Tous les types' }, ...SCENARIO_EVENT_OPTIONS];
 
 function createScenarioEventId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -431,6 +437,7 @@ export function AdminStudioApp() {
   const publishTimeoutRef = useRef<number | null>(null);
   const scenarioTimeoutRef = useRef<number | null>(null);
   const scenarioCloneTimeoutRef = useRef<number | null>(null);
+  const scenarioDeleteTimeoutRef = useRef<number | null>(null);
   const selectedScenarioIdRef = useRef('');
   const loadedScenarioTopologyRef = useRef<string | null>(null);
   const hasHydratedWorkspaceRef = useRef(false);
@@ -461,6 +468,10 @@ export function AdminStudioApp() {
   const [scenarioSaveError, setScenarioSaveError] = useState<string | null>(null);
   const [scenarioCloneStatus, setScenarioCloneStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [scenarioCloneError, setScenarioCloneError] = useState<string | null>(null);
+  const [scenarioDeleteStatus, setScenarioDeleteStatus] = useState<'idle' | 'deleting' | 'success' | 'error'>('idle');
+  const [scenarioDeleteError, setScenarioDeleteError] = useState<string | null>(null);
+  const [scenarioEventSearchQuery, setScenarioEventSearchQuery] = useState('');
+  const [scenarioEventTypeFilter, setScenarioEventTypeFilter] = useState<ScenarioEventTypeFilter>('ALL');
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
   const [visibleDeviceKinds, setVisibleDeviceKinds] = useState<Record<DeviceKind, boolean>>(
@@ -503,6 +514,38 @@ export function AdminStudioApp() {
       buildScenarioComparisonSignature(scenarioDraft) !== buildScenarioComparisonSignature(source)
     );
   }, [scenarioDraft, scenarios]);
+
+  const normalizedScenarioEventSearchQuery = useMemo(
+    () => scenarioEventSearchQuery.trim().toLowerCase(),
+    [scenarioEventSearchQuery],
+  );
+
+  const filteredScenarioEvents = useMemo(() => {
+    if (!scenarioDraft) {
+      return [];
+    }
+    return scenarioDraft.events
+      .map((event, index) => ({ event, index }))
+      .filter(({ event }) => {
+        if (scenarioEventTypeFilter !== 'ALL' && event.type !== scenarioEventTypeFilter) {
+          return false;
+        }
+        if (!normalizedScenarioEventSearchQuery) {
+          return true;
+        }
+        const zoneId = isZoneScenarioEvent(event) ? event.zoneId : '';
+        const eventSpecificDetails =
+          event.type === 'PROCESS_ACK'
+            ? event.ackedBy ?? ''
+            : event.type === 'MANUAL_EVAC_START' || event.type === 'MANUAL_EVAC_STOP'
+              ? event.reason ?? ''
+              : '';
+        const searchHaystack = [event.id, event.type, event.label ?? '', zoneId, eventSpecificDetails, `${event.offset}`]
+          .join(' ')
+          .toLowerCase();
+        return searchHaystack.includes(normalizedScenarioEventSearchQuery);
+      });
+  }, [normalizedScenarioEventSearchQuery, scenarioDraft, scenarioEventTypeFilter]);
 
   useEffect(() => {
     selectedScenarioIdRef.current = selectedScenarioId;
@@ -620,6 +663,9 @@ export function AdminStudioApp() {
       }
       if (scenarioCloneTimeoutRef.current) {
         window.clearTimeout(scenarioCloneTimeoutRef.current);
+      }
+      if (scenarioDeleteTimeoutRef.current) {
+        window.clearTimeout(scenarioDeleteTimeoutRef.current);
       }
     };
   }, []);
@@ -745,6 +791,19 @@ export function AdminStudioApp() {
       setScenarioCloneError(null);
     }, 3500);
   }, [scenarioCloneStatus]);
+
+  useEffect(() => {
+    if (scenarioDeleteStatus === 'idle') {
+      return;
+    }
+    if (scenarioDeleteTimeoutRef.current) {
+      window.clearTimeout(scenarioDeleteTimeoutRef.current);
+    }
+    scenarioDeleteTimeoutRef.current = window.setTimeout(() => {
+      setScenarioDeleteStatus('idle');
+      setScenarioDeleteError(null);
+    }, 3500);
+  }, [scenarioDeleteStatus]);
 
   useEffect(() => {
     if (!hasHydratedWorkspaceRef.current || typeof window === 'undefined') {
@@ -1449,6 +1508,10 @@ export function AdminStudioApp() {
       setScenarioSaveError(null);
       setScenarioCloneStatus('idle');
       setScenarioCloneError(null);
+      setScenarioDeleteStatus('idle');
+      setScenarioDeleteError(null);
+      setScenarioEventSearchQuery('');
+      setScenarioEventTypeFilter('ALL');
     },
     [scenarios],
   );
@@ -1603,6 +1666,8 @@ export function AdminStudioApp() {
 
     setScenarioCloneStatus('saving');
     setScenarioCloneError(null);
+    setScenarioDeleteStatus('idle');
+    setScenarioDeleteError(null);
 
     try {
       const payload = scenarioPayloadSchema.parse({
@@ -1641,6 +1706,50 @@ export function AdminStudioApp() {
       setScenarioCloneError(message);
     }
   }, [scenarioCloneStatus, scenarioDraft, scenarios, sdk, selectedScenarioId]);
+
+  const handleScenarioDelete = useCallback(async () => {
+    if (!selectedScenarioId || scenarioDeleteStatus === 'deleting') {
+      return;
+    }
+    const source = scenarios.find((scenario) => scenario.id === selectedScenarioId);
+    const sourceName = source?.name ?? selectedScenarioId;
+    const confirmed = window.confirm(`Supprimer definitivement le scenario "${sourceName}" ?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setScenarioDeleteStatus('deleting');
+    setScenarioDeleteError(null);
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+    setScenarioCloneStatus('idle');
+    setScenarioCloneError(null);
+
+    try {
+      await sdk.deleteScenario(selectedScenarioId);
+      if (!isMountedRef.current) {
+        return;
+      }
+      const remainingScenarios = scenarios
+        .filter((scenario) => scenario.id !== selectedScenarioId)
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+      const nextScenario = remainingScenarios[0];
+      setScenarios(remainingScenarios);
+      setSelectedScenarioId(nextScenario?.id ?? '');
+      setScenarioDraft(nextScenario ? createScenarioDraft(nextScenario) : null);
+      setScenarioEventSearchQuery('');
+      setScenarioEventTypeFilter('ALL');
+      setScenarioDeleteStatus('success');
+      setScenarioDeleteError(null);
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Echec de la suppression du scenario.';
+      setScenarioDeleteStatus('error');
+      setScenarioDeleteError(message);
+    }
+  }, [scenarioDeleteStatus, scenarios, sdk, selectedScenarioId]);
 
   const handleScenarioShiftEventOffset = useCallback((eventId: string, delta: number) => {
     updateScenarioDraftEvent(eventId, (event) => ({
@@ -1686,6 +1795,23 @@ export function AdminStudioApp() {
     });
     setScenarioSaveStatus('idle');
     setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioSortEventsByOffset = useCallback(() => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const sortedEvents = [...previous.events].sort((a, b) => a.offset - b.offset);
+      return { ...previous, events: sortedEvents };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleResetScenarioEventFilters = useCallback(() => {
+    setScenarioEventSearchQuery('');
+    setScenarioEventTypeFilter('ALL');
   }, []);
 
   const handleScenarioEventTypeChange = useCallback((eventId: string, type: ScenarioEventType) => {
@@ -1751,6 +1877,8 @@ export function AdminStudioApp() {
     setScenarioSaveError(null);
     setScenarioCloneStatus('idle');
     setScenarioCloneError(null);
+    setScenarioDeleteStatus('idle');
+    setScenarioDeleteError(null);
     try {
       const payload = buildScenarioPayloadFromDraft(scenarioDraft);
       const updated = await sdk.updateScenario(scenarioDraft.id, payload);
@@ -1786,6 +1914,15 @@ export function AdminStudioApp() {
         ? scenarioCloneError ?? 'Echec de la duplication du scenario.'
         : scenarioCloneStatus === 'saving'
           ? 'Duplication en cours...'
+          : '';
+
+  const scenarioDeleteFeedbackMessage =
+    scenarioDeleteStatus === 'success'
+      ? 'Scenario supprime.'
+      : scenarioDeleteStatus === 'error'
+        ? scenarioDeleteError ?? 'Echec de la suppression du scenario.'
+        : scenarioDeleteStatus === 'deleting'
+          ? 'Suppression en cours...'
           : '';
 
   const scenarioSaveFeedbackMessage =
@@ -2082,12 +2219,25 @@ export function AdminStudioApp() {
                       >
                         {scenarioCloneStatus === 'saving' ? 'Duplication...' : 'Dupliquer'}
                       </button>
+                      <button
+                        type="button"
+                        className="button button-ghost scenario-admin__danger"
+                        onClick={handleScenarioDelete}
+                        disabled={!selectedScenarioId || scenarioDeleteStatus === 'deleting'}
+                      >
+                        {scenarioDeleteStatus === 'deleting' ? 'Suppression...' : 'Supprimer'}
+                      </button>
                     </div>
                   </div>
                 </label>
                 {scenarioCloneStatus !== 'idle' ? (
                   <span className={`scenario-admin__feedback scenario-admin__feedback--${scenarioCloneStatus}`}>
                     {scenarioCloneFeedbackMessage}
+                  </span>
+                ) : null}
+                {scenarioDeleteStatus !== 'idle' ? (
+                  <span className={`scenario-admin__feedback scenario-admin__feedback--${scenarioDeleteStatus}`}>
+                    {scenarioDeleteFeedbackMessage}
                   </span>
                 ) : null}
                 {scenarioDraft ? (
@@ -2137,20 +2287,66 @@ export function AdminStudioApp() {
                         Auto offset 10s
                       </button>
                     </div>
+                    <div className="scenario-admin__event-tools">
+                      <label className="field">
+                        <span className="field-label">Recherche etape</span>
+                        <input
+                          type="text"
+                          value={scenarioEventSearchQuery}
+                          onChange={(event) => setScenarioEventSearchQuery(event.target.value)}
+                          placeholder="Type, zone, label, id..."
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">Filtrer par type</span>
+                        <select
+                          value={scenarioEventTypeFilter}
+                          onChange={(event) => setScenarioEventTypeFilter(event.target.value as ScenarioEventTypeFilter)}
+                        >
+                          {SCENARIO_EVENT_FILTER_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="scenario-admin__event-tools-actions">
+                        <button
+                          type="button"
+                          className="button button-ghost"
+                          onClick={handleScenarioSortEventsByOffset}
+                          disabled={scenarioDraft.events.length < 2}
+                        >
+                          Trier par offset
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-ghost"
+                          onClick={handleResetScenarioEventFilters}
+                        >
+                          Reinitialiser filtres
+                        </button>
+                      </div>
+                    </div>
+                    <span className="scenario-admin__event-counter">
+                      {filteredScenarioEvents.length} / {scenarioDraft.events.length} etape(s) affichee(s)
+                    </span>
                     {scenarioDraft.events.length === 0 ? (
                       <p className="empty-state">Ce scenario ne contient aucun evenement.</p>
+                    ) : filteredScenarioEvents.length === 0 ? (
+                      <p className="empty-state">Aucune etape ne correspond aux filtres actifs.</p>
                     ) : (
                       <ul className="scenario-admin-events">
-                        {scenarioDraft.events.map((eventDraft, index) => (
+                        {filteredScenarioEvents.map(({ event: eventDraft, index: absoluteIndex }) => (
                           <li key={eventDraft.id} className="scenario-admin-event">
                             <div className="scenario-admin-event__header">
-                              <strong>Etape {index + 1}</strong>
+                              <strong>Etape {absoluteIndex + 1}</strong>
                               <div className="scenario-admin-event__actions">
                                 <button
                                   type="button"
                                   className="button button-ghost"
                                   onClick={() => handleScenarioMoveEvent(eventDraft.id, -1)}
-                                  disabled={index === 0}
+                                  disabled={absoluteIndex === 0}
                                 >
                                   Monter
                                 </button>
@@ -2158,7 +2354,7 @@ export function AdminStudioApp() {
                                   type="button"
                                   className="button button-ghost"
                                   onClick={() => handleScenarioMoveEvent(eventDraft.id, 1)}
-                                  disabled={index === scenarioDraft.events.length - 1}
+                                  disabled={absoluteIndex === scenarioDraft.events.length - 1}
                                 >
                                   Descendre
                                 </button>
