@@ -1,6 +1,6 @@
 {
   "name": "@simu-ssi/sdk",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "main": "dist/index.cjs",
@@ -31,4 +31,5 @@
     "vitest": "^1.2.2"
   }
 }
+
 

@@ -684,6 +684,34 @@ select:focus-visible {
   min-width: 220px;
 }
 
+.scenario-admin__selector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-admin__feedback {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.scenario-admin__feedback--success {
+  color: #15803d;
+}
+
+.scenario-admin__feedback--error {
+  color: #b91c1c;
+}
+
+.scenario-admin__feedback--saving {
+  color: #1d4ed8;
+}
+
+.scenario-admin__dirty {
+  font-size: 0.85rem;
+  color: #b45309;
+}
+
 .scenario-admin__description {
   min-height: 96px;
 }

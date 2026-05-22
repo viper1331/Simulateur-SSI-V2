@@ -355,6 +355,55 @@ function normalizeScenarioEventForPayload(event: ScenarioEventDraft): ScenarioEv
   }
 }
 
+function normalizeScenarioEventsForPayload(
+  events: Array<ScenarioEvent | ScenarioEventDraft>,
+): ScenarioEvent[] {
+  return events.map((event) =>
+    normalizeScenarioEventForPayload(ensureScenarioDraftEvent(event as ScenarioEvent)),
+  );
+}
+
+function buildScenarioPayloadFromDraft(draft: ScenarioDraft) {
+  return scenarioPayloadSchema.parse({
+    name: draft.name.trim(),
+    description: draft.description?.trim() ? draft.description.trim() : undefined,
+    events: normalizeScenarioEventsForPayload(draft.events),
+    topology: draft.topology,
+    manualResettable: draft.manualResettable,
+    evacuationAudio: draft.evacuationAudio,
+  });
+}
+
+function buildScenarioComparisonSignature(source: {
+  name: string;
+  description?: string;
+  events: Array<ScenarioEvent | ScenarioEventDraft>;
+  topology?: SiteTopology;
+  manualResettable?: ScenarioManualResetSelection;
+  evacuationAudio?: ScenarioDefinition['evacuationAudio'];
+}) {
+  return JSON.stringify({
+    name: source.name.trim(),
+    description: source.description?.trim() ? source.description.trim() : undefined,
+    events: normalizeScenarioEventsForPayload(source.events),
+    topology: source.topology,
+    manualResettable: source.manualResettable,
+    evacuationAudio: source.evacuationAudio,
+  });
+}
+
+function createScenarioDuplicateName(sourceName: string, existingNames: string[]): string {
+  const base = sourceName.trim() || 'Scenario';
+  const existing = new Set(existingNames.map((name) => name.trim().toLowerCase()));
+  let attempt = `${base} (copie)`;
+  let index = 2;
+  while (existing.has(attempt.trim().toLowerCase())) {
+    attempt = `${base} (copie ${index})`;
+    index += 1;
+  }
+  return attempt;
+}
+
 export function AdminStudioApp() {
   const baseUrl = useMemo(() => import.meta.env.VITE_SERVER_URL ?? 'http://localhost:4500', []);
   const sdk = useMemo(() => new SsiSdk(baseUrl, { apiToken: getConfiguredApiToken() }), [baseUrl]);
@@ -381,6 +430,7 @@ export function AdminStudioApp() {
   const copyTimeoutRef = useRef<number | null>(null);
   const publishTimeoutRef = useRef<number | null>(null);
   const scenarioTimeoutRef = useRef<number | null>(null);
+  const scenarioCloneTimeoutRef = useRef<number | null>(null);
   const selectedScenarioIdRef = useRef('');
   const loadedScenarioTopologyRef = useRef<string | null>(null);
   const hasHydratedWorkspaceRef = useRef(false);
@@ -409,6 +459,8 @@ export function AdminStudioApp() {
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [scenarioSaveStatus, setScenarioSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [scenarioSaveError, setScenarioSaveError] = useState<string | null>(null);
+  const [scenarioCloneStatus, setScenarioCloneStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [scenarioCloneError, setScenarioCloneError] = useState<string | null>(null);
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
   const [visibleDeviceKinds, setVisibleDeviceKinds] = useState<Record<DeviceKind, boolean>>(
@@ -438,6 +490,19 @@ export function AdminStudioApp() {
       return searchHaystack.includes(normalizedDeviceSearchQuery);
     });
   }, [devices, normalizedDeviceSearchQuery, visibleDeviceKinds]);
+
+  const scenarioDraftIsDirty = useMemo(() => {
+    if (!scenarioDraft) {
+      return false;
+    }
+    const source = scenarios.find((scenario) => scenario.id === scenarioDraft.id);
+    if (!source) {
+      return true;
+    }
+    return (
+      buildScenarioComparisonSignature(scenarioDraft) !== buildScenarioComparisonSignature(source)
+    );
+  }, [scenarioDraft, scenarios]);
 
   useEffect(() => {
     selectedScenarioIdRef.current = selectedScenarioId;
@@ -553,6 +618,9 @@ export function AdminStudioApp() {
       if (scenarioTimeoutRef.current) {
         window.clearTimeout(scenarioTimeoutRef.current);
       }
+      if (scenarioCloneTimeoutRef.current) {
+        window.clearTimeout(scenarioCloneTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -664,6 +732,19 @@ export function AdminStudioApp() {
       setScenarioSaveError(null);
     }, 2500);
   }, [scenarioSaveStatus]);
+
+  useEffect(() => {
+    if (scenarioCloneStatus === 'idle') {
+      return;
+    }
+    if (scenarioCloneTimeoutRef.current) {
+      window.clearTimeout(scenarioCloneTimeoutRef.current);
+    }
+    scenarioCloneTimeoutRef.current = window.setTimeout(() => {
+      setScenarioCloneStatus('idle');
+      setScenarioCloneError(null);
+    }, 3500);
+  }, [scenarioCloneStatus]);
 
   useEffect(() => {
     if (!hasHydratedWorkspaceRef.current || typeof window === 'undefined') {
@@ -1366,6 +1447,8 @@ export function AdminStudioApp() {
       setScenarioDraft(createScenarioDraft(source));
       setScenarioSaveStatus('idle');
       setScenarioSaveError(null);
+      setScenarioCloneStatus('idle');
+      setScenarioCloneError(null);
     },
     [scenarios],
   );
@@ -1378,8 +1461,16 @@ export function AdminStudioApp() {
     if (!selectedScenarioId) {
       return;
     }
+    if (scenarioDraft && scenarioDraft.id === selectedScenarioId && scenarioDraftIsDirty) {
+      const shouldDiscard = window.confirm(
+        'Des modifications non enregistrees seront perdues. Voulez-vous continuer ?',
+      );
+      if (!shouldDiscard) {
+        return;
+      }
+    }
     loadScenarioIntoDraft(selectedScenarioId);
-  }, [loadScenarioIntoDraft, selectedScenarioId]);
+  }, [loadScenarioIntoDraft, scenarioDraft, scenarioDraftIsDirty, selectedScenarioId]);
 
   const handleRefreshScenarios = useCallback(() => {
     void loadScenarios();
@@ -1464,6 +1555,92 @@ export function AdminStudioApp() {
     setScenarioSaveStatus('idle');
     setScenarioSaveError(null);
   }, []);
+
+  const handleScenarioMoveEvent = useCallback((eventId: string, direction: -1 | 1) => {
+    setScenarioDraft((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const sourceIndex = previous.events.findIndex((event) => event.id === eventId);
+      if (sourceIndex < 0) {
+        return previous;
+      }
+      const targetIndex = sourceIndex + direction;
+      if (targetIndex < 0 || targetIndex >= previous.events.length) {
+        return previous;
+      }
+      const nextEvents = [...previous.events];
+      const [movedEvent] = nextEvents.splice(sourceIndex, 1);
+      nextEvents.splice(targetIndex, 0, movedEvent);
+      return { ...previous, events: nextEvents };
+    });
+    setScenarioSaveStatus('idle');
+    setScenarioSaveError(null);
+  }, []);
+
+  const handleScenarioDuplicate = useCallback(async () => {
+    if (!selectedScenarioId || scenarioCloneStatus === 'saving') {
+      return;
+    }
+    const selectedSource = scenarioDraft && scenarioDraft.id === selectedScenarioId
+      ? scenarioDraft
+      : scenarios.find((scenario) => scenario.id === selectedScenarioId);
+    if (!selectedSource) {
+      setScenarioCloneStatus('error');
+      setScenarioCloneError('Aucun scenario selectionne a dupliquer.');
+      return;
+    }
+    if (!selectedSource.name.trim()) {
+      setScenarioCloneStatus('error');
+      setScenarioCloneError('Le scenario selectionne doit avoir un nom.');
+      return;
+    }
+    if (selectedSource.events.length === 0) {
+      setScenarioCloneStatus('error');
+      setScenarioCloneError('Le scenario selectionne doit contenir au moins un evenement.');
+      return;
+    }
+
+    setScenarioCloneStatus('saving');
+    setScenarioCloneError(null);
+
+    try {
+      const payload = scenarioPayloadSchema.parse({
+        name: createScenarioDuplicateName(
+          selectedSource.name,
+          scenarios.map((scenario) => scenario.name),
+        ),
+        description: selectedSource.description?.trim() ? selectedSource.description.trim() : undefined,
+        events: normalizeScenarioEventsForPayload(selectedSource.events),
+        topology: selectedSource.topology,
+        manualResettable: selectedSource.manualResettable,
+        evacuationAudio: selectedSource.evacuationAudio,
+      });
+      const created = await sdk.createScenario(payload);
+      if (!isMountedRef.current) {
+        return;
+      }
+      setScenarios((previous) =>
+        [...previous, created].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+      );
+      setSelectedScenarioId(created.id);
+      setScenarioDraft(createScenarioDraft(created));
+      setScenarioSaveStatus('idle');
+      setScenarioSaveError(null);
+      setScenarioCloneStatus('success');
+      setScenarioCloneError(null);
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Echec de la duplication du scenario.';
+      setScenarioCloneStatus('error');
+      setScenarioCloneError(message);
+    }
+  }, [scenarioCloneStatus, scenarioDraft, scenarios, sdk, selectedScenarioId]);
 
   const handleScenarioShiftEventOffset = useCallback((eventId: string, delta: number) => {
     updateScenarioDraftEvent(eventId, (event) => ({
@@ -1572,15 +1749,10 @@ export function AdminStudioApp() {
     }
     setScenarioSaveStatus('saving');
     setScenarioSaveError(null);
+    setScenarioCloneStatus('idle');
+    setScenarioCloneError(null);
     try {
-      const payload = scenarioPayloadSchema.parse({
-        name: scenarioDraft.name.trim(),
-        description: scenarioDraft.description?.trim() ? scenarioDraft.description.trim() : undefined,
-        events: scenarioDraft.events.map((event) => normalizeScenarioEventForPayload(event)),
-        topology: scenarioDraft.topology,
-        manualResettable: scenarioDraft.manualResettable,
-        evacuationAudio: scenarioDraft.evacuationAudio,
-      });
+      const payload = buildScenarioPayloadFromDraft(scenarioDraft);
       const updated = await sdk.updateScenario(scenarioDraft.id, payload);
       if (!isMountedRef.current) {
         return;
@@ -1607,6 +1779,15 @@ export function AdminStudioApp() {
     }
   }, [scenarioDraft, scenarioSaveStatus, sdk]);
 
+  const scenarioCloneFeedbackMessage =
+    scenarioCloneStatus === 'success'
+      ? 'Scenario duplique et charge pour edition.'
+      : scenarioCloneStatus === 'error'
+        ? scenarioCloneError ?? 'Echec de la duplication du scenario.'
+        : scenarioCloneStatus === 'saving'
+          ? 'Duplication en cours...'
+          : '';
+
   const scenarioSaveFeedbackMessage =
     scenarioSaveStatus === 'success'
       ? 'Scenario mis a jour.'
@@ -1615,7 +1796,9 @@ export function AdminStudioApp() {
         : scenarioSaveStatus === 'saving'
           ? 'Enregistrement en cours...'
           : scenarioDraft
-            ? 'Modifiez les evenements puis enregistrez.'
+            ? scenarioDraftIsDirty
+              ? 'Brouillon modifie. Pensez a enregistrer.'
+              : 'Aucune modification en attente.'
             : 'Chargez un scenario pour demarrer.';
 
   const isAddZoneDisabled = !newZoneId.trim() || !newZoneLabel.trim() || !newZoneKind.trim();
@@ -1882,16 +2065,31 @@ export function AdminStudioApp() {
                         </option>
                       ))}
                     </select>
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={handleLoadSelectedScenario}
-                      disabled={!selectedScenarioId}
-                    >
-                      Charger
-                    </button>
+                    <div className="scenario-admin__selector-actions">
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={handleLoadSelectedScenario}
+                        disabled={!selectedScenarioId}
+                      >
+                        Charger
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-ghost"
+                        onClick={handleScenarioDuplicate}
+                        disabled={!selectedScenarioId || scenarioCloneStatus === 'saving'}
+                      >
+                        {scenarioCloneStatus === 'saving' ? 'Duplication...' : 'Dupliquer'}
+                      </button>
+                    </div>
                   </div>
                 </label>
+                {scenarioCloneStatus !== 'idle' ? (
+                  <span className={`scenario-admin__feedback scenario-admin__feedback--${scenarioCloneStatus}`}>
+                    {scenarioCloneFeedbackMessage}
+                  </span>
+                ) : null}
                 {scenarioDraft ? (
                   <>
                     <label className="field">
@@ -1948,6 +2146,22 @@ export function AdminStudioApp() {
                             <div className="scenario-admin-event__header">
                               <strong>Etape {index + 1}</strong>
                               <div className="scenario-admin-event__actions">
+                                <button
+                                  type="button"
+                                  className="button button-ghost"
+                                  onClick={() => handleScenarioMoveEvent(eventDraft.id, -1)}
+                                  disabled={index === 0}
+                                >
+                                  Monter
+                                </button>
+                                <button
+                                  type="button"
+                                  className="button button-ghost"
+                                  onClick={() => handleScenarioMoveEvent(eventDraft.id, 1)}
+                                  disabled={index === scenarioDraft.events.length - 1}
+                                >
+                                  Descendre
+                                </button>
                                 <button
                                   type="button"
                                   className="button button-ghost"
@@ -2100,6 +2314,9 @@ export function AdminStudioApp() {
                     <span className={`topology-publish-feedback topology-publish-feedback--${scenarioSaveStatus}`}>
                       {scenarioSaveFeedbackMessage}
                     </span>
+                    {scenarioDraftIsDirty ? (
+                      <span className="scenario-admin__dirty">Des modifications locales ne sont pas encore enregistrees.</span>
+                    ) : null}
                   </>
                 ) : null}
               </div>
